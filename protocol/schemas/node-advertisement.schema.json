@@ -1,0 +1,28 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://body-finder.local/schema/node-advertisement-v1.json",
+  "title": "Body Finder NodeAdvertisement v1",
+  "type": "object",
+  "required": ["protocol_version","session_id","node_id","display_name","platform","monotonic_ns","coordinator_score","capabilities","rssi_dbm","baseline_rssi_dbm","baseline_sigma_db","position","scanning"],
+  "properties": {
+    "protocol_version": {"const": 1},
+    "session_id": {"type":"string","minLength":1,"maxLength":128},
+    "node_id": {"type":"string","minLength":1,"maxLength":128},
+    "display_name": {"type":"string","maxLength":128},
+    "platform": {"type":"string","maxLength":64},
+    "monotonic_ns": {"type":"integer","minimum":0},
+    "coordinator_score": {"type":"number","minimum":0,"maximum":1},
+    "capabilities": {"type":"object"},
+    "rssi_dbm": {"type":["number","null"]},
+    "baseline_rssi_dbm": {"type":["number","null"]},
+    "baseline_sigma_db": {"type":["number","null"],"minimum":0},
+    "position": {
+      "oneOf": [
+        {"type":"null"},
+        {"type":"object","required":["x_m","y_m"],"properties":{"x_m":{"type":"number"},"y_m":{"type":"number"},"z_m":{"type":"number"},"sigma_m":{"type":"number","minimum":0}},"additionalProperties":false}
+      ]
+    },
+    "scanning": {"type":"boolean"}
+  },
+  "additionalProperties": true
+}
