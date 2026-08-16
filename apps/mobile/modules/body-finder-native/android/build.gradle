@@ -1,0 +1,12 @@
+apply plugin: 'com.android.library'
+apply plugin: 'expo-module-gradle-plugin'
+
+group = 'com.trochez.bodyfindernative'
+version = '0.1.0'
+
+android {
+  namespace "com.trochez.bodyfindernative"
+  defaultConfig {
+    minSdkVersion 24
+  }
+}
