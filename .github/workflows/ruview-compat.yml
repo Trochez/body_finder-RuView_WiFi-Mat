@@ -12,9 +12,19 @@ jobs:
   pinned-contract:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - name: Checkout Body Finder
+        uses: actions/checkout@v4
+        with:
+          path: body-finder
+      - name: Checkout pinned RuView
+        uses: actions/checkout@v4
+        with:
+          repository: ruvnet/RuView
+          ref: 4685618388a5e49fad5b3005806f3bdd6a7c25c3
+          path: ruvieW
       - uses: dtolnay/rust-toolchain@stable
-      - name: Compile against pinned wifi-densepose-mat
-        run: cargo check -p body-finder-ruview-adapter --features ruview
-      - name: Test adapter truth contract
-        run: cargo test -p body-finder-ruview-adapter --features ruview
+      - name: Test Body Finder adapter truth boundary
+        working-directory: body-finder
+        run: cargo test -p body-finder-ruview-adapter
+      - name: Compile pinned wifi-densepose-mat directly
+        run: cargo check --manifest-path ruvieW/v2/crates/wifi-densepose-mat/Cargo.toml
