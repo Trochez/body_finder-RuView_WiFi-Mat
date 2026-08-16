@@ -1,0 +1,32 @@
+plugins {
+    id 'com.android.application'
+}
+
+android {
+    namespace 'com.trochez.bodyfinderruview.legacy'
+    compileSdk 36
+
+    defaultConfig {
+        applicationId 'com.trochez.bodyfinderruview.legacy'
+        minSdk 21
+        targetSdk 36
+        versionCode 1
+        versionName '0.1.0-experimental.1'
+    }
+
+    signingConfigs {
+        debug {
+            storeFile file(System.getProperty('user.home') + '/.android/debug.keystore')
+            storePassword 'android'
+            keyAlias 'androiddebugkey'
+            keyPassword 'android'
+        }
+    }
+
+    buildTypes {
+        release {
+            minifyEnabled false
+            signingConfig signingConfigs.debug
+        }
+    }
+}
