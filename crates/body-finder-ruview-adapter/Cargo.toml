@@ -1,0 +1,14 @@
+[package]
+name = "body-finder-ruview-adapter"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[features]
+default = []
+ruview = ["dep:wifi-densepose-mat"]
+
+[dependencies]
+serde.workspace = true
+body-finder-core = { path = "../body-finder-core" }
+wifi-densepose-mat = { git = "https://github.com/ruvnet/RuView", rev = "4685618388a5e49fad5b3005806f3bdd6a7c25c3", package = "wifi-densepose-mat", optional = true, default-features = false }
