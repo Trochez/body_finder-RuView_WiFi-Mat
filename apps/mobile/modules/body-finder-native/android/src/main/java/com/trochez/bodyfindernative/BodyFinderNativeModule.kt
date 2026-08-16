@@ -47,7 +47,7 @@ class BodyFinderNativeModule : Module() {
 
     Function("getCapabilitiesJson") {
       val ctx = appContext.reactContext ?: return@Function "{}"
-      capabilities(ctx).toString()
+      deviceReport(ctx).toString()
     }
 
     Function("getWifiRssi") {
@@ -96,37 +96,48 @@ class BodyFinderNativeModule : Module() {
     }
   }
 
-  private fun capabilities(ctx: Context): JSONObject {
+  private fun deviceReport(ctx: Context): JSONObject = JSONObject().apply {
+    put("platform", "android")
+    put("manufacturer", Build.MANUFACTURER ?: "unknown")
+    put("model", Build.MODEL ?: "unknown")
+    put("android_api", Build.VERSION.SDK_INT)
+    put("capabilities", capabilityMap(ctx))
+  }
+
+  /** Only CapabilityProbe-shaped values go on the wire so Rust can deserialize them. */
+  private fun capabilityMap(ctx: Context): JSONObject {
     val pm = ctx.packageManager
     val wifi = ctx.applicationContext.getSystemService(Context.WIFI_SERVICE) as? WifiManager
     return JSONObject().apply {
-      put("platform", "android")
-      put("manufacturer", Build.MANUFACTURER ?: "unknown")
-      put("model", Build.MODEL ?: "unknown")
-      put("android_api", Build.VERSION.SDK_INT)
       put("wifi", state(wifi != null && wifi.isWifiEnabled, "Wi-Fi manager enabled"))
       put("wifi_rssi", state(wifiRssi(ctx) != null, "live connected-link RSSI read"))
       put("wifi_rtt", if (Build.VERSION.SDK_INT >= 28 && pm.hasSystemFeature(PackageManager.FEATURE_WIFI_RTT)) {
-        JSONObject().put("state", "SUPPORTED_UNVERIFIED").put("detail", "Wi-Fi RTT feature present; real AP ranging must be validated in field")
+        probe("SUPPORTED_UNVERIFIED", "Wi-Fi RTT feature present; real AP ranging must be validated in field")
       } else state(false, "Wi-Fi RTT feature absent"))
       put("ble", if (pm.hasSystemFeature(PackageManager.FEATURE_BLUETOOTH_LE)) {
-        JSONObject().put("state", "SUPPORTED_UNVERIFIED").put("detail", "BLE hardware present; BLE ranging not used as human evidence in this build")
+        probe("SUPPORTED_UNVERIFIED", "BLE hardware present; BLE ranging not used as human evidence in this build")
       } else state(false, "BLE feature absent"))
       put("imu", state(pm.hasSystemFeature(PackageManager.FEATURE_SENSOR_ACCELEROMETER), "accelerometer feature"))
-      put("csi", JSONObject().put("state", "UNSUPPORTED").put("detail", "No public/verified CSI adapter loaded; RSSI is never labeled CSI"))
-      put("udp_fabric", JSONObject().put("state", "WORKING_DEGRADED").put("detail", "local UDP multicast/broadcast; verify on actual LAN"))
+      put("csi", probe("UNSUPPORTED", "No public/verified CSI adapter loaded; RSSI is never labeled CSI"))
+      put("udp_fabric", probe("WORKING_DEGRADED", "local UDP multicast/broadcast; verify on actual LAN"))
+      put("compute", probe("WORKING", "Android Body Finder application runtime"))
     }
   }
 
-  private fun state(ok: Boolean, detail: String): JSONObject = JSONObject()
-    .put("state", if (ok) "WORKING" else "UNSUPPORTED")
+  private fun probe(state: String, detail: String): JSONObject = JSONObject()
+    .put("state", state)
     .put("detail", detail)
+
+  private fun state(ok: Boolean, detail: String): JSONObject = probe(
+    if (ok) "WORKING" else "UNSUPPORTED",
+    detail
+  )
 
   @Suppress("DEPRECATION")
   private fun wifiRssi(ctx: Context): Double? {
     return try {
       val wm = ctx.applicationContext.getSystemService(Context.WIFI_SERVICE) as WifiManager
-      if (!wm.isWifiEnabled) null else wm.connectionInfo?.rssi?.toDouble()?.takeIf { it in -127.0..0.0 }
+      if (!wm.isWifiEnabled) null else wm.connectionInfo?.rssi?.toDouble()?.takeIf { it in -126.0..0.0 }
     } catch (_: Throwable) { null }
   }
 
@@ -139,7 +150,7 @@ class BodyFinderNativeModule : Module() {
       put("platform", "android")
       put("monotonic_ns", SystemClock.elapsedRealtimeNanos())
       put("coordinator_score", 0.78)
-      put("capabilities", capabilities(ctx))
+      put("capabilities", capabilityMap(ctx))
       val rssi = wifiRssi(ctx)
       if (rssi == null) put("rssi_dbm", JSONObject.NULL) else put("rssi_dbm", rssi)
       if (FabricRuntime.baseline == null) put("baseline_rssi_dbm", JSONObject.NULL) else put("baseline_rssi_dbm", FabricRuntime.baseline)
