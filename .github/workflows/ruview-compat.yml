@@ -1,0 +1,20 @@
+name: RuView Compatibility
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: '23 5 * * 1'
+
+permissions:
+  contents: read
+
+jobs:
+  pinned-contract:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Compile against pinned wifi-densepose-mat
+        run: cargo check -p body-finder-ruview-adapter --features ruview
+      - name: Test adapter truth contract
+        run: cargo test -p body-finder-ruview-adapter --features ruview
