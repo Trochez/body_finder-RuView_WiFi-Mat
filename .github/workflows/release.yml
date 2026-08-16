@@ -78,6 +78,7 @@ jobs:
           java-version: '17'
       - run: npm install --package-lock-only
       - run: npm ci
+      - run: npm audit --omit=dev --audit-level=critical
       - run: npx tsc --noEmit
       - run: CI=1 npx expo prebuild --platform android --clean
       - run: chmod +x android/gradlew
@@ -94,8 +95,37 @@ jobs:
           path: dist/*
           if-no-files-found: error
 
+  android-legacy:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: apps/android-legacy
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.10.2'
+      - name: Create internal-test signing key
+        run: |
+          mkdir -p "$HOME/.android"
+          keytool -genkeypair -keystore "$HOME/.android/debug.keystore" -storepass android -alias androiddebugkey -keypass android -dname "CN=Android Debug,O=Android,C=US" -keyalg RSA -keysize 2048 -validity 10000
+      - run: gradle :app:assembleRelease
+      - name: Normalize legacy APK
+        run: |
+          mkdir -p ../../dist
+          cp app/build/outputs/apk/release/*.apk ../../dist/body-finder-ruview-legacy-minsdk21.apk
+      - uses: actions/upload-artifact@v4
+        with:
+          name: release-android-legacy
+          path: dist/*
+          if-no-files-found: error
+
   release:
-    needs: [linux-x86_64, windows-x86_64, android]
+    needs: [linux-x86_64, windows-x86_64, android, android-legacy]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -113,7 +143,7 @@ jobs:
           {"models":[],"note":"experimental.1 uses no pretrained human-localization model; deterministic commodity-RSSI baseline only"}
           EOF
           cat > dist/release-manifest.json <<EOF
-          {"release":"dev-${GITHUB_RUN_NUMBER}","commit":"${GITHUB_SHA}","classification":"EXPERIMENTAL_PHYSICAL_VALIDATION_BUILD","through_wall_validated":false,"artifacts":["Android APK/AAB","Linux x86_64 tar/deb","Windows x86_64 zip"]}
+          {"release":"dev-${GITHUB_RUN_NUMBER}","commit":"${GITHUB_SHA}","classification":"EXPERIMENTAL_PHYSICAL_VALIDATION_BUILD","through_wall_validated":false,"artifacts":["Android full APK/AAB","Android legacy minSdk21 APK","Linux x86_64 tar/deb for Ubuntu/WSL","Windows x86_64 zip"]}
           EOF
           (cd dist && sha256sum * > SHA256SUMS)
       - name: Generate SPDX SBOM
@@ -134,12 +164,13 @@ jobs:
           Experimental physical-validation build. **Through-wall human localization is NOT validated yet.**
 
           Included:
-          - Android universal APK + AAB with live connected-Wi-Fi RSSI, capability probes, offline UDP node fabric, Radar/Expert UI, calibration and uncertainty.
-          - Ubuntu/WSL Linux node tar + deb.
+          - Full Android APK + AAB: live connected-Wi-Fi RSSI, capability probes, UDP sensor fabric, relative Radar/Expert UI, calibration and explicit uncertainty.
+          - Legacy Android minSdk21 APK: sensor-node fallback for older devices that cannot install the full UI.
+          - Ubuntu/WSL Linux x86_64 node tar + deb.
           - Windows x86_64 native node zip.
-          - SBOM, checksums, protocol/upstream manifests.
+          - SBOM, checksums, protocol/upstream/model/release manifests.
 
-          Test using `docs/TESTING_DEV_RELEASE.md`. Return Android JSON exports plus Ubuntu/WSL/Windows JSONL and ground truth for validation.
+          Test using `docs/TESTING_DEV_RELEASE.md`. Return the requested JSON/JSONL plus ground truth for validation.
           EOF
           gh release create "$TAG" --target "$GITHUB_SHA" --prerelease --title "Body Finder – RuView $TAG" --notes-file /tmp/release-notes.md
           gh release upload "$TAG" dist/* --clobber
