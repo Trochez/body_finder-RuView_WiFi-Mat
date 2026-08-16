@@ -5,7 +5,7 @@
     "version": "0.1.0",
     "orientation": "portrait",
     "userInterfaceStyle": "dark",
-    "newArchEnabled": true,
+    "newArchEnabled": false,
     "android": {
       "package": "com.trochez.bodyfinderruview",
       "versionCode": 1,
