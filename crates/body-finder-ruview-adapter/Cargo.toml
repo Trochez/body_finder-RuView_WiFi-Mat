@@ -1,0 +1,9 @@
+[package]
+name = "body-finder-ruview-adapter"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+serde.workspace = true
+body-finder-core = { path = "../body-finder-core" }

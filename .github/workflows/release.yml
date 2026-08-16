@@ -1,0 +1,176 @@
+name: Dev Release
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  linux-x86_64:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - run: cargo test --workspace
+      - run: cargo build --release -p body-finder-node
+      - name: Package Linux tar and deb
+        run: |
+          set -eux
+          mkdir -p dist/tar dist/deb/usr/bin
+          cp target/release/body-finder-node dist/tar/body-finder-node
+          cp target/release/body-finder-node dist/deb/usr/bin/body-finder-node
+          chmod +x dist/tar/body-finder-node dist/deb/usr/bin/body-finder-node
+          tar -C dist/tar -czf dist/body-finder-node-linux-x86_64.tar.gz body-finder-node
+          mkdir -p dist/deb/DEBIAN
+          cat > dist/deb/DEBIAN/control <<'EOF'
+          Package: body-finder-node
+          Version: 0.1.0
+          Section: science
+          Priority: optional
+          Architecture: amd64
+          Maintainer: Trochez
+          Description: Experimental Body Finder RuView field sensing node
+          EOF
+          dpkg-deb --build dist/deb dist/body-finder-node-linux-x86_64.deb
+          rm -rf dist/tar dist/deb
+      - uses: actions/upload-artifact@v4
+        with:
+          name: release-linux
+          path: dist/*
+          if-no-files-found: error
+
+  windows-x86_64:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - run: cargo test --workspace
+      - run: cargo build --release -p body-finder-node
+      - name: Package Windows
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force -Path dist\win | Out-Null
+          Copy-Item target\release\body-finder-node.exe dist\win\body-finder-node.exe
+          Compress-Archive -Path dist\win\body-finder-node.exe -DestinationPath dist\body-finder-node-windows-x86_64.zip
+          Remove-Item -Recurse -Force dist\win
+      - uses: actions/upload-artifact@v4
+        with:
+          name: release-windows
+          path: dist/*
+          if-no-files-found: error
+
+  android:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: apps/mobile
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - run: npm install --package-lock-only
+      - run: npm ci
+      - run: npm audit --omit=dev --audit-level=critical
+      - run: npx tsc --noEmit
+      - run: CI=1 npx expo prebuild --platform android --clean
+      - run: chmod +x android/gradlew
+      - run: ./gradlew assembleRelease bundleRelease
+        working-directory: apps/mobile/android
+      - name: Normalize Android artifact names
+        run: |
+          mkdir -p ../../dist
+          cp android/app/build/outputs/apk/release/*.apk ../../dist/body-finder-ruview-universal.apk
+          cp android/app/build/outputs/bundle/release/*.aab ../../dist/body-finder-ruview.aab
+      - uses: actions/upload-artifact@v4
+        with:
+          name: release-android
+          path: dist/*
+          if-no-files-found: error
+
+  android-legacy:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: apps/android-legacy
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.10.2'
+      - name: Create internal-test signing key
+        run: |
+          mkdir -p "$HOME/.android"
+          keytool -genkeypair -keystore "$HOME/.android/debug.keystore" -storepass android -alias androiddebugkey -keypass android -dname "CN=Android Debug,O=Android,C=US" -keyalg RSA -keysize 2048 -validity 10000
+      - run: gradle :app:assembleRelease
+      - name: Normalize legacy APK
+        run: |
+          mkdir -p ../../dist
+          cp app/build/outputs/apk/release/*.apk ../../dist/body-finder-ruview-legacy-minsdk21.apk
+      - uses: actions/upload-artifact@v4
+        with:
+          name: release-android-legacy
+          path: dist/*
+          if-no-files-found: error
+
+  release:
+    needs: [linux-x86_64, windows-x86_64, android, android-legacy]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: release-*
+          path: dist
+          merge-multiple: true
+      - name: Add manifests and checksums
+        run: |
+          set -eux
+          cp upstream/ruvieW.lock.json dist/ruview-upstream-lock.json
+          printf '1\n' > dist/protocol-version.txt
+          cat > dist/model-manifest.json <<'EOF'
+          {"models":[],"note":"experimental.1 uses no pretrained human-localization model; deterministic commodity-RSSI baseline only"}
+          EOF
+          cat > dist/release-manifest.json <<EOF
+          {"release":"dev-${GITHUB_RUN_NUMBER}","commit":"${GITHUB_SHA}","classification":"EXPERIMENTAL_PHYSICAL_VALIDATION_BUILD","through_wall_validated":false,"artifacts":["Android full APK/AAB","Android legacy minSdk21 APK","Linux x86_64 tar/deb for Ubuntu/WSL","Windows x86_64 zip"]}
+          EOF
+          (cd dist && sha256sum * > SHA256SUMS)
+      - name: Generate SPDX SBOM
+        uses: anchore/sbom-action@v0
+        with:
+          path: .
+          format: spdx-json
+          output-file: dist/SBOM.spdx.json
+          upload-artifact: false
+      - name: Publish prerelease
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          TAG="dev-${GITHUB_RUN_NUMBER}"
+          cat > /tmp/release-notes.md <<EOF
+          ## Body Finder – RuView ${TAG}
+
+          Experimental physical-validation build. **Through-wall human localization is NOT validated yet.**
+
+          Included:
+          - Full Android APK + AAB: live connected-Wi-Fi RSSI, capability probes, UDP sensor fabric, relative Radar/Expert UI, calibration and explicit uncertainty.
+          - Legacy Android minSdk21 APK: sensor-node fallback for older devices that cannot install the full UI.
+          - Ubuntu/WSL Linux x86_64 node tar + deb.
+          - Windows x86_64 native node zip.
+          - SBOM, checksums, protocol/upstream/model/release manifests.
+
+          Test using `docs/TESTING_DEV_RELEASE.md`. Return the requested JSON/JSONL plus ground truth for validation.
+          EOF
+          gh release create "$TAG" --target "$GITHUB_SHA" --prerelease --title "Body Finder – RuView $TAG" --notes-file /tmp/release-notes.md
+          gh release upload "$TAG" dist/* --clobber

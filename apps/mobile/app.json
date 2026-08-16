@@ -1,0 +1,38 @@
+{
+  "expo": {
+    "name": "Body Finder – RuView",
+    "slug": "body-finder-ruview",
+    "version": "0.1.0",
+    "orientation": "portrait",
+    "userInterfaceStyle": "dark",
+    "newArchEnabled": false,
+    "android": {
+      "package": "com.trochez.bodyfinderruview",
+      "versionCode": 1,
+      "permissions": [
+        "android.permission.INTERNET",
+        "android.permission.ACCESS_NETWORK_STATE",
+        "android.permission.ACCESS_WIFI_STATE",
+        "android.permission.CHANGE_WIFI_STATE",
+        "android.permission.ACCESS_FINE_LOCATION",
+        "android.permission.NEARBY_WIFI_DEVICES",
+        "android.permission.BLUETOOTH_SCAN",
+        "android.permission.BLUETOOTH_CONNECT",
+        "android.permission.BLUETOOTH_ADVERTISE"
+      ]
+    },
+    "ios": {
+      "bundleIdentifier": "com.trochez.bodyfinderruview",
+      "supportsTablet": true,
+      "infoPlist": {
+        "NSLocalNetworkUsageDescription": "Body Finder discovers nearby sensing nodes on the local field network.",
+        "NSBluetoothAlwaysUsageDescription": "Body Finder can use Bluetooth for optional local device discovery and geometry evidence."
+      }
+    },
+    "plugins": [],
+    "extra": {
+      "truthMode": "experimental-common-device",
+      "protocolVersion": 1
+    }
+  }
+}

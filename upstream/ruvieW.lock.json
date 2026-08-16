@@ -1,0 +1,14 @@
+{
+  "repository": "https://github.com/ruvnet/RuView",
+  "commit": "4685618388a5e49fad5b3005806f3bdd6a7c25c3",
+  "reviewed_at": "2026-08-16",
+  "integration_state": "adapter_contract_planned_physical_csi_unvalidated",
+  "required_components": [
+    "wifi-densepose-core",
+    "wifi-densepose-signal",
+    "wifi-densepose-hardware",
+    "wifi-densepose-vitals",
+    "wifi-densepose-mat",
+    "wifi-densepose-wifiscan"
+  ]
+}
