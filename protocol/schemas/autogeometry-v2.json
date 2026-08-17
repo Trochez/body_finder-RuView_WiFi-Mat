@@ -1,0 +1,13 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Body Finder automatic geometry protocol v2",
+  "type": "object",
+  "description": "Protocol-v2 advertisements carry real pairwise range observations with source provenance; automatic geometry is derived, never typed by the operator.",
+  "properties": {
+    "protocol_version": {"const": 2},
+    "ble_identity": {"type": ["string", "null"]},
+    "ranges": {"type": "array"},
+    "manual_geometry_override": {"const": false}
+  },
+  "required": ["protocol_version", "ranges"]
+}
