@@ -7,7 +7,7 @@ members = [
 ]
 
 [workspace.package]
-version = "0.1.0-experimental.1"
+version = "0.2.0-experimental.2"
 edition = "2021"
 license = "MIT"
 repository = "https://github.com/Trochez/body_finder-RuView_WiFi-Mat"
