@@ -13,16 +13,26 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - name: Enforce automatic geometry release gates
+      - name: Enforce automatic-geometry release contract
         shell: bash
         run: |
           set -euo pipefail
           BAD=$(grep -R -n -E -- '(--x([ =]|$)|--y([ =]|$)|SET MEASURED POSITION|Set position|Guardar posición|x meters|y meters)' \
             apps/mobile/App.tsx apps/node/src/main.rs apps/android-legacy/app/src/main/java || true)
-          if [ -n "$BAD" ]; then echo "$BAD"; exit 1; fi
+          if [ -n "$BAD" ]; then
+            echo "Manual sensor geometry is forbidden in the normal flow:"
+            echo "$BAD"
+            exit 1
+          fi
           grep -q 'pub const PROTOCOL_VERSION: u16 = 2;' crates/body-finder-core/src/lib.rs
-          test -f docs/TESTING_AUTOGEOMETRY_RELEASE.md
-          test -f docs/CAPABILITY_MATRIX_AUTOGEOMETRY.json
+          grep -q 'manual_geometry_override.*false' apps/mobile/App.tsx
+          grep -q 'manual_geometry_override.*false' apps/node/src/main.rs
+          test -s IMPLEMENTATION_PLAN_AUTOGEOMETRY_RELEASE.md
+          test -s docs/TESTING_AUTOGEOMETRY_RELEASE.md
+          test -s docs/CAPABILITY_MATRIX_AUTOGEOMETRY.json
+          python3 -m json.tool docs/CAPABILITY_MATRIX_AUTOGEOMETRY.json >/dev/null
+          python3 -m json.tool validation/ground-truth/GROUND_TRUTH_TEMPLATE.json >/dev/null
+          python3 -m json.tool validation/fixtures/autogeometry-triangle-v2.json >/dev/null
           python3 -m py_compile validation/analysis/validate_autogeometry.py
 
   linux-x86_64:
@@ -34,14 +44,14 @@ jobs:
       - run: cargo test --workspace
       - run: cargo build --release -p body-finder-node
       - name: Package Linux tar and deb
+        shell: bash
         run: |
-          set -eux
-          mkdir -p dist/tar dist/deb/usr/bin
+          set -euxo pipefail
+          mkdir -p dist/tar dist/deb/usr/bin dist/deb/DEBIAN
           cp target/release/body-finder-node dist/tar/body-finder-node
           cp target/release/body-finder-node dist/deb/usr/bin/body-finder-node
           chmod +x dist/tar/body-finder-node dist/deb/usr/bin/body-finder-node
           tar -C dist/tar -czf dist/body-finder-node-linux-x86_64.tar.gz body-finder-node
-          mkdir -p dist/deb/DEBIAN
           cat > dist/deb/DEBIAN/control <<'EOF'
           Package: body-finder-node
           Version: 0.2.0
@@ -53,6 +63,8 @@ jobs:
           EOF
           dpkg-deb --build dist/deb dist/body-finder-node-linux-x86_64.deb
           rm -rf dist/tar dist/deb
+          test -s dist/body-finder-node-linux-x86_64.tar.gz
+          test -s dist/body-finder-node-linux-x86_64.deb
       - uses: actions/upload-artifact@v4
         with:
           name: release-linux
@@ -73,6 +85,7 @@ jobs:
           New-Item -ItemType Directory -Force -Path dist\win | Out-Null
           Copy-Item target\release\body-finder-node.exe dist\win\body-finder-node.exe
           Compress-Archive -Path dist\win\body-finder-node.exe -DestinationPath dist\body-finder-node-windows-x86_64.zip
+          if (!(Test-Path dist\body-finder-node-windows-x86_64.zip)) { throw 'Windows artifact missing' }
           Remove-Item -Recurse -Force dist\win
       - uses: actions/upload-artifact@v4
         with:
@@ -103,11 +116,15 @@ jobs:
       - run: chmod +x android/gradlew
       - run: ./gradlew assembleRelease bundleRelease --stacktrace
         working-directory: apps/mobile/android
-      - name: Normalize Android artifact names
+      - name: Normalize Android artifacts
+        shell: bash
         run: |
+          set -euxo pipefail
           mkdir -p ../../dist
           cp android/app/build/outputs/apk/release/*.apk ../../dist/body-finder-ruview-universal.apk
           cp android/app/build/outputs/bundle/release/*.aab ../../dist/body-finder-ruview.aab
+          test -s ../../dist/body-finder-ruview-universal.apk
+          test -s ../../dist/body-finder-ruview.aab
       - uses: actions/upload-artifact@v4
         with:
           name: release-android
@@ -130,14 +147,18 @@ jobs:
         with:
           gradle-version: '8.10.2'
       - name: Create internal-test signing key
+        shell: bash
         run: |
           mkdir -p "$HOME/.android"
           keytool -genkeypair -keystore "$HOME/.android/debug.keystore" -storepass android -alias androiddebugkey -keypass android -dname "CN=Android Debug,O=Android,C=US" -keyalg RSA -keysize 2048 -validity 10000
       - run: gradle :app:assembleRelease --stacktrace
       - name: Normalize legacy APK
+        shell: bash
         run: |
+          set -euxo pipefail
           mkdir -p ../../dist
           cp app/build/outputs/apk/release/*.apk ../../dist/body-finder-ruview-legacy-minsdk21.apk
+          test -s ../../dist/body-finder-ruview-legacy-minsdk21.apk
       - uses: actions/upload-artifact@v4
         with:
           name: release-android-legacy
@@ -166,9 +187,11 @@ jobs:
         working-directory: apps/mobile/ios
         shell: bash
         run: |
-          set -euo pipefail
+          set -euxo pipefail
           WORKSPACE=$(find . -maxdepth 1 -name '*.xcworkspace' -print -quit)
+          test -n "$WORKSPACE"
           SCHEME=$(xcodebuild -workspace "$WORKSPACE" -list -json | ruby -rjson -e 'j=JSON.parse(STDIN.read); puts j.fetch("workspace").fetch("schemes").first')
+          test -n "$SCHEME"
           xcodebuild -workspace "$WORKSPACE" -scheme "$SCHEME" -configuration Release \
             -sdk iphonesimulator -destination 'generic/platform=iOS Simulator' \
             -derivedDataPath build CODE_SIGNING_ALLOWED=NO build
@@ -176,6 +199,7 @@ jobs:
           test -n "$APP"
           mkdir -p "$GITHUB_WORKSPACE/dist"
           ditto -c -k --sequesterRsrc --keepParent "$APP" "$GITHUB_WORKSPACE/dist/body-finder-ruview-ios-simulator.zip"
+          test -s "$GITHUB_WORKSPACE/dist/body-finder-ruview-ios-simulator.zip"
       - uses: actions/upload-artifact@v4
         with:
           name: release-ios-simulator
@@ -224,7 +248,9 @@ jobs:
             "version":"0.2.0-experimental.2",
             "protocol_version":2,
             "classification":"EXPERIMENTAL_AUTOGEOMETRY_PHYSICAL_VALIDATION_BUILD",
+            "automatic_geometry":true,
             "manual_node_coordinates_required":false,
+            "human_localization_validated":false,
             "through_wall_validated":false,
             "android_live_pairwise_range":"BLE_RSSI_WORKING_DEGRADED_WHEN_AVAILABLE",
             "advanced_android_ranging":"CAPABILITY_PROBED_SUPPORTED_UNVERIFIED",
@@ -252,11 +278,32 @@ jobs:
           format: spdx-json
           output-file: dist/SBOM.spdx.json
           upload-artifact: false
-      - name: Generate release checksums
+      - name: Generate checksums and assert mandatory artifacts
         shell: bash
         run: |
-          set -euo pipefail
+          set -euxo pipefail
+          REQUIRED=(
+            body-finder-ruview-universal.apk
+            body-finder-ruview.aab
+            body-finder-ruview-legacy-minsdk21.apk
+            body-finder-node-linux-x86_64.tar.gz
+            body-finder-node-linux-x86_64.deb
+            body-finder-node-windows-x86_64.zip
+            body-finder-ruview-ios-simulator.zip
+            body-finder-validation-tools.zip
+            TESTING_AUTOGEOMETRY_RELEASE.md
+            capability-matrix.json
+            IMPLEMENTATION_PLAN_AUTOGEOMETRY_RELEASE.md
+            ruvview-placeholder-do-not-use
+          )
+          # Exact upstream-lock spelling in the repository is intentionally unusual: ruvieW.lock.json.
+          REQUIRED+=(ruview-upstream-lock.json protocol-version.txt model-manifest.json release-manifest.json IOS_PHYSICAL_DEVICE_SIGNING_REQUIRED.txt SBOM.spdx.json)
+          for f in "${REQUIRED[@]}"; do
+            if [ "$f" = "ruvview-placeholder-do-not-use" ]; then continue; fi
+            test -s "dist/$f" || { echo "Mandatory release artifact missing/empty: $f"; exit 1; }
+          done
           (cd dist && sha256sum * > SHA256SUMS)
+          test -s dist/SHA256SUMS
       - name: Publish prerelease
         env:
           GH_TOKEN: ${{ github.token }}
@@ -269,17 +316,17 @@ jobs:
 
           **Experimental automatic-geometry physical-validation build. Not validated for rescue use.**
 
-          Major change: the operator no longer enters sensor X/Y/Z. Protocol v2 builds a relative sensor geometry only from reported pairwise ranging observations and explicitly reports insufficient/1D/2D/degraded geometry.
+          The operator no longer enters sensor X/Y/Z. Protocol v2 builds a relative sensor geometry only from reported pairwise ranging observations and explicitly reports insufficient/1D/2D/degraded geometry.
 
           Included:
-          - Full Android APK + AAB with automatic geometry UI and live BLE-RSSI peer ranging fallback with conservative uncertainty.
+          - Full Android APK + AAB with automatic-geometry UI and live BLE-RSSI peer-ranging fallback with conservative uncertainty.
           - Legacy minSdk21 Android sensor APK without manual coordinates.
           - Ubuntu/WSL Linux x86_64 tar + deb compute/sensing node.
           - Windows x86_64 native node.
           - Unsigned iOS Simulator build-validation artifact (not a physical-device IPA).
-          - Complete Spanish/English-oriented field protocol, validation script/template/fixtures, capability matrix, SBOM and SHA-256 checksums.
+          - Complete field protocol, validation script/template/fixture, capability matrix, SBOM and SHA-256 checksums.
 
-          Advanced Android API-36 ranging/RTT capability is probed but no precision measurement is claimed unless a live adapter reports it. Connected Wi-Fi RSSI is never treated as phone-to-phone distance and RSSI is never labeled CSI.
+          Advanced Android API-36 ranging/RTT is capability-probed but is not claimed as a live precision measurement unless a future verified adapter actually reports it. Connected Wi-Fi RSSI is never treated as phone-to-phone distance and RSSI is never labeled CSI.
 
           Start with **TESTING_AUTOGEOMETRY_RELEASE.md** from this release.
           EOF
