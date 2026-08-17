@@ -1,0 +1,55 @@
+{
+  "schema_version": 1,
+  "release_family": "0.2.0-experimental.2",
+  "protocol_version": 2,
+  "truth_policy": "capabilities are runtime-probed; this matrix describes implemented adapters, not a model whitelist",
+  "platforms": {
+    "android_full": {
+      "artifact": "body-finder-ruview-universal.apk",
+      "automatic_geometry_compute": "IMPLEMENTED",
+      "manual_coordinates_normal_flow": false,
+      "ble_peer_rssi_range": "IMPLEMENTED_WORKING_DEGRADED_WHEN_HARDWARE_AND_PERMISSIONS_ALLOW",
+      "android_api36_ranging_manager": "FUNCTIONALLY_PROBED_SUPPORTED_UNVERIFIED; no precision claim without live session output",
+      "wifi_rtt": "FEATURE_PROBED_SUPPORTED_UNVERIFIED; not used as a fabricated range",
+      "connected_wifi_rssi": "LIVE_WHEN_OS_EXPOSES; HUMAN_PRESENCE_EXPERIMENT_ONLY",
+      "csi": "UNSUPPORTED_UNLESS_FUTURE_VERIFIED_ADAPTER"
+    },
+    "android_legacy": {
+      "artifact": "body-finder-ruview-legacy-minsdk21.apk",
+      "min_sdk": 21,
+      "manual_coordinates_normal_flow": false,
+      "ble_peer_rssi_range": "IMPLEMENTED_WORKING_DEGRADED_WHEN_HARDWARE_AND_PERMISSIONS_ALLOW",
+      "radar_ui": false,
+      "role": "fallback sensor/fabric node"
+    },
+    "ubuntu_x86_64": {
+      "artifacts": ["body-finder-node-linux-x86_64.tar.gz", "body-finder-node-linux-x86_64.deb"],
+      "automatic_geometry_compute": "IMPLEMENTED",
+      "manual_coordinates_normal_flow": false,
+      "connected_wifi_rssi": "LIVE_IF_IW_OR_PROC_NET_WIRELESS_EXPOSES_IT; HUMAN_PRESENCE_EXPERIMENT_ONLY",
+      "native_pairwise_ranging": "NOT_CLAIMED_IN_THIS_RELEASE; can consume real peer range edges",
+      "csi": "UNSUPPORTED_UNLESS_FUTURE_VERIFIED_PLUGIN"
+    },
+    "wsl2_x86_64": {
+      "artifact": "body-finder-node-linux-x86_64.tar.gz",
+      "automatic_geometry_compute": "IMPLEMENTED",
+      "direct_rf": "RUNTIME_PROBE_ONLY; expected to be unavailable in many WSL setups",
+      "role": "compute/development/network when reachable"
+    },
+    "windows_x86_64": {
+      "artifact": "body-finder-node-windows-x86_64.zip",
+      "automatic_geometry_compute": "IMPLEMENTED",
+      "connected_wifi_metric": "LIVE_NETSH_WHEN_AVAILABLE; HUMAN_PRESENCE_EXPERIMENT_ONLY",
+      "native_pairwise_ranging": "NOT_CLAIMED_IN_THIS_RELEASE; can consume real peer range edges"
+    },
+    "ios_simulator": {
+      "artifact": "body-finder-ruview-ios-simulator.zip",
+      "automatic_geometry_compute": "IMPLEMENTED_IN_SHARED_APP_LAYER",
+      "manual_coordinates_normal_flow": false,
+      "rf": "UNSUPPORTED_IN_SIMULATOR",
+      "cross_platform_field_fabric": "NOT_IMPLEMENTED_IN_EXPERIMENTAL_2",
+      "physical_device_install": "NOT_PROVIDED_WITHOUT_APPLE_SIGNING_CREDENTIALS",
+      "purpose": "build/UI/truth-classification validation"
+    }
+  }
+}
