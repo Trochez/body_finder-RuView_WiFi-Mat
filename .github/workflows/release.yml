@@ -9,7 +9,24 @@ permissions:
   contents: write
 
 jobs:
+  requirements:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Enforce automatic geometry release gates
+        shell: bash
+        run: |
+          set -euo pipefail
+          BAD=$(grep -R -n -E -- '(--x([ =]|$)|--y([ =]|$)|SET MEASURED POSITION|Set position|Guardar posición|x meters|y meters)' \
+            apps/mobile/App.tsx apps/node/src/main.rs apps/android-legacy/app/src/main/java || true)
+          if [ -n "$BAD" ]; then echo "$BAD"; exit 1; fi
+          grep -q 'pub const PROTOCOL_VERSION: u16 = 2;' crates/body-finder-core/src/lib.rs
+          test -f docs/TESTING_AUTOGEOMETRY_RELEASE.md
+          test -f docs/CAPABILITY_MATRIX_AUTOGEOMETRY.json
+          python3 -m py_compile validation/analysis/validate_autogeometry.py
+
   linux-x86_64:
+    needs: requirements
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -27,12 +44,12 @@ jobs:
           mkdir -p dist/deb/DEBIAN
           cat > dist/deb/DEBIAN/control <<'EOF'
           Package: body-finder-node
-          Version: 0.1.0
+          Version: 0.2.0
           Section: science
           Priority: optional
           Architecture: amd64
           Maintainer: Trochez
-          Description: Experimental Body Finder RuView field sensing node
+          Description: Experimental Body Finder RuView automatic-geometry field sensing/compute node
           EOF
           dpkg-deb --build dist/deb dist/body-finder-node-linux-x86_64.deb
           rm -rf dist/tar dist/deb
@@ -43,6 +60,7 @@ jobs:
           if-no-files-found: error
 
   windows-x86_64:
+    needs: requirements
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4
@@ -63,6 +81,7 @@ jobs:
           if-no-files-found: error
 
   android:
+    needs: requirements
     runs-on: ubuntu-latest
     defaults:
       run:
@@ -82,7 +101,7 @@ jobs:
       - run: npx tsc --noEmit
       - run: CI=1 npx expo prebuild --platform android --clean
       - run: chmod +x android/gradlew
-      - run: ./gradlew assembleRelease bundleRelease
+      - run: ./gradlew assembleRelease bundleRelease --stacktrace
         working-directory: apps/mobile/android
       - name: Normalize Android artifact names
         run: |
@@ -96,6 +115,7 @@ jobs:
           if-no-files-found: error
 
   android-legacy:
+    needs: requirements
     runs-on: ubuntu-latest
     defaults:
       run:
@@ -113,7 +133,7 @@ jobs:
         run: |
           mkdir -p "$HOME/.android"
           keytool -genkeypair -keystore "$HOME/.android/debug.keystore" -storepass android -alias androiddebugkey -keypass android -dname "CN=Android Debug,O=Android,C=US" -keyalg RSA -keysize 2048 -validity 10000
-      - run: gradle :app:assembleRelease
+      - run: gradle :app:assembleRelease --stacktrace
       - name: Normalize legacy APK
         run: |
           mkdir -p ../../dist
@@ -124,8 +144,46 @@ jobs:
           path: dist/*
           if-no-files-found: error
 
+  ios-simulator:
+    needs: requirements
+    runs-on: macos-latest
+    defaults:
+      run:
+        working-directory: apps/mobile
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+      - run: npm install --package-lock-only
+      - run: npm ci
+      - run: npx tsc --noEmit
+      - run: CI=1 npx expo prebuild --platform ios --clean
+      - name: Install CocoaPods
+        working-directory: apps/mobile/ios
+        run: pod install
+      - name: Build and package unsigned iOS Simulator app
+        working-directory: apps/mobile/ios
+        shell: bash
+        run: |
+          set -euo pipefail
+          WORKSPACE=$(find . -maxdepth 1 -name '*.xcworkspace' -print -quit)
+          SCHEME=$(xcodebuild -workspace "$WORKSPACE" -list -json | ruby -rjson -e 'j=JSON.parse(STDIN.read); puts j.fetch("workspace").fetch("schemes").first')
+          xcodebuild -workspace "$WORKSPACE" -scheme "$SCHEME" -configuration Release \
+            -sdk iphonesimulator -destination 'generic/platform=iOS Simulator' \
+            -derivedDataPath build CODE_SIGNING_ALLOWED=NO build
+          APP=$(find build/Build/Products -type d -name '*.app' -print -quit)
+          test -n "$APP"
+          mkdir -p "$GITHUB_WORKSPACE/dist"
+          ditto -c -k --sequesterRsrc --keepParent "$APP" "$GITHUB_WORKSPACE/dist/body-finder-ruview-ios-simulator.zip"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: release-ios-simulator
+          path: dist/*
+          if-no-files-found: error
+
   release:
-    needs: [linux-x86_64, windows-x86_64, android, android-legacy]
+    needs: [requirements, linux-x86_64, windows-x86_64, android, android-legacy, ios-simulator]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -134,18 +192,59 @@ jobs:
           pattern: release-*
           path: dist
           merge-multiple: true
-      - name: Add manifests and checksums
+      - name: Add validation kit and manifests
+        shell: bash
         run: |
-          set -eux
+          set -euxo pipefail
+          cp docs/TESTING_AUTOGEOMETRY_RELEASE.md dist/TESTING_AUTOGEOMETRY_RELEASE.md
+          cp docs/CAPABILITY_MATRIX_AUTOGEOMETRY.json dist/capability-matrix.json
+          cp IMPLEMENTATION_PLAN_AUTOGEOMETRY_RELEASE.md dist/IMPLEMENTATION_PLAN_AUTOGEOMETRY_RELEASE.md
           cp upstream/ruvieW.lock.json dist/ruview-upstream-lock.json
-          printf '1\n' > dist/protocol-version.txt
+          printf '2\n' > dist/protocol-version.txt
           cat > dist/model-manifest.json <<'EOF'
-          {"models":[],"note":"experimental.1 uses no pretrained human-localization model; deterministic commodity-RSSI baseline only"}
+          {"models":[],"note":"experimental.2 uses no pretrained human-localization model; connected-Wi-Fi RSSI disturbance remains an explicit experimental baseline; sensor geometry is automatic protocol-v2 ranging graph output"}
+          EOF
+          mkdir -p dist/validation-kit
+          cp validation/analysis/validate_autogeometry.py dist/validation-kit/validate_autogeometry.py
+          cp validation/ground-truth/GROUND_TRUTH_TEMPLATE.json dist/validation-kit/GROUND_TRUTH_TEMPLATE.json
+          cp validation/fixtures/autogeometry-triangle-v2.json dist/validation-kit/autogeometry-triangle-v2.json
+          cp protocol/schemas/autogeometry-v2.json dist/validation-kit/autogeometry-v2.schema.json
+          cp docs/TESTING_AUTOGEOMETRY_RELEASE.md dist/validation-kit/TESTING_AUTOGEOMETRY_RELEASE.md
+          (cd dist/validation-kit && zip -r ../body-finder-validation-tools.zip .)
+          rm -rf dist/validation-kit
+          cat > dist/IOS_PHYSICAL_DEVICE_SIGNING_REQUIRED.txt <<'EOF'
+          This prerelease contains an unsigned iOS Simulator .app build only.
+          It is not an installable iPhone/iPad IPA. Physical iOS testing requires Apple signing credentials,
+          a signed build, and a physical iOS test device. RF/fabric participation on physical iOS is not claimed by experimental.2.
           EOF
           cat > dist/release-manifest.json <<EOF
-          {"release":"dev-${GITHUB_RUN_NUMBER}","commit":"${GITHUB_SHA}","classification":"EXPERIMENTAL_PHYSICAL_VALIDATION_BUILD","through_wall_validated":false,"artifacts":["Android full APK/AAB","Android legacy minSdk21 APK","Linux x86_64 tar/deb for Ubuntu/WSL","Windows x86_64 zip"]}
+          {
+            "release":"dev-${GITHUB_RUN_NUMBER}",
+            "commit":"${GITHUB_SHA}",
+            "version":"0.2.0-experimental.2",
+            "protocol_version":2,
+            "classification":"EXPERIMENTAL_AUTOGEOMETRY_PHYSICAL_VALIDATION_BUILD",
+            "manual_node_coordinates_required":false,
+            "through_wall_validated":false,
+            "android_live_pairwise_range":"BLE_RSSI_WORKING_DEGRADED_WHEN_AVAILABLE",
+            "advanced_android_ranging":"CAPABILITY_PROBED_SUPPORTED_UNVERIFIED",
+            "ios_physical_rf_validated":false,
+            "artifacts":[
+              "body-finder-ruview-universal.apk",
+              "body-finder-ruview.aab",
+              "body-finder-ruview-legacy-minsdk21.apk",
+              "body-finder-node-linux-x86_64.tar.gz",
+              "body-finder-node-linux-x86_64.deb",
+              "body-finder-node-windows-x86_64.zip",
+              "body-finder-ruview-ios-simulator.zip",
+              "body-finder-validation-tools.zip",
+              "TESTING_AUTOGEOMETRY_RELEASE.md",
+              "capability-matrix.json",
+              "SBOM.spdx.json",
+              "SHA256SUMS"
+            ]
+          }
           EOF
-          (cd dist && sha256sum * > SHA256SUMS)
       - name: Generate SPDX SBOM
         uses: anchore/sbom-action@v0
         with:
@@ -153,24 +252,36 @@ jobs:
           format: spdx-json
           output-file: dist/SBOM.spdx.json
           upload-artifact: false
+      - name: Generate release checksums
+        shell: bash
+        run: |
+          set -euo pipefail
+          (cd dist && sha256sum * > SHA256SUMS)
       - name: Publish prerelease
         env:
           GH_TOKEN: ${{ github.token }}
+        shell: bash
         run: |
+          set -euo pipefail
           TAG="dev-${GITHUB_RUN_NUMBER}"
           cat > /tmp/release-notes.md <<EOF
           ## Body Finder – RuView ${TAG}
 
-          Experimental physical-validation build. **Through-wall human localization is NOT validated yet.**
+          **Experimental automatic-geometry physical-validation build. Not validated for rescue use.**
+
+          Major change: the operator no longer enters sensor X/Y/Z. Protocol v2 builds a relative sensor geometry only from reported pairwise ranging observations and explicitly reports insufficient/1D/2D/degraded geometry.
 
           Included:
-          - Full Android APK + AAB: live connected-Wi-Fi RSSI, capability probes, UDP sensor fabric, relative Radar/Expert UI, calibration and explicit uncertainty.
-          - Legacy Android minSdk21 APK: sensor-node fallback for older devices that cannot install the full UI.
-          - Ubuntu/WSL Linux x86_64 node tar + deb.
-          - Windows x86_64 native node zip.
-          - SBOM, checksums, protocol/upstream/model/release manifests.
+          - Full Android APK + AAB with automatic geometry UI and live BLE-RSSI peer ranging fallback with conservative uncertainty.
+          - Legacy minSdk21 Android sensor APK without manual coordinates.
+          - Ubuntu/WSL Linux x86_64 tar + deb compute/sensing node.
+          - Windows x86_64 native node.
+          - Unsigned iOS Simulator build-validation artifact (not a physical-device IPA).
+          - Complete Spanish/English-oriented field protocol, validation script/template/fixtures, capability matrix, SBOM and SHA-256 checksums.
 
-          Test using `docs/TESTING_DEV_RELEASE.md`. Return the requested JSON/JSONL plus ground truth for validation.
+          Advanced Android API-36 ranging/RTT capability is probed but no precision measurement is claimed unless a live adapter reports it. Connected Wi-Fi RSSI is never treated as phone-to-phone distance and RSSI is never labeled CSI.
+
+          Start with **TESTING_AUTOGEOMETRY_RELEASE.md** from this release.
           EOF
-          gh release create "$TAG" --target "$GITHUB_SHA" --prerelease --title "Body Finder – RuView $TAG" --notes-file /tmp/release-notes.md
+          gh release create "$TAG" --target "$GITHUB_SHA" --prerelease --title "Body Finder – RuView ${TAG} — automatic geometry" --notes-file /tmp/release-notes.md
           gh release upload "$TAG" dist/* --clobber

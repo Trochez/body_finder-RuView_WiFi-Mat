@@ -3,8 +3,7 @@ name: CI
 on:
   pull_request:
   push:
-    branches:
-      - main
+    branches: [main]
 
 concurrency:
   group: ci-${{ github.event.pull_request.number || github.ref }}
@@ -14,7 +13,34 @@ permissions:
   contents: read
 
 jobs:
+  requirements:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Enforce automatic-geometry product contract
+        shell: bash
+        run: |
+          set -euo pipefail
+          BAD=$(grep -R -n -E -- '(--x([ =]|$)|--y([ =]|$)|SET MEASURED POSITION|Set position|Guardar posición|x meters|y meters)' \
+            apps/mobile/App.tsx apps/node/src/main.rs apps/android-legacy/app/src/main/java || true)
+          if [ -n "$BAD" ]; then
+            echo "Forbidden normal-flow manual geometry controls/arguments found:"
+            echo "$BAD"
+            exit 1
+          fi
+          grep -q 'pub const PROTOCOL_VERSION: u16 = 2;' crates/body-finder-core/src/lib.rs
+          grep -q 'manual_geometry_override.*false' apps/mobile/App.tsx
+          grep -q 'manual_geometry_override.*false' apps/node/src/main.rs
+          grep -q 'protocol_version.*2' protocol/schemas/autogeometry-v2.json
+      - name: Validate JSON and Python validation tooling
+        run: |
+          python3 -m json.tool docs/CAPABILITY_MATRIX_AUTOGEOMETRY.json >/dev/null
+          python3 -m json.tool validation/ground-truth/GROUND_TRUTH_TEMPLATE.json >/dev/null
+          python3 -m json.tool validation/fixtures/autogeometry-triangle-v2.json >/dev/null
+          python3 -m py_compile validation/analysis/validate_autogeometry.py
+
   rust-linux:
+    needs: requirements
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -24,6 +50,7 @@ jobs:
       - run: cargo build --release -p body-finder-node
 
   rust-windows:
+    needs: requirements
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4
@@ -32,6 +59,7 @@ jobs:
       - run: cargo build --release -p body-finder-node
 
   android:
+    needs: requirements
     runs-on: ubuntu-latest
     defaults:
       run:
@@ -51,7 +79,7 @@ jobs:
       - run: npx tsc --noEmit
       - run: CI=1 npx expo prebuild --platform android --clean
       - run: chmod +x android/gradlew
-      - run: ./gradlew assembleRelease bundleRelease
+      - run: ./gradlew assembleRelease bundleRelease --stacktrace
         working-directory: apps/mobile/android
       - uses: actions/upload-artifact@v4
         with:
@@ -62,6 +90,7 @@ jobs:
             apps/mobile/android/app/build/outputs/bundle/release/*.aab
 
   android-legacy:
+    needs: requirements
     runs-on: ubuntu-latest
     defaults:
       run:
@@ -85,3 +114,42 @@ jobs:
           name: android-legacy-ci
           if-no-files-found: error
           path: apps/android-legacy/app/build/outputs/apk/release/*.apk
+
+  ios-simulator:
+    needs: requirements
+    runs-on: macos-latest
+    defaults:
+      run:
+        working-directory: apps/mobile
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+      - run: npm install --package-lock-only
+      - run: npm ci
+      - run: npx tsc --noEmit
+      - run: CI=1 npx expo prebuild --platform ios --clean
+      - name: Install CocoaPods
+        working-directory: apps/mobile/ios
+        run: pod install
+      - name: Build unsigned iOS Simulator app
+        working-directory: apps/mobile/ios
+        shell: bash
+        run: |
+          set -euo pipefail
+          WORKSPACE=$(find . -maxdepth 1 -name '*.xcworkspace' -print -quit)
+          test -n "$WORKSPACE"
+          SCHEME=$(xcodebuild -workspace "$WORKSPACE" -list -json | ruby -rjson -e 'j=JSON.parse(STDIN.read); puts j.fetch("workspace").fetch("schemes").first')
+          test -n "$SCHEME"
+          xcodebuild -workspace "$WORKSPACE" -scheme "$SCHEME" -configuration Release \
+            -sdk iphonesimulator -destination 'generic/platform=iOS Simulator' \
+            -derivedDataPath build CODE_SIGNING_ALLOWED=NO build
+          APP=$(find build/Build/Products -type d -name '*.app' -print -quit)
+          test -n "$APP"
+          ditto -c -k --sequesterRsrc --keepParent "$APP" "$GITHUB_WORKSPACE/body-finder-ruview-ios-simulator-ci.zip"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ios-simulator-ci
+          if-no-files-found: error
+          path: body-finder-ruview-ios-simulator-ci.zip
