@@ -1,0 +1,16 @@
+{
+  "fixture_version": 1,
+  "device": "Pixel 10 Pro",
+  "android_api": 37,
+  "protocol_version": 2,
+  "manual_geometry_override": false,
+  "finding": "API36_RANGING_REQUIRES_BINDING_AND_MUST_NOT_DISABLE_FALLBACK",
+  "android_ranging_api": {
+    "state": "SUPPORTED_UNVERIFIED",
+    "detail": "RangingManager observed waiting for peer/address binding and, in another snapshot, a closed session"
+  },
+  "ranges": [],
+  "range_observations": [],
+  "valid_edge_pairs": [],
+  "geometry_state": "GEOMETRY_INSUFFICIENT"
+}

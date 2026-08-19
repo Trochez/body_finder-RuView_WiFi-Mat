@@ -41,9 +41,21 @@ jobs:
           grep -q 'manual_geometry_override.*false' apps/mobile/App.tsx
           grep -q 'manual_geometry_override.*false' apps/node/src/main.rs
           grep -q 'protocol_version.*2' protocol/schemas/autogeometry-v2.json
-          # Rust and JS must use the same JS-safe 32-bit FNV-1a revision family.
           grep -q '0x811c9dc5' crates/body-finder-core/src/lib.rs
           grep -q '2166136261' apps/mobile/src/autogeometry.ts
+      - name: Enforce Android ranging stabilization contract
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 validation/android/check_android_ranging_contract.py
+          grep -q 'android.permission.BLUETOOTH"' apps/mobile/app.json
+          grep -q 'android.permission.BLUETOOTH_ADMIN' apps/mobile/app.json
+          grep -q 'SCAN_MODE_LOW_LATENCY' apps/mobile/modules/body-finder-native/android/src/main/java/com/trochez/bodyfindernative/BodyFinderNativeModule.kt
+          grep -q 'body_finder_scan_results' apps/mobile/modules/body-finder-native/android/src/main/java/com/trochez/bodyfindernative/BodyFinderNativeModule.kt
+          grep -q 'fallback_range_ready' apps/mobile/modules/body-finder-native/android/src/main/java/com/trochez/bodyfindernative/BodyFinderNativeModule.kt
+          grep -q 'last_close_reason' apps/mobile/modules/body-finder-native/android/src/main/java/com/trochez/bodyfindernative/SystemRangingApi36.kt
+          grep -q 'independent BLE scan RSSI fallback remains active' apps/mobile/modules/body-finder-native/android/src/main/java/com/trochez/bodyfindernative/SystemRangingApi36.kt
+          test -s docs/ANDROID_RANGING_RETEST.md
       - name: Validate JSON and Python validation tooling
         run: |
           set -euo pipefail
@@ -51,7 +63,9 @@ jobs:
           python3 -m json.tool validation/ground-truth/GROUND_TRUTH_TEMPLATE.json >/dev/null
           python3 -m json.tool validation/fixtures/autogeometry-triangle-v2.json >/dev/null
           python3 -m json.tool protocol/schemas/autogeometry-v2.json >/dev/null
+          for f in validation/fixtures/android-ranging/*.json; do python3 -m json.tool "$f" >/dev/null; done
           python3 -m py_compile validation/analysis/validate_autogeometry.py
+          python3 -m py_compile validation/android/check_android_ranging_contract.py
       - name: Validate protocol fixture against JSON Schema
         run: |
           set -euo pipefail
@@ -60,7 +74,6 @@ jobs:
           import json
           from pathlib import Path
           from jsonschema import Draft202012Validator
-
           schema = json.loads(Path('protocol/schemas/autogeometry-v2.json').read_text())
           fixture = json.loads(Path('validation/fixtures/autogeometry-triangle-v2.json').read_text())
           validator = Draft202012Validator(schema)
@@ -79,7 +92,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
-      - name: Clippy (deny warnings; allow four non-semantic formatting/style lints)
+      - name: Clippy
         run: cargo clippy --workspace --all-targets -- -D warnings -A clippy::possible_missing_else -A clippy::derivable_impls -A clippy::manual_is_multiple_of -A clippy::type_complexity
       - run: cargo test --workspace
       - run: cargo build --release -p body-finder-node
@@ -113,6 +126,16 @@ jobs:
       - run: npm audit --omit=dev --audit-level=critical
       - run: npx tsc --noEmit
       - run: CI=1 npx expo prebuild --platform android --clean
+      - name: Verify generated Android permissions
+        shell: bash
+        run: |
+          set -euo pipefail
+          MANIFEST=android/app/src/main/AndroidManifest.xml
+          grep -q 'android.permission.BLUETOOTH' "$MANIFEST"
+          grep -q 'android.permission.BLUETOOTH_ADMIN' "$MANIFEST"
+          grep -q 'android.permission.BLUETOOTH_SCAN' "$MANIFEST"
+          grep -q 'android.permission.BLUETOOTH_CONNECT' "$MANIFEST"
+          grep -q 'android.permission.BLUETOOTH_ADVERTISE' "$MANIFEST"
       - run: chmod +x android/gradlew
       - run: ./gradlew assembleRelease bundleRelease --stacktrace
         working-directory: apps/mobile/android
@@ -176,7 +199,6 @@ jobs:
           WORKSPACE=$(find . -maxdepth 1 -name '*.xcworkspace' -print -quit)
           test -n "$WORKSPACE"
           SCHEME=$(xcodebuild -workspace "$WORKSPACE" -list -json | ruby -rjson -e 'j=JSON.parse(STDIN.read); schemes=j.fetch("workspace").fetch("schemes"); preferred="BodyFinderRuView"; abort("Expected app scheme #{preferred} not found: #{schemes.join(", ")}") unless schemes.include?(preferred); puts preferred')
-          test -n "$SCHEME"
           xcodebuild -workspace "$WORKSPACE" -scheme "$SCHEME" -configuration Release \
             -sdk iphonesimulator -destination 'generic/platform=iOS Simulator' \
             -derivedDataPath build CODE_SIGNING_ALLOWED=NO build

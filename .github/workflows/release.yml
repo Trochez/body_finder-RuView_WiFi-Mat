@@ -13,7 +13,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - name: Enforce automatic-geometry release contract
+      - name: Enforce automatic-geometry and Android-ranging release contracts
         shell: bash
         run: |
           set -euo pipefail
@@ -29,21 +29,25 @@ jobs:
           grep -q 'RANGE_SAMPLE_STALE_NS' crates/body-finder-core/src/lib.rs
           grep -q 'replayed/out-of-order range sample rejected' crates/body-finder-core/src/lib.rs
           grep -q 'published_geometry' crates/body-finder-core/src/lib.rs
-          grep -q 'geometry_publisher_node_id' apps/node/src/main.rs
-          grep -q 'ELECTED_COORDINATOR_PUBLICATION' apps/mobile/src/autogeometry.ts
-          grep -q 'connected_components' apps/mobile/src/geometryDiagnostics.ts
-          grep -q 'sample_age_ms' apps/mobile/src/geometryDiagnostics.ts
           grep -q 'manual_geometry_override.*false' apps/mobile/App.tsx
-          grep -q 'manual_geometry_override.*false' apps/node/src/main.rs
+          grep -q 'android.permission.BLUETOOTH_ADMIN' apps/mobile/app.json
+          grep -q 'SCAN_MODE_LOW_LATENCY' apps/mobile/modules/body-finder-native/android/src/main/java/com/trochez/bodyfindernative/BodyFinderNativeModule.kt
+          grep -q 'body_finder_scan_results' apps/mobile/modules/body-finder-native/android/src/main/java/com/trochez/bodyfindernative/BodyFinderNativeModule.kt
+          grep -q 'fallback_range_ready' apps/mobile/modules/body-finder-native/android/src/main/java/com/trochez/bodyfindernative/BodyFinderNativeModule.kt
+          grep -q 'last_close_reason' apps/mobile/modules/body-finder-native/android/src/main/java/com/trochez/bodyfindernative/SystemRangingApi36.kt
+          python3 validation/android/check_android_ranging_contract.py
           test -s IMPLEMENTATION_PLAN_AUTOGEOMETRY_RELEASE.md
+          test -s IMPLEMENTATION_PLAN_ANDROID_RANGING_STABILIZATION.md
           test -s docs/TESTING_AUTOGEOMETRY_RELEASE.md
+          test -s docs/ANDROID_RANGING_RETEST.md
           test -s docs/CAPABILITY_MATRIX_AUTOGEOMETRY.json
           test -s protocol/schemas/autogeometry-v2.json
           python3 -m json.tool docs/CAPABILITY_MATRIX_AUTOGEOMETRY.json >/dev/null
           python3 -m json.tool protocol/schemas/autogeometry-v2.json >/dev/null
           python3 -m json.tool validation/ground-truth/GROUND_TRUTH_TEMPLATE.json >/dev/null
           python3 -m json.tool validation/fixtures/autogeometry-triangle-v2.json >/dev/null
-          python3 -m py_compile validation/analysis/validate_autogeometry.py
+          for f in validation/fixtures/android-ranging/*.json; do python3 -m json.tool "$f" >/dev/null; done
+          python3 -m py_compile validation/analysis/validate_autogeometry.py validation/android/check_android_ranging_contract.py
       - name: Validate protocol fixture against JSON Schema
         run: |
           set -euo pipefail
@@ -52,16 +56,12 @@ jobs:
           import json
           from pathlib import Path
           from jsonschema import Draft202012Validator
-
           schema = json.loads(Path('protocol/schemas/autogeometry-v2.json').read_text())
           fixture = json.loads(Path('validation/fixtures/autogeometry-triangle-v2.json').read_text())
-          validator = Draft202012Validator(schema)
           errors = []
+          validator = Draft202012Validator(schema)
           for index, node in enumerate(fixture['nodes']):
-              errors.extend(
-                  f'nodes[{index}] {error.json_path}: {error.message}'
-                  for error in validator.iter_errors(node)
-              )
+              errors.extend(f'nodes[{index}] {e.json_path}: {e.message}' for e in validator.iter_errors(node))
           if errors:
               raise SystemExit('\n'.join(errors))
           print(f"Validated {len(fixture['nodes'])} protocol-v2 advertisements")
@@ -86,7 +86,7 @@ jobs:
           tar -C dist/tar -czf dist/body-finder-node-linux-x86_64.tar.gz body-finder-node
           cat > dist/deb/DEBIAN/control <<'EOF'
           Package: body-finder-node
-          Version: 0.2.0~experimental3
+          Version: 0.2.0~experimental4
           Section: science
           Priority: optional
           Architecture: amd64
@@ -145,6 +145,16 @@ jobs:
       - run: npm audit --omit=dev --audit-level=critical
       - run: npx tsc --noEmit
       - run: CI=1 npx expo prebuild --platform android --clean
+      - name: Verify generated Android ranging permissions
+        shell: bash
+        run: |
+          set -euo pipefail
+          MANIFEST=android/app/src/main/AndroidManifest.xml
+          grep -q 'android.permission.BLUETOOTH' "$MANIFEST"
+          grep -q 'android.permission.BLUETOOTH_ADMIN' "$MANIFEST"
+          grep -q 'android.permission.BLUETOOTH_SCAN' "$MANIFEST"
+          grep -q 'android.permission.BLUETOOTH_CONNECT' "$MANIFEST"
+          grep -q 'android.permission.BLUETOOTH_ADVERTISE' "$MANIFEST"
       - run: chmod +x android/gradlew
       - run: ./gradlew assembleRelease bundleRelease --stacktrace
         working-directory: apps/mobile/android
@@ -248,47 +258,65 @@ jobs:
           pattern: release-*
           path: dist
           merge-multiple: true
-      - name: Add validation kit and static manifests
+      - name: Add validation kit, ranging fixtures and manifests
         shell: bash
         run: |
           set -euxo pipefail
           cp docs/TESTING_AUTOGEOMETRY_RELEASE.md dist/TESTING_AUTOGEOMETRY_RELEASE.md
+          cp docs/ANDROID_RANGING_RETEST.md dist/ANDROID_RANGING_RETEST.md
           cp docs/CAPABILITY_MATRIX_AUTOGEOMETRY.json dist/capability-matrix.json
           cp IMPLEMENTATION_PLAN_AUTOGEOMETRY_RELEASE.md dist/IMPLEMENTATION_PLAN_AUTOGEOMETRY_RELEASE.md
+          cp IMPLEMENTATION_PLAN_ANDROID_RANGING_STABILIZATION.md dist/IMPLEMENTATION_PLAN_ANDROID_RANGING_STABILIZATION.md
           cp upstream/ruvieW.lock.json dist/ruview-upstream-lock.json
           printf '2\n' > dist/protocol-version.txt
           cat > dist/model-manifest.json <<'EOF'
           {
             "schema_version": 1,
-            "release_family": "0.2.0-experimental.3",
+            "release_family": "0.2.0-experimental.4",
             "models": [],
-            "note": "No pretrained human-localization model is bundled. Connected-Wi-Fi RSSI disturbance remains an explicit experimental baseline; sensor geometry is automatic protocol-v2 ranging-graph output."
+            "note": "No pretrained human-localization model is bundled. This release stabilizes Android BLE pairwise ranging plumbing/diagnostics; human localization and rescue performance remain unvalidated."
           }
           EOF
+
           mkdir -p dist/validation-kit
           cp validation/analysis/validate_autogeometry.py dist/validation-kit/validate_autogeometry.py
           cp validation/ground-truth/GROUND_TRUTH_TEMPLATE.json dist/validation-kit/GROUND_TRUTH_TEMPLATE.json
           cp validation/fixtures/autogeometry-triangle-v2.json dist/validation-kit/autogeometry-triangle-v2.json
           cp protocol/schemas/autogeometry-v2.json dist/validation-kit/autogeometry-v2.schema.json
           cp docs/TESTING_AUTOGEOMETRY_RELEASE.md dist/validation-kit/TESTING_AUTOGEOMETRY_RELEASE.md
+          cp docs/ANDROID_RANGING_RETEST.md dist/validation-kit/ANDROID_RANGING_RETEST.md
           (cd dist/validation-kit && zip -r ../body-finder-validation-tools.zip .)
           rm -rf dist/validation-kit
+
+          mkdir -p dist/android-ranging-fixtures
+          cp validation/fixtures/android-ranging/*.json dist/android-ranging-fixtures/
+          cp validation/android/check_android_ranging_contract.py dist/android-ranging-fixtures/
+          (cd dist/android-ranging-fixtures && zip -r ../android-ranging-diagnostics-fixtures.zip .)
+          rm -rf dist/android-ranging-fixtures
+
           cat > dist/IOS_PHYSICAL_DEVICE_SIGNING_REQUIRED.txt <<'EOF'
           This prerelease contains an unsigned iOS Simulator .app build only.
           It is not an installable iPhone/iPad IPA. Physical iOS testing requires Apple signing credentials,
           a signed build, a physical iOS test device, and completion of the still-unverified iOS RF/fabric adapter.
-          Physical iOS RF/fabric participation is not claimed by experimental.3.
+          Physical iOS RF/fabric participation is not claimed by experimental.4.
           EOF
+
           cat > dist/release-manifest.json <<EOF
           {
-            "schema_version": 2,
+            "schema_version": 3,
             "release":"dev-${GITHUB_RUN_NUMBER}",
             "commit":"${GITHUB_SHA}",
-            "version":"0.2.0-experimental.3",
+            "version":"0.2.0-experimental.4",
             "protocol_version":2,
-            "classification":"EXPERIMENTAL_AUTOGEOMETRY_PHYSICAL_VALIDATION_BUILD",
+            "classification":"EXPERIMENTAL_ANDROID_RANGING_STABILIZATION_AUTOGEOMETRY_BUILD",
             "automatic_geometry":true,
             "manual_node_coordinates_required":false,
+            "android_ranging_stabilization":true,
+            "legacy_bluetooth_permissions":true,
+            "ble_low_latency_filtered_scan":true,
+            "ble_peer_diagnostics":true,
+            "fabric_diagnostics":true,
+            "system_ranging_fallback_independent":true,
             "session_isolation":true,
             "stale_range_expiry":true,
             "replay_out_of_order_rejection":true,
@@ -297,8 +325,8 @@ jobs:
             "human_localization_validated":false,
             "through_wall_validated":false,
             "rescue_use_validated":false,
-            "android_live_pairwise_range":"BLE_RSSI_WORKING_DEGRADED_WHEN_AVAILABLE",
-            "advanced_android_ranging":"CAPABILITY_PROBED_SUPPORTED_UNVERIFIED",
+            "android_live_pairwise_range":"BLE_RSSI_EMITTED_ONLY_AFTER_3_FRESH_BODY_FINDER_SAMPLES; PHYSICAL_RETEST_REQUIRED",
+            "advanced_android_ranging":"CAPABILITY_PROBED; API36 SESSION RETRYABLE; LIVE ONLY WHEN FRESH RESULT EXISTS",
             "ios_physical_rf_validated":false,
             "artifacts":[
               "body-finder-ruview-universal.apk",
@@ -309,6 +337,8 @@ jobs:
               "body-finder-node-windows-x86_64.zip",
               "body-finder-ruview-ios-simulator.zip",
               "body-finder-validation-tools.zip",
+              "android-ranging-diagnostics-fixtures.zip",
+              "ANDROID_RANGING_RETEST.md",
               "TESTING_AUTOGEOMETRY_RELEASE.md",
               "release-manifest.json",
               "capability-matrix.json",
@@ -316,6 +346,7 @@ jobs:
               "ruview-upstream-lock.json",
               "model-manifest.json",
               "IMPLEMENTATION_PLAN_AUTOGEOMETRY_RELEASE.md",
+              "IMPLEMENTATION_PLAN_ANDROID_RANGING_STABILIZATION.md",
               "IOS_PHYSICAL_DEVICE_SIGNING_REQUIRED.txt",
               "SBOM.spdx.json",
               "SHA256SUMS"
@@ -324,6 +355,7 @@ jobs:
           EOF
           python3 -m json.tool dist/model-manifest.json >/dev/null
           python3 -m json.tool dist/release-manifest.json >/dev/null
+
       - name: Generate SPDX SBOM
         uses: anchore/sbom-action@v0
         with:
@@ -331,6 +363,7 @@ jobs:
           format: spdx-json
           output-file: dist/SBOM.spdx.json
           upload-artifact: false
+
       - name: Assert mandatory artifacts and manifest coverage
         shell: bash
         run: |
@@ -342,7 +375,10 @@ jobs:
             body-finder-node-linux-x86_64.tar.gz
             body-finder-node-linux-x86_64.deb
             body-finder-node-windows-x86_64.zip
+            ANDROID_RANGING_RETEST.md
             TESTING_AUTOGEOMETRY_RELEASE.md
+            android-ranging-diagnostics-fixtures.zip
+            IMPLEMENTATION_PLAN_ANDROID_RANGING_STABILIZATION.md
             release-manifest.json
             capability-matrix.json
             protocol-version.txt
@@ -370,7 +406,10 @@ jobs:
               'body-finder-node-linux-x86_64.tar.gz',
               'body-finder-node-linux-x86_64.deb',
               'body-finder-node-windows-x86_64.zip',
+              'ANDROID_RANGING_RETEST.md',
               'TESTING_AUTOGEOMETRY_RELEASE.md',
+              'android-ranging-diagnostics-fixtures.zip',
+              'IMPLEMENTATION_PLAN_ANDROID_RANGING_STABILIZATION.md',
               'release-manifest.json',
               'capability-matrix.json',
               'protocol-version.txt',
@@ -382,9 +421,19 @@ jobs:
           missing = sorted(required - set(manifest.get('artifacts', [])))
           if missing:
               raise SystemExit(f'manifest missing required artifacts: {missing}')
-          if manifest.get('protocol_version') != 2 or manifest.get('manual_node_coordinates_required') is not False:
-              raise SystemExit('release-manifest product contract mismatch')
+          checks = {
+              'protocol_version': 2,
+              'manual_node_coordinates_required': False,
+              'android_ranging_stabilization': True,
+              'legacy_bluetooth_permissions': True,
+              'ble_peer_diagnostics': True,
+              'system_ranging_fallback_independent': True,
+          }
+          for key, expected in checks.items():
+              if manifest.get(key) != expected:
+                  raise SystemExit(f'release-manifest {key} mismatch: {manifest.get(key)!r}')
           PY
+
       - name: Generate SHA-256 checksums and verify them
         shell: bash
         run: |
@@ -393,8 +442,10 @@ jobs:
           test -s dist/SHA256SUMS
           (cd dist && sha256sum --check SHA256SUMS)
           grep -q 'body-finder-ruview-universal.apk' dist/SHA256SUMS
-          grep -q 'body-finder-node-windows-x86_64.zip' dist/SHA256SUMS
+          grep -q 'ANDROID_RANGING_RETEST.md' dist/SHA256SUMS
+          grep -q 'android-ranging-diagnostics-fixtures.zip' dist/SHA256SUMS
           grep -q 'SBOM.spdx.json' dist/SHA256SUMS
+
       - name: Publish prerelease
         env:
           GH_TOKEN: ${{ github.token }}
@@ -403,23 +454,26 @@ jobs:
           set -euo pipefail
           TAG="dev-${GITHUB_RUN_NUMBER}"
           cat > /tmp/release-notes.md <<EOF
-          ## Body Finder – RuView ${TAG}
+          ## Body Finder – RuView ${TAG} — Android ranging stabilization
 
-          **Experimental automatic-geometry physical-validation build. Not validated for rescue use.**
+          **Experimental physical-validation build. Not validated for rescue use.**
 
-          This release removes normal manual sensor X/Y/Z entry. Protocol v2 discovers peers, accepts only provenance-preserving pairwise ranging observations, rejects wrong-session/stale/replayed data, selects the strongest available ranging source per pair, solves robust relative 2D geometry, and publishes the elected coordinator's geometry revision to peers.
+          This release implements the fixes identified in the first three-Android physical test:
 
-          Included:
-          - Full Android APK + AAB with automatic-geometry radar, Expert graph diagnostics, live BLE-RSSI peer-ranging fallback and conservative uncertainty.
-          - Legacy minSdk21 Android sensor APK without manual coordinates.
-          - Ubuntu/WSL Linux x86_64 tar + deb compute/sensing node.
-          - Windows x86_64 native node.
-          - Unsigned iOS Simulator build-validation artifact (not a physical-device IPA).
-          - Complete field protocol, schema, validation script/template/fixture, capability matrix, release manifest, SBOM and SHA-256 checksums.
+          - Android 11/API30 legacy Bluetooth permission support for the universal APK.
+          - Explicit low-latency Body Finder BLE manufacturer-data scan.
+          - Per-peer node_id / ble_identity / transient-address binding diagnostics.
+          - Fresh RSSI sample counts, ages, median RSSI/TxPower and exact no-range blockers.
+          - Independent BLE-RSSI pairwise range fallback after >=3 fresh Body Finder samples.
+          - Android API36+ RangingManager close/open-failure recovery with retry backoff; system failure no longer blocks the BLE fallback.
+          - UDP fabric packet, last-seen and peer-expiration diagnostics.
+          - Truthful capability states: scanner startup alone is no longer labeled live ranging.
+          - Pixel safe-area/status-bar correction.
+          - Report v6 includes BLE and fabric diagnostics.
 
-          Advanced Android API-36 ranging/RTT is capability-probed but is not claimed as a live precision measurement unless a verified adapter actually reports it. Connected Wi-Fi RSSI is never treated as phone-to-phone distance and RSSI is never labeled CSI.
+          Start with **ANDROID_RANGING_RETEST.md**. Do the two-Pixel test first. Continue to the three-Android triangle only after the two-node test produces a real pairwise edge and 1D geometry.
 
-          Start with **TESTING_AUTOGEOMETRY_RELEASE.md**. Physical multi-device and through-wall validation must still be executed before any real-world performance claim.
+          Do not resume human/LOS/wall tests until the Android ranging retest passes. BLE-RSSI remains low-confidence experimental ranging and this release makes no rescue-performance claim.
           EOF
-          gh release create "$TAG" --target "$GITHUB_SHA" --prerelease --title "Body Finder – RuView ${TAG} — automatic geometry" --notes-file /tmp/release-notes.md
+          gh release create "$TAG" --target "$GITHUB_SHA" --prerelease --title "Body Finder – RuView ${TAG} — Android ranging stabilization" --notes-file /tmp/release-notes.md
           gh release upload "$TAG" dist/* --clobber

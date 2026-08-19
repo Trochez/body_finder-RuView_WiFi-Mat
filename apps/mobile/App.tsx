@@ -9,8 +9,9 @@ import {
   Share,
   Platform,
   PermissionsAndroid,
+  StatusBar as NativeStatusBar,
 } from 'react-native';
-import { StatusBar } from 'expo-status-bar';
+import { StatusBar as ExpoStatusBar } from 'expo-status-bar';
 import BodyFinderNative from './modules/body-finder-native';
 import {
   Advertisement,
@@ -21,6 +22,9 @@ import {
   solveGeometry,
 } from './src/autogeometry';
 import { diagnoseGeometryGraph } from './src/geometryDiagnostics';
+
+const BUILD = '0.2.0-experimental.4';
+const REPORT_VERSION = 6;
 
 const T = {
   en: {
@@ -74,7 +78,6 @@ const T = {
 };
 
 const sleep = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
-
 type VisualPosition = { x_m: number; y_m: number };
 
 async function requestAndroidPermissions() {
@@ -93,12 +96,8 @@ async function requestAndroidPermissions() {
   try {
     await PermissionsAndroid.requestMultiple(permissions);
   } catch {
-    // Capability probes report denied/missing permissions truthfully in the UI.
+    // Native capability/diagnostic probes report missing grants truthfully.
   }
-}
-
-function relativePosition(position: GeometryPosition, origin: GeometryPosition) {
-  return { x_m: position.x_m - origin.x_m, y_m: position.y_m - origin.y_m };
 }
 
 function relativeVisualPosition(position: VisualPosition, origin: VisualPosition) {
@@ -126,6 +125,7 @@ export default function App() {
   const [lang, setLang] = useState<'en' | 'es'>('es');
   const [mode, setMode] = useState<'radar' | 'expert'>('radar');
   const [caps, setCaps] = useState<any>({});
+  const [diagnostics, setDiagnostics] = useState<any>({});
   const [local, setLocal] = useState<Advertisement | null>(null);
   const [peers, setPeers] = useState<Advertisement[]>([]);
   const [baseline, setBaseline] = useState<number | null>(null);
@@ -155,6 +155,7 @@ export default function App() {
         setLocal(localAdvertisement?.node_id ? localAdvertisement : null);
         setPeers(JSON.parse(BodyFinderNative.getPeersJson()) as Advertisement[]);
         setCaps(JSON.parse(BodyFinderNative.getCapabilitiesJson()));
+        setDiagnostics(JSON.parse(BodyFinderNative.getDiagnosticsJson()));
       } catch (cause: any) {
         setError(String(cause?.message ?? cause));
       }
@@ -196,8 +197,6 @@ export default function App() {
     } catch {}
   }, [local?.node_id, coordinator, computedGeometry]);
 
-  // Display-only hysteresis. The authoritative geometry/export stays untouched;
-  // the radar eases small same-frame revisions and resets immediately on reframe.
   useEffect(() => {
     if (!geometry) {
       visualFrame.current = null;
@@ -229,6 +228,9 @@ export default function App() {
   const rangeCount = nodes.reduce((count, node) => count + (node.ranges?.length ?? 0), 0);
   const unresolved = Math.max(0, nodes.length - (geometry?.positions.length ?? 0));
   const visualLocal = local?.node_id ? visualPositions[local.node_id] : undefined;
+  const blePeerCount = Array.isArray(diagnostics?.ble_diagnostics?.peers)
+    ? diagnostics.ble_diagnostics.peers.filter((peer: any) => peer.binding_state !== 'UDP_ONLY').length
+    : 0;
 
   async function calibrate() {
     setCalibrating(true);
@@ -261,16 +263,20 @@ export default function App() {
   }
 
   async function share() {
+    let freshDiagnostics = diagnostics;
+    try { freshDiagnostics = JSON.parse(BodyFinderNative.getDiagnosticsJson()); } catch {}
     const payload = {
-      report_version: 5,
+      report_version: REPORT_VERSION,
       generated_at: new Date().toISOString(),
       app: 'Body Finder – RuView',
-      build: '0.2.0-experimental.3',
+      build: BUILD,
       protocol_version: 2,
       truth: 'LIVE_DEVICE_CAPABILITIES__REAL_PAIRWISE_RANGING_WHEN_REPORTED__COORDINATOR_GEOMETRY_PUBLICATION__AUTOGEOMETRY_EXPERIMENTAL_NOT_RESCUE_VALIDATED',
       manual_geometry_override: false,
       node_id: local?.node_id ?? null,
       capabilities: caps,
+      ble_diagnostics: freshDiagnostics?.ble_diagnostics ?? null,
+      fabric_diagnostics: freshDiagnostics?.fabric_diagnostics ?? null,
       local,
       peers,
       coordinator_node_id: coordinator,
@@ -293,7 +299,7 @@ export default function App() {
   const geometryState = geometry?.state ?? 'GEOMETRY_INSUFFICIENT';
   return (
     <SafeAreaView style={s.safe}>
-      <StatusBar style="light" />
+      <ExpoStatusBar style="light" translucent={false} backgroundColor="#071016" />
       <View style={s.header}>
         <View style={s.headerText}>
           <Text style={s.title}>{tx.title}</Text>
@@ -316,6 +322,7 @@ export default function App() {
           <View style={s.statusRow}>
             <Text style={s.pill}>{nodes.length} {tx.peers}</Text>
             <Text style={s.pill}>{rangeCount} RANGE</Text>
+            <Text style={s.pill}>{blePeerCount} BLE PEERS</Text>
             <Text style={s.pill}>COORD {coordinator?.slice(-8) ?? '—'}</Text>
           </View>
           <Text style={s.network}>{tx.network}</Text>
@@ -394,6 +401,7 @@ export default function App() {
         <ScrollView contentContainerStyle={s.body}>
           <View style={s.card}>
             <Text style={s.h2}>Truth / source classification</Text>
+            <Text style={s.text}>Build: {BUILD} · protocol 2</Text>
             <Text style={s.text}>Node geometry: AUTO ONLY — manual override disabled</Text>
             <Text style={s.text}>Geometry authority: {geometrySelection.source}</Text>
             <Text style={s.text}>Pairwise range: live native measurement when present; every edge exposes technology/sigma/source/age</Text>
@@ -401,6 +409,8 @@ export default function App() {
             <Text style={s.text}>CSI: UNSUPPORTED unless a future verified adapter is loaded</Text>
           </View>
           {[
+            ['BLE / ranging diagnostics', diagnostics?.ble_diagnostics ?? null],
+            ['Fabric diagnostics', diagnostics?.fabric_diagnostics ?? null],
             ['Geometry solution', geometry],
             ['Locally computed geometry', computedGeometry],
             ['Graph diagnostics / sample age', graphDiagnostics],
@@ -423,8 +433,12 @@ export default function App() {
 }
 
 const s = StyleSheet.create({
-  safe: { flex: 1, backgroundColor: '#071016' },
-  header: { padding: 16, paddingTop: 10, flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start' },
+  safe: {
+    flex: 1,
+    backgroundColor: '#071016',
+    paddingTop: Platform.OS === 'android' ? Math.max(0, NativeStatusBar.currentHeight ?? 0) : 0,
+  },
+  header: { padding: 16, paddingTop: 8, flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start' },
   headerText: { flex: 1, paddingRight: 8 },
   title: { color: '#e8f7ff', fontSize: 22, fontWeight: '800' },
   warn: { color: '#ffb35c', fontSize: 10, fontWeight: '700', marginTop: 3 },
@@ -433,7 +447,7 @@ const s = StyleSheet.create({
   tab: { flex: 1, padding: 10, borderRadius: 10, backgroundColor: '#0d1b24', alignItems: 'center' },
   tabOn: { backgroundColor: '#15384a' },
   tabText: { color: '#e6f6ff', fontWeight: '700' },
-  body: { padding: 14, paddingBottom: 40, gap: 10 },
+  body: { padding: 14, paddingBottom: 48, gap: 10 },
   statusRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 7 },
   pill: { color: '#b7eaff', backgroundColor: '#102935', paddingHorizontal: 9, paddingVertical: 5, borderRadius: 99, fontSize: 11, fontWeight: '700' },
   network: { color: '#ffcb76', fontSize: 10, fontWeight: '700' },

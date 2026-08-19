@@ -1,0 +1,16 @@
+{
+  "fixture_version": 1,
+  "device": "Lenovo TB-J606L",
+  "android_api": 30,
+  "protocol_version": 2,
+  "manual_geometry_override": false,
+  "finding": "LEGACY_BLUETOOTH_PERMISSION_FAILURE",
+  "ble": {
+    "state": "WORKING",
+    "peer_ranging_state": "SUPPORTED_UNVERIFIED",
+    "detail": "BLE permission denied: Need BLUETOOTH permission"
+  },
+  "ranges": [],
+  "valid_edge_pairs": [],
+  "geometry_state": "GEOMETRY_INSUFFICIENT"
+}

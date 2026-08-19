@@ -1,8 +1,8 @@
 {
-  "schema_version": 2,
-  "release_family": "0.2.0-experimental.3",
+  "schema_version": 3,
+  "release_family": "0.2.0-experimental.4",
   "protocol_version": 2,
-  "truth_policy": "capabilities are runtime-probed; this matrix describes implemented adapters and explicit limitations, not a model whitelist or rescue-performance claim",
+  "truth_policy": "capabilities are runtime-probed; scanner/API availability is not labeled live ranging until measurement evidence exists; this matrix is not a model whitelist or rescue-performance claim",
   "distributed_geometry": {
     "pairwise_observation_contract": "IMPLEMENTED",
     "session_isolation": "IMPLEMENTED",
@@ -10,6 +10,9 @@
     "replay_out_of_order_rejection": "IMPLEMENTED_WITH_250MS_TOLERANCE",
     "technology_aware_edge_selection": "IMPLEMENTED_BEST_SOURCE_PER_PAIR_BY_QUALITY_AND_SIGMA",
     "robust_2d_solver": "IMPLEMENTED_WITH_DEGENERACY_AND_PERSISTENT_OUTLIER_REJECTION",
+    "two_nodes_one_distance": "1D_ONLY",
+    "three_nodes_two_distances": "NOT_SUFFICIENT_FOR_UNIQUE_2D_DISTANCE_ONLY_TRIANGLE",
+    "three_nodes_three_non_degenerate_distances": "2D_OBSERVABLE_CANDIDATE",
     "coordinator_election": "IMPLEMENTED_DETERMINISTIC",
     "coordinator_geometry_publication": "IMPLEMENTED",
     "noncoordinator_publication_consumption": "IMPLEMENTED_WITH_EXPLICIT_LOCAL_FALLBACK_WHILE_AWAITING_PUBLICATION",
@@ -22,17 +25,28 @@
       "automatic_geometry_compute": "IMPLEMENTED",
       "geometry_publication_and_consumption": "IMPLEMENTED_OVER_BODY_FINDER_UDP_FABRIC",
       "manual_coordinates_normal_flow": false,
-      "ble_peer_rssi_range": "IMPLEMENTED_WORKING_DEGRADED_WHEN_HARDWARE_AND_PERMISSIONS_ALLOW",
-      "android_api36_ranging_manager": "IMPLEMENTED_RAW_BLE_RSSI_SESSION_WHEN_API36_SERVICE_PERMISSION_AND_BODY_FINDER_BLE_ADDRESS_BINDING_ARE_AVAILABLE; preferred over manual scan RSSI; live result provenance is ANDROID_RANGING_BLE_RSSI",
-      "android_api36_advanced_ranging": "UWB_BLE_CS_WIFI_NAN_RTT_CAPABILITIES_NOT_CLAIMED_AS_LIVE_UNTIL_SEPARATELY_NEGOTIATED_AND_OBSERVED",
+      "legacy_api30_bluetooth_permissions": "IMPLEMENTED_BLUETOOTH_BLUETOOTH_ADMIN_FINE_LOCATION",
+      "modern_api31_bluetooth_permissions": "IMPLEMENTED_SCAN_CONNECT_ADVERTISE",
+      "ble_scan": "LOW_LATENCY_MANUFACTURER_FILTER_WITH_SYNCHRONOUS_UNFILTERED_FALLBACK",
+      "ble_identity_binding": "PROTOCOL_NODE_ID_TO_BLE_IDENTITY_TO_TRANSIENT_ADDRESS_BY_EXACT_MANUFACTURER_PAYLOAD_MATCH",
+      "ble_address_export": "HASHED_SESSION_FINGERPRINT_ONLY",
+      "ble_peer_rssi_range": "IMPLEMENTED_AFTER_MINIMUM_3_FRESH_BODY_FINDER_SAMPLES_IN_5_SECONDS; LOW_QUALITY_WITH_CONSERVATIVE_SIGMA; PHYSICAL_RETEST_REQUIRED",
+      "ble_peer_diagnostics": "IMPLEMENTED_SCAN_ADVERTISE_BINDING_SAMPLE_AGE_RSSI_TXPOWER_RANGE_BLOCKER_REBIND_COUNTERS",
+      "android_api36_ranging_manager": "IMPLEMENTED_RAW_BLE_RSSI_SESSION_WHEN_API36_SERVICE_PERMISSION_AND_BODY_FINDER_ADDRESS_BINDING_ARE_AVAILABLE; CLOSED_OR_FAILED_SESSION_RELEASES_FINGERPRINT_AND_RETRIES_WITH_BACKOFF",
+      "android_api36_fallback_independence": "IMPLEMENTED_SYSTEM_FAILURE_DOES_NOT_CLEAR_OR_DISABLE_BODY_FINDER_BLE_SCAN_RSSI_WINDOWS",
+      "android_api36_advanced_ranging": "UWB_BLE_CS_WIFI_NAN_RTT_NOT_CLAIMED_LIVE_UNLESS_ACTUAL_RESULT_IS_OBSERVED",
       "wifi_rtt": "FEATURE_PROBED_SUPPORTED_UNVERIFIED; never substituted with connected-link RSSI",
       "connected_wifi_rssi": "LIVE_WHEN_OS_EXPOSES; HUMAN_PRESENCE_EXPERIMENT_ONLY",
+      "udp_fabric_diagnostics": "IMPLEMENTED_TX_RX_PROTOCOL_SESSION_PEER_PACKET_LAST_SEEN_EXPIRY",
+      "safe_area": "ANDROID_STATUS_BAR_PADDING_AND_NON_TRANSLUCENT_STATUS_CONFIGURATION",
+      "report_version": 6,
       "csi": "UNSUPPORTED_UNLESS_FUTURE_VERIFIED_ADAPTER"
     },
     "android_legacy": {
       "artifact": "body-finder-ruview-legacy-minsdk21.apk",
       "min_sdk": 21,
       "manual_coordinates_normal_flow": false,
+      "legacy_bluetooth_permissions": "IMPLEMENTED",
       "ble_peer_rssi_range": "IMPLEMENTED_WORKING_DEGRADED_WHEN_HARDWARE_AND_PERMISSIONS_ALLOW",
       "radar_ui": false,
       "role": "fallback sensor/fabric node"
@@ -46,7 +60,7 @@
       "geometry_publication_and_consumption": "IMPLEMENTED",
       "manual_coordinates_normal_flow": false,
       "connected_wifi_rssi": "LIVE_IF_IW_OR_PROC_NET_WIRELESS_EXPOSES_IT; HUMAN_PRESENCE_EXPERIMENT_ONLY",
-      "native_pairwise_ranging": "NOT_CLAIMED_IN_THIS_RELEASE; consumes real peer range edges and coordinator geometry",
+      "native_pairwise_ranging": "NOT_CLAIMED_IN_THIS RELEASE; consumes real peer range edges and coordinator geometry",
       "csi": "UNSUPPORTED_UNLESS_FUTURE_VERIFIED_PLUGIN"
     },
     "wsl2_x86_64": {
@@ -69,10 +83,15 @@
       "local_geometry_publication_bridge": "IMPLEMENTED_FOR_BUILD_AND_UI_VALIDATION",
       "manual_coordinates_normal_flow": false,
       "rf": "UNSUPPORTED_IN_SIMULATOR",
-      "cross_platform_field_fabric": "NOT_IMPLEMENTED_FOR_PHYSICAL_IOS_IN_EXPERIMENTAL_3",
+      "cross_platform_field_fabric": "NOT_IMPLEMENTED_FOR_PHYSICAL_IOS_IN_EXPERIMENTAL_4",
       "physical_device_install": "NOT_PROVIDED_WITHOUT_APPLE_SIGNING_CREDENTIALS",
       "purpose": "build/UI/truth-classification validation"
     }
+  },
+  "physical_acceptance": {
+    "android_two_pixel_retest": "REQUIRED_BEFORE_HUMAN_TESTS",
+    "android_three_device_retest": "REQUIRED_BEFORE_HUMAN_TESTS",
+    "through_wall": "NOT_YET_AUTHORIZED_BY_THIS_RELEASE"
   },
   "safety": {
     "human_localization_validated": false,
