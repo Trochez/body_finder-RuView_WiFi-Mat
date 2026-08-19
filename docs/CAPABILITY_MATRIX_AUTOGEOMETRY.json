@@ -23,7 +23,8 @@
       "geometry_publication_and_consumption": "IMPLEMENTED_OVER_BODY_FINDER_UDP_FABRIC",
       "manual_coordinates_normal_flow": false,
       "ble_peer_rssi_range": "IMPLEMENTED_WORKING_DEGRADED_WHEN_HARDWARE_AND_PERMISSIONS_ALLOW",
-      "android_api36_ranging_manager": "FUNCTIONALLY_PROBED_SUPPORTED_UNVERIFIED; no UWB/BLE-CS/NAN-RTT precision claim without a verified live session adapter",
+      "android_api36_ranging_manager": "IMPLEMENTED_RAW_BLE_RSSI_SESSION_WHEN_API36_SERVICE_PERMISSION_AND_BODY_FINDER_BLE_ADDRESS_BINDING_ARE_AVAILABLE; preferred over manual scan RSSI; live result provenance is ANDROID_RANGING_BLE_RSSI",
+      "android_api36_advanced_ranging": "UWB_BLE_CS_WIFI_NAN_RTT_CAPABILITIES_NOT_CLAIMED_AS_LIVE_UNTIL_SEPARATELY_NEGOTIATED_AND_OBSERVED",
       "wifi_rtt": "FEATURE_PROBED_SUPPORTED_UNVERIFIED; never substituted with connected-link RSSI",
       "connected_wifi_rssi": "LIVE_WHEN_OS_EXPOSES; HUMAN_PRESENCE_EXPERIMENT_ONLY",
       "csi": "UNSUPPORTED_UNLESS_FUTURE_VERIFIED_ADAPTER"
