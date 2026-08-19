@@ -61,7 +61,7 @@ public class BodyFinderNativeModule: Module {
           "automatic_geometry_compute": ["state": "WORKING", "detail": "Protocol-v2 automatic geometry solver runs in the shared application layer"],
           "geometry_publication": ["state": "WORKING", "detail": "The shared UI can attach an elected-coordinator GeometrySolution to its local advertisement; simulator has no cross-device RF fabric"],
           "csi": ["state": "UNSUPPORTED", "detail": "No verified iOS CSI path; RSSI is never labeled CSI"],
-          "udp_fabric": ["state": "UNSUPPORTED", "detail": "Cross-platform iOS field fabric is not implemented in experimental.2; do not treat simulator participation as RF validation"],
+          "udp_fabric": ["state": "UNSUPPORTED", "detail": "Cross-platform physical-iOS field fabric is not implemented in experimental.3; do not treat simulator participation as RF validation"],
           "compute": ["state": "WORKING", "detail": "Body Finder React Native / Expo runtime"]
         ]
       ])
