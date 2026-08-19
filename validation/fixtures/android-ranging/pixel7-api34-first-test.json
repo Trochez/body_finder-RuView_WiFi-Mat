@@ -1,0 +1,17 @@
+{
+  "fixture_version": 1,
+  "device": "Pixel 7 Pro",
+  "android_api": 34,
+  "protocol_version": 2,
+  "manual_geometry_override": false,
+  "finding": "UDP_PEER_PRESENT_BUT_NO_PAIRWISE_RANGE",
+  "ble_peer_ranging": {
+    "state": "WORKING_DEGRADED",
+    "detail": "scanner/advertiser active but no live pairwise observation was emitted"
+  },
+  "peer_count": 1,
+  "ranges": [],
+  "range_observations": [],
+  "valid_edge_pairs": [],
+  "geometry_state": "GEOMETRY_INSUFFICIENT"
+}
