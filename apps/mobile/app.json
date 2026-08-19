@@ -8,13 +8,15 @@
     "newArchEnabled": false,
     "android": {
       "package": "com.trochez.bodyfinderruview",
-      "versionCode": 3,
+      "versionCode": 4,
       "permissions": [
         "android.permission.INTERNET",
         "android.permission.ACCESS_NETWORK_STATE",
         "android.permission.ACCESS_WIFI_STATE",
         "android.permission.CHANGE_WIFI_STATE",
         "android.permission.ACCESS_FINE_LOCATION",
+        "android.permission.BLUETOOTH",
+        "android.permission.BLUETOOTH_ADMIN",
         "android.permission.NEARBY_WIFI_DEVICES",
         "android.permission.BLUETOOTH_SCAN",
         "android.permission.BLUETOOTH_CONNECT",
@@ -34,7 +36,7 @@
     "extra": {
       "truthMode": "experimental-auto-geometry",
       "protocolVersion": 2,
-      "releaseIteration": "experimental.3"
+      "releaseIteration": "experimental.4"
     }
   }
 }
