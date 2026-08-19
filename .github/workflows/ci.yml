@@ -29,15 +29,49 @@ jobs:
             exit 1
           fi
           grep -q 'pub const PROTOCOL_VERSION: u16 = 2;' crates/body-finder-core/src/lib.rs
+          grep -q 'pub struct RangingCapability' crates/body-finder-core/src/lib.rs
+          grep -q 'RANGE_SAMPLE_STALE_NS' crates/body-finder-core/src/lib.rs
+          grep -q 'replayed/out-of-order range sample rejected' crates/body-finder-core/src/lib.rs
+          grep -q 'published_geometry' crates/body-finder-core/src/lib.rs
+          grep -q 'published_geometry' protocol/schemas/autogeometry-v2.json
+          grep -q 'geometry_publisher_node_id' apps/node/src/main.rs
+          grep -q 'ELECTED_COORDINATOR_PUBLICATION' apps/mobile/src/autogeometry.ts
+          grep -q 'connected_components' apps/mobile/src/geometryDiagnostics.ts
+          grep -q 'sample_age_ms' apps/mobile/src/geometryDiagnostics.ts
           grep -q 'manual_geometry_override.*false' apps/mobile/App.tsx
           grep -q 'manual_geometry_override.*false' apps/node/src/main.rs
           grep -q 'protocol_version.*2' protocol/schemas/autogeometry-v2.json
+          # Rust and JS must use the same JS-safe 32-bit FNV-1a revision family.
+          grep -q '0x811c9dc5' crates/body-finder-core/src/lib.rs
+          grep -q '2166136261' apps/mobile/src/autogeometry.ts
       - name: Validate JSON and Python validation tooling
         run: |
+          set -euo pipefail
           python3 -m json.tool docs/CAPABILITY_MATRIX_AUTOGEOMETRY.json >/dev/null
           python3 -m json.tool validation/ground-truth/GROUND_TRUTH_TEMPLATE.json >/dev/null
           python3 -m json.tool validation/fixtures/autogeometry-triangle-v2.json >/dev/null
+          python3 -m json.tool protocol/schemas/autogeometry-v2.json >/dev/null
           python3 -m py_compile validation/analysis/validate_autogeometry.py
+      - name: Validate protocol fixture against JSON Schema
+        run: |
+          set -euo pipefail
+          python3 -m pip install --disable-pip-version-check --quiet jsonschema==4.23.0
+          python3 - <<'PY'
+          import json
+          from pathlib import Path
+          from jsonschema import Draft202012Validator
+
+          schema = json.loads(Path('protocol/schemas/autogeometry-v2.json').read_text())
+          fixture = json.loads(Path('validation/fixtures/autogeometry-triangle-v2.json').read_text())
+          validator = Draft202012Validator(schema)
+          errors = []
+          for index, node in enumerate(fixture['nodes']):
+              for error in validator.iter_errors(node):
+                  errors.append(f'nodes[{index}] {error.json_path}: {error.message}')
+          if errors:
+              raise SystemExit('\n'.join(errors))
+          print(f"Validated {len(fixture['nodes'])} protocol-v2 fixture advertisements")
+          PY
 
   rust-linux:
     needs: requirements
