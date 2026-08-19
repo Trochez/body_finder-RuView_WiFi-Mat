@@ -4,31 +4,37 @@ Offline, multi-device experimental RF sensing and relative-position research app
 
 ## Current truth status
 
-**This repository does not yet claim validated human localization through walls or rubble.** The first release is an instrumented physical-validation build for Android + Ubuntu/WSL/Windows. It uses real OS-exposed Wi-Fi RSSI when available, never labels RSSI as CSI, records provenance, and shows explicit localization uncertainty.
+**This repository does not claim validated human localization through walls or rubble.** The current implementation is a physical-validation stack for Android + Ubuntu/WSL/Windows, plus iOS build validation. It records provenance and explicit uncertainty and never labels RSSI as CSI.
 
-The common-device baseline is intentionally simple and auditable: after an empty-scene calibration, 3+ positioned nodes contribute calibrated RSSI disturbance. The current experimental estimator computes a weighted 2D hypothesis and a deliberately inflated 95% uncertainty region. Only ground-truth field trials can determine whether this signal is useful in a specific layout.
+## Automatic sensor geometry — protocol v2
 
-See [IMPLEMENTATION_PLAN.md](IMPLEMENTATION_PLAN.md) for the product contract and [docs/TESTING_DEV_RELEASE.md](docs/TESTING_DEV_RELEASE.md) for the physical test protocol.
+The normal operator flow requires **no manual X/Y/Z sensor coordinates**. Nodes discover peers, publish real pairwise range observations when a verified runtime adapter can produce them, and solve a relative 1D/2D sensor frame automatically. Missing, disconnected or degenerate measurement graphs remain `GEOMETRY_INSUFFICIENT`/`GEOMETRY_DEGRADED`; unresolved nodes are not placed at default coordinates.
+
+Current live Android pairwise fallback is BLE advertisement RSSI with deliberately conservative uncertainty. Android API-36 ranging and Wi-Fi RTT are capability-probed but are not presented as live precision ranging until an actual ranging session produces measurements. Connected Wi-Fi RSSI remains a separate experimental human-presence signal and is never used as direct phone-to-phone distance.
+
+See [IMPLEMENTATION_PLAN_AUTOGEOMETRY_RELEASE.md](IMPLEMENTATION_PLAN_AUTOGEOMETRY_RELEASE.md) and [docs/TESTING_AUTOGEOMETRY_RELEASE.md](docs/TESTING_AUTOGEOMETRY_RELEASE.md).
 
 ## Components
 
-- `crates/body-finder-core` — protocol, coordinator election, experimental localization, uncertainty/provenance.
-- `apps/node` — native Rust node for Ubuntu, WSL and Windows; reads live Wi-Fi metrics where exposed, discovers peers over UDP and records JSONL.
-- `apps/mobile` — Expo/React Native Android app with native Kotlin capability/RSSI/fabric adapter and Radar/Expert UI.
-- `upstream/ruvieW.lock.json` — exact RuView snapshot reviewed by the project.
+- `crates/body-finder-core` — protocol v2, automatic geometry solver, uncertainty, coordinator election and experimental human fusion.
+- `apps/node` — Ubuntu/WSL/Windows native Rust node; no normal `--x/--y` arguments.
+- `apps/mobile` — Android/iOS React Native UI; Android native adapter provides live BLE range observations when available.
+- `apps/android-legacy` — minSdk21 Android fallback node with no manual coordinates.
+- `validation` — ground-truth template, fixtures and automatic result validator.
+- `upstream/ruvieW.lock.json` — exact reviewed RuView snapshot.
 
 ## Development
 
 ```bash
 cargo test --workspace
-cargo run -p body-finder-node -- --node ubuntu-a --x 0 --y 0 --calibrate 10 --record ubuntu-a.jsonl
+cargo run -p body-finder-node -- --node ubuntu-a --calibrate 10 --record ubuntu-a.jsonl
 
 cd apps/mobile
 npm install
+npx tsc --noEmit
 npx expo prebuild --platform android
-npx expo run:android
 ```
 
 ## Safety
 
-A negative RF scan does **not** prove that no person is present. Do not use experimental builds as a replacement for trained search-and-rescue procedures or validated sensing equipment.
+A negative RF scan is never proof that no person is present. Do not use experimental builds as rescue equipment and never test in an unstable structure.

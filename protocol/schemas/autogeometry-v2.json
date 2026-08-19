@@ -1,0 +1,171 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://body-finder.local/schema/autogeometry-v2.json",
+  "title": "Body Finder automatic geometry protocol v2 advertisement",
+  "type": "object",
+  "additionalProperties": true,
+  "description": "Protocol-v2 advertisements carry measured pairwise ranging observations and may carry the elected coordinator's derived GeometrySolution. Manual sensor coordinates are never required by the production flow.",
+  "required": [
+    "protocol_version",
+    "session_id",
+    "node_id",
+    "display_name",
+    "platform",
+    "monotonic_ns",
+    "coordinator_score",
+    "ranges",
+    "manual_geometry_override"
+  ],
+  "properties": {
+    "protocol_version": { "const": 2 },
+    "session_id": { "type": "string", "minLength": 1 },
+    "node_id": { "type": "string", "minLength": 1 },
+    "display_name": { "type": "string", "minLength": 1 },
+    "platform": { "type": "string", "minLength": 1 },
+    "monotonic_ns": { "type": "integer", "minimum": 0 },
+    "coordinator_score": { "type": "number" },
+    "capabilities": { "type": "object" },
+    "rssi_dbm": { "type": ["number", "null"] },
+    "baseline_rssi_dbm": { "type": ["number", "null"] },
+    "baseline_sigma_db": { "type": ["number", "null"], "minimum": 0 },
+    "position": {
+      "description": "Legacy/debug-only field. Production automatic geometry MUST NOT consume this value.",
+      "type": ["object", "null"]
+    },
+    "scanning": { "type": "boolean" },
+    "ble_identity": { "type": ["string", "null"] },
+    "manual_geometry_override": { "const": false },
+    "ranges": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/rangeObservation" }
+    },
+    "geometry_publisher_node_id": { "type": ["string", "null"] },
+    "published_geometry": {
+      "oneOf": [
+        { "$ref": "#/$defs/geometrySolution" },
+        { "type": "null" }
+      ]
+    }
+  },
+  "$defs": {
+    "rangeObservation": {
+      "type": "object",
+      "additionalProperties": true,
+      "required": [
+        "session_id",
+        "observer_node_id",
+        "peer_node_id",
+        "technology",
+        "monotonic_ns",
+        "distance_m",
+        "distance_sigma_m",
+        "quality",
+        "source_detail"
+      ],
+      "properties": {
+        "session_id": { "type": "string", "minLength": 1 },
+        "observer_node_id": { "type": "string", "minLength": 1 },
+        "peer_node_id": { "type": "string", "minLength": 1 },
+        "technology": {
+          "enum": [
+            "ANDROID_RANGING_UWB",
+            "ANDROID_RANGING_BLE_CS",
+            "ANDROID_RANGING_WIFI_NAN_RTT",
+            "ANDROID_RANGING_BLE_RSSI",
+            "WIFI_RTT_AWARE",
+            "WIFI_RTT_ACCESS_POINT",
+            "ANDROIDX_UWB",
+            "BLE_RSSI",
+            "LINUX_ADAPTER",
+            "WINDOWS_ADAPTER",
+            "UNKNOWN"
+          ]
+        },
+        "monotonic_ns": { "type": "integer", "minimum": 0 },
+        "distance_m": { "type": ["number", "null"], "minimum": 0 },
+        "distance_sigma_m": { "type": ["number", "null"], "minimum": 0 },
+        "azimuth_deg": { "type": ["number", "null"] },
+        "azimuth_sigma_deg": { "type": ["number", "null"], "minimum": 0 },
+        "elevation_deg": { "type": ["number", "null"] },
+        "elevation_sigma_deg": { "type": ["number", "null"], "minimum": 0 },
+        "rssi_dbm": { "type": ["number", "null"] },
+        "quality": { "enum": ["HIGH", "MEDIUM", "LOW", "REJECTED"] },
+        "source_detail": { "type": "string", "minLength": 1 }
+      }
+    },
+    "geometryPosition": {
+      "type": "object",
+      "required": ["node_id", "x_m", "y_m", "z_m", "covariance_2x2", "error_radius_95_m"],
+      "properties": {
+        "node_id": { "type": "string", "minLength": 1 },
+        "x_m": { "type": "number" },
+        "y_m": { "type": "number" },
+        "z_m": { "type": "number" },
+        "error_radius_95_m": { "type": "number", "minimum": 0 },
+        "covariance_2x2": {
+          "type": "array",
+          "minItems": 2,
+          "maxItems": 2,
+          "items": {
+            "type": "array",
+            "minItems": 2,
+            "maxItems": 2,
+            "items": { "type": "number" }
+          }
+        }
+      }
+    },
+    "rejectedEdge": {
+      "type": "object",
+      "required": ["edge_id", "reason"],
+      "properties": {
+        "edge_id": { "type": "string", "minLength": 1 },
+        "reason": { "type": "string", "minLength": 1 },
+        "residual_m": { "type": ["number", "null"] }
+      }
+    },
+    "geometrySolution": {
+      "type": "object",
+      "additionalProperties": true,
+      "required": [
+        "frame_id",
+        "revision",
+        "generated_monotonic_ns",
+        "dimension",
+        "state",
+        "anchor_node_id",
+        "positions",
+        "used_edges",
+        "rejected_edges"
+      ],
+      "properties": {
+        "frame_id": { "type": "string", "minLength": 1 },
+        "revision": { "type": "integer", "minimum": 0 },
+        "generated_monotonic_ns": { "type": "integer", "minimum": 0 },
+        "dimension": { "enum": ["UNKNOWN", "1D", "2D"] },
+        "state": {
+          "enum": [
+            "DISCOVERING_NODES",
+            "RANGING",
+            "GEOMETRY_INSUFFICIENT",
+            "GEOMETRY_1D",
+            "GEOMETRY_2D",
+            "GEOMETRY_DEGRADED",
+            "GEOMETRY_STALE"
+          ]
+        },
+        "anchor_node_id": { "type": "string", "minLength": 1 },
+        "axis_node_id": { "type": ["string", "null"] },
+        "positions": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/geometryPosition" }
+        },
+        "residual_rms_m": { "type": ["number", "null"], "minimum": 0 },
+        "condition_score": { "type": ["number", "null"], "minimum": 0, "maximum": 1 },
+        "used_edges": { "type": "array", "items": { "type": "string" } },
+        "rejected_edges": { "type": "array", "items": { "$ref": "#/$defs/rejectedEdge" } },
+        "reason": { "type": ["string", "null"] }
+      }
+    }
+  }
+}
