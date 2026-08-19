@@ -25,15 +25,47 @@ jobs:
             exit 1
           fi
           grep -q 'pub const PROTOCOL_VERSION: u16 = 2;' crates/body-finder-core/src/lib.rs
+          grep -q 'pub struct RangingCapability' crates/body-finder-core/src/lib.rs
+          grep -q 'RANGE_SAMPLE_STALE_NS' crates/body-finder-core/src/lib.rs
+          grep -q 'replayed/out-of-order range sample rejected' crates/body-finder-core/src/lib.rs
+          grep -q 'published_geometry' crates/body-finder-core/src/lib.rs
+          grep -q 'geometry_publisher_node_id' apps/node/src/main.rs
+          grep -q 'ELECTED_COORDINATOR_PUBLICATION' apps/mobile/src/autogeometry.ts
+          grep -q 'connected_components' apps/mobile/src/geometryDiagnostics.ts
+          grep -q 'sample_age_ms' apps/mobile/src/geometryDiagnostics.ts
           grep -q 'manual_geometry_override.*false' apps/mobile/App.tsx
           grep -q 'manual_geometry_override.*false' apps/node/src/main.rs
           test -s IMPLEMENTATION_PLAN_AUTOGEOMETRY_RELEASE.md
           test -s docs/TESTING_AUTOGEOMETRY_RELEASE.md
           test -s docs/CAPABILITY_MATRIX_AUTOGEOMETRY.json
+          test -s protocol/schemas/autogeometry-v2.json
           python3 -m json.tool docs/CAPABILITY_MATRIX_AUTOGEOMETRY.json >/dev/null
+          python3 -m json.tool protocol/schemas/autogeometry-v2.json >/dev/null
           python3 -m json.tool validation/ground-truth/GROUND_TRUTH_TEMPLATE.json >/dev/null
           python3 -m json.tool validation/fixtures/autogeometry-triangle-v2.json >/dev/null
           python3 -m py_compile validation/analysis/validate_autogeometry.py
+      - name: Validate protocol fixture against JSON Schema
+        run: |
+          set -euo pipefail
+          python3 -m pip install --disable-pip-version-check --quiet jsonschema==4.23.0
+          python3 - <<'PY'
+          import json
+          from pathlib import Path
+          from jsonschema import Draft202012Validator
+
+          schema = json.loads(Path('protocol/schemas/autogeometry-v2.json').read_text())
+          fixture = json.loads(Path('validation/fixtures/autogeometry-triangle-v2.json').read_text())
+          validator = Draft202012Validator(schema)
+          errors = []
+          for index, node in enumerate(fixture['nodes']):
+              errors.extend(
+                  f'nodes[{index}] {error.json_path}: {error.message}'
+                  for error in validator.iter_errors(node)
+              )
+          if errors:
+              raise SystemExit('\n'.join(errors))
+          print(f"Validated {len(fixture['nodes'])} protocol-v2 advertisements")
+          PY
 
   linux-x86_64:
     needs: requirements
@@ -54,7 +86,7 @@ jobs:
           tar -C dist/tar -czf dist/body-finder-node-linux-x86_64.tar.gz body-finder-node
           cat > dist/deb/DEBIAN/control <<'EOF'
           Package: body-finder-node
-          Version: 0.2.0
+          Version: 0.2.0~experimental3
           Section: science
           Priority: optional
           Architecture: amd64
@@ -190,7 +222,7 @@ jobs:
           set -euxo pipefail
           WORKSPACE=$(find . -maxdepth 1 -name '*.xcworkspace' -print -quit)
           test -n "$WORKSPACE"
-          SCHEME=$(xcodebuild -workspace "$WORKSPACE" -list -json | ruby -rjson -e 'j=JSON.parse(STDIN.read); puts j.fetch("workspace").fetch("schemes").first')
+          SCHEME=$(xcodebuild -workspace "$WORKSPACE" -list -json | ruby -rjson -e 'j=JSON.parse(STDIN.read); schemes=j.fetch("workspace").fetch("schemes"); preferred="BodyFinderRuView"; abort("Expected app scheme #{preferred} not found: #{schemes.join(", ")}") unless schemes.include?(preferred); puts preferred')
           test -n "$SCHEME"
           xcodebuild -workspace "$WORKSPACE" -scheme "$SCHEME" -configuration Release \
             -sdk iphonesimulator -destination 'generic/platform=iOS Simulator' \
@@ -216,7 +248,7 @@ jobs:
           pattern: release-*
           path: dist
           merge-multiple: true
-      - name: Add validation kit and manifests
+      - name: Add validation kit and static manifests
         shell: bash
         run: |
           set -euxo pipefail
@@ -226,7 +258,12 @@ jobs:
           cp upstream/ruvieW.lock.json dist/ruview-upstream-lock.json
           printf '2\n' > dist/protocol-version.txt
           cat > dist/model-manifest.json <<'EOF'
-          {"models":[],"note":"experimental.2 uses no pretrained human-localization model; connected-Wi-Fi RSSI disturbance remains an explicit experimental baseline; sensor geometry is automatic protocol-v2 ranging graph output"}
+          {
+            "schema_version": 1,
+            "release_family": "0.2.0-experimental.3",
+            "models": [],
+            "note": "No pretrained human-localization model is bundled. Connected-Wi-Fi RSSI disturbance remains an explicit experimental baseline; sensor geometry is automatic protocol-v2 ranging-graph output."
+          }
           EOF
           mkdir -p dist/validation-kit
           cp validation/analysis/validate_autogeometry.py dist/validation-kit/validate_autogeometry.py
@@ -239,19 +276,27 @@ jobs:
           cat > dist/IOS_PHYSICAL_DEVICE_SIGNING_REQUIRED.txt <<'EOF'
           This prerelease contains an unsigned iOS Simulator .app build only.
           It is not an installable iPhone/iPad IPA. Physical iOS testing requires Apple signing credentials,
-          a signed build, and a physical iOS test device. RF/fabric participation on physical iOS is not claimed by experimental.2.
+          a signed build, a physical iOS test device, and completion of the still-unverified iOS RF/fabric adapter.
+          Physical iOS RF/fabric participation is not claimed by experimental.3.
           EOF
           cat > dist/release-manifest.json <<EOF
           {
+            "schema_version": 2,
             "release":"dev-${GITHUB_RUN_NUMBER}",
             "commit":"${GITHUB_SHA}",
-            "version":"0.2.0-experimental.2",
+            "version":"0.2.0-experimental.3",
             "protocol_version":2,
             "classification":"EXPERIMENTAL_AUTOGEOMETRY_PHYSICAL_VALIDATION_BUILD",
             "automatic_geometry":true,
             "manual_node_coordinates_required":false,
+            "session_isolation":true,
+            "stale_range_expiry":true,
+            "replay_out_of_order_rejection":true,
+            "source_aware_ranging_selection":true,
+            "coordinator_geometry_publication":true,
             "human_localization_validated":false,
             "through_wall_validated":false,
+            "rescue_use_validated":false,
             "android_live_pairwise_range":"BLE_RSSI_WORKING_DEGRADED_WHEN_AVAILABLE",
             "advanced_android_ranging":"CAPABILITY_PROBED_SUPPORTED_UNVERIFIED",
             "ios_physical_rf_validated":false,
@@ -265,12 +310,20 @@ jobs:
               "body-finder-ruview-ios-simulator.zip",
               "body-finder-validation-tools.zip",
               "TESTING_AUTOGEOMETRY_RELEASE.md",
+              "release-manifest.json",
               "capability-matrix.json",
+              "protocol-version.txt",
+              "ruview-upstream-lock.json",
+              "model-manifest.json",
+              "IMPLEMENTATION_PLAN_AUTOGEOMETRY_RELEASE.md",
+              "IOS_PHYSICAL_DEVICE_SIGNING_REQUIRED.txt",
               "SBOM.spdx.json",
               "SHA256SUMS"
             ]
           }
           EOF
+          python3 -m json.tool dist/model-manifest.json >/dev/null
+          python3 -m json.tool dist/release-manifest.json >/dev/null
       - name: Generate SPDX SBOM
         uses: anchore/sbom-action@v0
         with:
@@ -278,7 +331,7 @@ jobs:
           format: spdx-json
           output-file: dist/SBOM.spdx.json
           upload-artifact: false
-      - name: Generate checksums and assert mandatory artifacts
+      - name: Assert mandatory artifacts and manifest coverage
         shell: bash
         run: |
           set -euxo pipefail
@@ -289,21 +342,59 @@ jobs:
             body-finder-node-linux-x86_64.tar.gz
             body-finder-node-linux-x86_64.deb
             body-finder-node-windows-x86_64.zip
+            TESTING_AUTOGEOMETRY_RELEASE.md
+            release-manifest.json
+            capability-matrix.json
+            protocol-version.txt
+            ruview-upstream-lock.json
+            model-manifest.json
+            SBOM.spdx.json
+          )
+          RECOMMENDED=(
             body-finder-ruview-ios-simulator.zip
             body-finder-validation-tools.zip
-            TESTING_AUTOGEOMETRY_RELEASE.md
-            capability-matrix.json
             IMPLEMENTATION_PLAN_AUTOGEOMETRY_RELEASE.md
-            ruvview-placeholder-do-not-use
+            IOS_PHYSICAL_DEVICE_SIGNING_REQUIRED.txt
           )
-          # Exact upstream-lock spelling in the repository is intentionally unusual: ruvieW.lock.json.
-          REQUIRED+=(ruview-upstream-lock.json protocol-version.txt model-manifest.json release-manifest.json IOS_PHYSICAL_DEVICE_SIGNING_REQUIRED.txt SBOM.spdx.json)
-          for f in "${REQUIRED[@]}"; do
-            if [ "$f" = "ruvview-placeholder-do-not-use" ]; then continue; fi
-            test -s "dist/$f" || { echo "Mandatory release artifact missing/empty: $f"; exit 1; }
+          for f in "${REQUIRED[@]}" "${RECOMMENDED[@]}"; do
+            test -s "dist/$f" || { echo "Release artifact missing/empty: $f"; exit 1; }
           done
-          (cd dist && sha256sum * > SHA256SUMS)
+          python3 - <<'PY'
+          import json
+          from pathlib import Path
+          manifest = json.loads(Path('dist/release-manifest.json').read_text())
+          required = {
+              'body-finder-ruview-universal.apk',
+              'body-finder-ruview.aab',
+              'body-finder-ruview-legacy-minsdk21.apk',
+              'body-finder-node-linux-x86_64.tar.gz',
+              'body-finder-node-linux-x86_64.deb',
+              'body-finder-node-windows-x86_64.zip',
+              'TESTING_AUTOGEOMETRY_RELEASE.md',
+              'release-manifest.json',
+              'capability-matrix.json',
+              'protocol-version.txt',
+              'ruview-upstream-lock.json',
+              'model-manifest.json',
+              'SBOM.spdx.json',
+              'SHA256SUMS',
+          }
+          missing = sorted(required - set(manifest.get('artifacts', [])))
+          if missing:
+              raise SystemExit(f'manifest missing required artifacts: {missing}')
+          if manifest.get('protocol_version') != 2 or manifest.get('manual_node_coordinates_required') is not False:
+              raise SystemExit('release-manifest product contract mismatch')
+          PY
+      - name: Generate SHA-256 checksums and verify them
+        shell: bash
+        run: |
+          set -euxo pipefail
+          (cd dist && find . -maxdepth 1 -type f ! -name SHA256SUMS -printf '%f\0' | sort -z | xargs -0 sha256sum > SHA256SUMS)
           test -s dist/SHA256SUMS
+          (cd dist && sha256sum --check SHA256SUMS)
+          grep -q 'body-finder-ruview-universal.apk' dist/SHA256SUMS
+          grep -q 'body-finder-node-windows-x86_64.zip' dist/SHA256SUMS
+          grep -q 'SBOM.spdx.json' dist/SHA256SUMS
       - name: Publish prerelease
         env:
           GH_TOKEN: ${{ github.token }}
@@ -316,19 +407,19 @@ jobs:
 
           **Experimental automatic-geometry physical-validation build. Not validated for rescue use.**
 
-          The operator no longer enters sensor X/Y/Z. Protocol v2 builds a relative sensor geometry only from reported pairwise ranging observations and explicitly reports insufficient/1D/2D/degraded geometry.
+          This release removes normal manual sensor X/Y/Z entry. Protocol v2 discovers peers, accepts only provenance-preserving pairwise ranging observations, rejects wrong-session/stale/replayed data, selects the strongest available ranging source per pair, solves robust relative 2D geometry, and publishes the elected coordinator's geometry revision to peers.
 
           Included:
-          - Full Android APK + AAB with automatic-geometry UI and live BLE-RSSI peer-ranging fallback with conservative uncertainty.
+          - Full Android APK + AAB with automatic-geometry radar, Expert graph diagnostics, live BLE-RSSI peer-ranging fallback and conservative uncertainty.
           - Legacy minSdk21 Android sensor APK without manual coordinates.
           - Ubuntu/WSL Linux x86_64 tar + deb compute/sensing node.
           - Windows x86_64 native node.
           - Unsigned iOS Simulator build-validation artifact (not a physical-device IPA).
-          - Complete field protocol, validation script/template/fixture, capability matrix, SBOM and SHA-256 checksums.
+          - Complete field protocol, schema, validation script/template/fixture, capability matrix, release manifest, SBOM and SHA-256 checksums.
 
-          Advanced Android API-36 ranging/RTT is capability-probed but is not claimed as a live precision measurement unless a future verified adapter actually reports it. Connected Wi-Fi RSSI is never treated as phone-to-phone distance and RSSI is never labeled CSI.
+          Advanced Android API-36 ranging/RTT is capability-probed but is not claimed as a live precision measurement unless a verified adapter actually reports it. Connected Wi-Fi RSSI is never treated as phone-to-phone distance and RSSI is never labeled CSI.
 
-          Start with **TESTING_AUTOGEOMETRY_RELEASE.md** from this release.
+          Start with **TESTING_AUTOGEOMETRY_RELEASE.md**. Physical multi-device and through-wall validation must still be executed before any real-world performance claim.
           EOF
           gh release create "$TAG" --target "$GITHUB_SHA" --prerelease --title "Body Finder – RuView ${TAG} — automatic geometry" --notes-file /tmp/release-notes.md
           gh release upload "$TAG" dist/* --clobber
