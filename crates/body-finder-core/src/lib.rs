@@ -39,6 +39,20 @@ pub enum RangingTechnology {
     Unknown,
 }
 
+/// Normalized ranging capability descriptor used by platform adapters and
+/// diagnostics. Runtime platforms may additionally expose platform-specific
+/// capability keys, but these semantics remain stable across implementations.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct RangingCapability {
+    pub technology: RangingTechnology,
+    pub state: CapabilityState,
+    pub max_peers: Option<u32>,
+    pub supports_distance: bool,
+    pub supports_azimuth: bool,
+    pub supports_elevation: bool,
+    pub detail: String,
+}
+
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "SCREAMING_SNAKE_CASE")]
 pub enum MeasurementQuality {
@@ -129,6 +143,9 @@ pub struct RejectedEdge {
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct GeometrySolution {
     pub frame_id: String,
+    /// Protocol-v2 revisions intentionally stay in the u32 numeric range even
+    /// though the wire field remains u64. This makes values lossless in JSON
+    /// consumers such as JavaScript while preserving a future-compatible type.
     pub revision: u64,
     pub generated_monotonic_ns: u64,
     pub dimension: GeometryDimension,
@@ -701,19 +718,23 @@ fn optimize_positions(
     }
 }
 
+/// 32-bit FNV-1a over the normalized edge record. The field remains `u64` on
+/// the Rust API, but values are intentionally <= u32::MAX so JSON/JS consumers
+/// never lose integer precision. `apps/mobile/src/autogeometry.ts` uses the same
+/// ASCII record and FNV-1a constants.
 fn revision_hash(edges: &[Edge]) -> u64 {
-    let mut hash = 0xcbf29ce484222325_u64;
+    let mut hash: u32 = 0x811c9dc5;
     for edge in edges {
         let record = format!(
             "{}:{:.3}:{:.3}:{};",
             edge.id, edge.distance, edge.sigma, edge.latest_observation_ns
         );
         for byte in record.as_bytes() {
-            hash ^= u64::from(*byte);
-            hash = hash.wrapping_mul(0x100000001b3);
+            hash ^= u32::from(*byte);
+            hash = hash.wrapping_mul(0x0100_0193);
         }
     }
-    hash
+    u64::from(hash)
 }
 
 pub fn solve_geometry(nodes: &[NodeAdvertisement]) -> Option<GeometrySolution> {
@@ -1237,6 +1258,7 @@ mod tests {
             .positions
             .iter()
             .all(|position| position.error_radius_95_m > 0.0));
+        assert!(geometry.revision <= u64::from(u32::MAX));
     }
 
     #[test]
@@ -1255,5 +1277,21 @@ mod tests {
         let serialized = serde_json::to_string(&node).expect("serialize");
         let decoded: NodeAdvertisement = serde_json::from_str(&serialized).expect("deserialize");
         assert_eq!(decoded, node);
+    }
+
+    #[test]
+    fn ranging_capability_descriptor_round_trips() {
+        let capability = RangingCapability {
+            technology: RangingTechnology::BleRssi,
+            state: CapabilityState::WorkingDegraded,
+            max_peers: Some(8),
+            supports_distance: true,
+            supports_azimuth: false,
+            supports_elevation: false,
+            detail: "live fallback".into(),
+        };
+        let encoded = serde_json::to_string(&capability).expect("serialize capability");
+        let decoded: RangingCapability = serde_json::from_str(&encoded).expect("deserialize capability");
+        assert_eq!(decoded, capability);
     }
 }
