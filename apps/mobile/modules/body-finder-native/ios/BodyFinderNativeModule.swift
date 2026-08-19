@@ -61,8 +61,46 @@ public class BodyFinderNativeModule: Module {
           "automatic_geometry_compute": ["state": "WORKING", "detail": "Protocol-v2 automatic geometry solver runs in the shared application layer"],
           "geometry_publication": ["state": "WORKING", "detail": "The shared UI can attach an elected-coordinator GeometrySolution to its local advertisement; simulator has no cross-device RF fabric"],
           "csi": ["state": "UNSUPPORTED", "detail": "No verified iOS CSI path; RSSI is never labeled CSI"],
-          "udp_fabric": ["state": "UNSUPPORTED", "detail": "Cross-platform physical-iOS field fabric is not implemented in experimental.3; do not treat simulator participation as RF validation"],
+          "udp_fabric": ["state": "UNSUPPORTED", "detail": "Cross-platform physical-iOS field fabric is not implemented in experimental.4; do not treat simulator participation as RF validation"],
           "compute": ["state": "WORKING", "detail": "Body Finder React Native / Expo runtime"]
+        ]
+      ])
+    }
+
+    Function("getDiagnosticsJson") {
+      #if targetEnvironment(simulator)
+      let detail = "iOS Simulator has no physical BLE/fabric participation; diagnostics are truthful build/UI placeholders"
+      #else
+      let detail = "Physical iOS BLE/fabric diagnostics are not implemented/validated in experimental.4"
+      #endif
+      return jsonString([
+        "ble_diagnostics": [
+          "scan_state": "UNSUPPORTED",
+          "advertise_state": "UNSUPPORTED",
+          "scan_mode": "NONE",
+          "total_scan_results": 0,
+          "body_finder_scan_results": 0,
+          "malformed_body_finder_payloads": 0,
+          "self_scan_results_ignored": 0,
+          "last_any_scan_result_age_ms": NSNull(),
+          "last_body_finder_scan_result_age_ms": NSNull(),
+          "peers": [] as [Any],
+          "system_ranging": [
+            "state": "UNSUPPORTED",
+            "detail": detail,
+            "fresh_result_available": false
+          ]
+        ],
+        "fabric_diagnostics": [
+          "socket_state": "UNSUPPORTED",
+          "multicast_join_state": "UNSUPPORTED",
+          "tx_packets": 0,
+          "rx_packets": 0,
+          "rx_protocol_v2_packets": 0,
+          "rx_same_session_packets": 0,
+          "peer_count_active": 0,
+          "peer_expire_count": 0,
+          "peers": [] as [Any]
         ]
       ])
     }
