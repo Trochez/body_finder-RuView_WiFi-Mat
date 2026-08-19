@@ -86,8 +86,8 @@ public class BodyFinderNativeModule: Module {
 
     Function("getLocalAdvertisementJson") {
       let r = BodyFinderIOSRuntime.shared
-      let baseline: Any = r.baseline ?? NSNull()
-      let sigma: Any = r.sigma ?? NSNull()
+      let baseline: Any = r.baseline.map { $0 as Any } ?? NSNull()
+      let sigma: Any = r.sigma.map { $0 as Any } ?? NSNull()
       let elapsed = DispatchTime.now().uptimeNanoseconds &- r.startedNs
       return jsonString([
         "protocol_version": 2,
