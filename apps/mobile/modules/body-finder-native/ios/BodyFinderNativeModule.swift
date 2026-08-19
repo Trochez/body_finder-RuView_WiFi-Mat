@@ -10,6 +10,7 @@ private final class BodyFinderIOSRuntime {
   var sigma: Double?
   var scanning = false
   var running = false
+  var publishedGeometry: [String: Any]?
   let startedNs = DispatchTime.now().uptimeNanoseconds
 
   private init() {
@@ -29,6 +30,13 @@ private func jsonString(_ object: Any) -> String {
         let data = try? JSONSerialization.data(withJSONObject: object, options: [.sortedKeys]),
         let text = String(data: data, encoding: .utf8) else { return "{}" }
   return text
+}
+
+private func geometryDictionary(_ text: String?) -> [String: Any]? {
+  guard let text, let data = text.data(using: .utf8),
+        let object = try? JSONSerialization.jsonObject(with: data),
+        let dictionary = object as? [String: Any] else { return nil }
+  return dictionary
 }
 
 public class BodyFinderNativeModule: Module {
@@ -51,6 +59,7 @@ public class BodyFinderNativeModule: Module {
           "wifi_rtt": ["state": "UNSUPPORTED", "detail": "No verified public iOS Wi-Fi RTT adapter in this release"],
           "ble_peer_ranging": ["state": bleState, "detail": bleDetail],
           "automatic_geometry_compute": ["state": "WORKING", "detail": "Protocol-v2 automatic geometry solver runs in the shared application layer"],
+          "geometry_publication": ["state": "WORKING", "detail": "The shared UI can attach an elected-coordinator GeometrySolution to its local advertisement; simulator has no cross-device RF fabric"],
           "csi": ["state": "UNSUPPORTED", "detail": "No verified iOS CSI path; RSSI is never labeled CSI"],
           "udp_fabric": ["state": "UNSUPPORTED", "detail": "Cross-platform iOS field fabric is not implemented in experimental.2; do not treat simulator participation as RF validation"],
           "compute": ["state": "WORKING", "detail": "Body Finder React Native / Expo runtime"]
@@ -61,39 +70,47 @@ public class BodyFinderNativeModule: Module {
     Function("getWifiRssi") { return nil as Double? }
 
     Function("updateLocalState") { (baseline: Double?, sigma: Double?, scanning: Bool) -> Bool in
-      let r = BodyFinderIOSRuntime.shared
-      r.baseline = baseline
-      r.sigma = sigma
-      r.scanning = scanning
+      let runtime = BodyFinderIOSRuntime.shared
+      runtime.baseline = baseline
+      runtime.sigma = sigma
+      runtime.scanning = scanning
+      return true
+    }
+
+    Function("updatePublishedGeometry") { (publish: Bool, geometryJson: String?) -> Bool in
+      let runtime = BodyFinderIOSRuntime.shared
+      runtime.publishedGeometry = publish ? geometryDictionary(geometryJson) : nil
       return true
     }
 
     AsyncFunction("startFabric") { (nodeId: String?, displayName: String?, sessionId: String?) -> Bool in
-      let r = BodyFinderIOSRuntime.shared
-      if let supplied = nodeId, !supplied.isEmpty { r.nodeId = supplied }
-      if let supplied = displayName, !supplied.isEmpty { r.displayName = supplied }
-      if let supplied = sessionId, !supplied.isEmpty { r.sessionId = supplied }
-      r.running = true
+      let runtime = BodyFinderIOSRuntime.shared
+      if let supplied = nodeId, !supplied.isEmpty { runtime.nodeId = supplied }
+      if let supplied = displayName, !supplied.isEmpty { runtime.displayName = supplied }
+      if let supplied = sessionId, !supplied.isEmpty { runtime.sessionId = supplied }
+      runtime.running = true
       return true
     }
 
     Function("stopFabric") {
-      BodyFinderIOSRuntime.shared.running = false
+      let runtime = BodyFinderIOSRuntime.shared
+      runtime.running = false
+      runtime.publishedGeometry = nil
       return true
     }
 
     Function("getPeersJson") { return "[]" }
 
     Function("getLocalAdvertisementJson") {
-      let r = BodyFinderIOSRuntime.shared
-      let baseline: Any = r.baseline.map { $0 as Any } ?? NSNull()
-      let sigma: Any = r.sigma.map { $0 as Any } ?? NSNull()
-      let elapsed = DispatchTime.now().uptimeNanoseconds &- r.startedNs
-      return jsonString([
+      let runtime = BodyFinderIOSRuntime.shared
+      let baseline: Any = runtime.baseline.map { $0 as Any } ?? NSNull()
+      let sigma: Any = runtime.sigma.map { $0 as Any } ?? NSNull()
+      let elapsed = DispatchTime.now().uptimeNanoseconds &- runtime.startedNs
+      var advertisement: [String: Any] = [
         "protocol_version": 2,
-        "session_id": r.sessionId,
-        "node_id": r.nodeId,
-        "display_name": r.displayName,
+        "session_id": runtime.sessionId,
+        "node_id": runtime.nodeId,
+        "display_name": runtime.displayName,
         "platform": "ios",
         "monotonic_ns": elapsed,
         "coordinator_score": 0.70,
@@ -102,11 +119,19 @@ public class BodyFinderNativeModule: Module {
         "baseline_rssi_dbm": baseline,
         "baseline_sigma_db": sigma,
         "position": NSNull(),
-        "scanning": r.scanning,
+        "scanning": runtime.scanning,
         "ble_identity": NSNull(),
         "ranges": [] as [Any],
         "manual_geometry_override": false
-      ])
+      ]
+      if let geometry = runtime.publishedGeometry {
+        advertisement["geometry_publisher_node_id"] = runtime.nodeId
+        advertisement["published_geometry"] = geometry
+      } else {
+        advertisement["geometry_publisher_node_id"] = NSNull()
+        advertisement["published_geometry"] = NSNull()
+      }
+      return jsonString(advertisement)
     }
   }
 }
