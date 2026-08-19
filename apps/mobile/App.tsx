@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import {
   SafeAreaView,
   View,
@@ -20,6 +20,7 @@ import {
   estimateHuman,
   solveGeometry,
 } from './src/autogeometry';
+import { diagnoseGeometryGraph } from './src/geometryDiagnostics';
 
 const T = {
   en: {
@@ -74,6 +75,8 @@ const T = {
 
 const sleep = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
 
+type VisualPosition = { x_m: number; y_m: number };
+
 async function requestAndroidPermissions() {
   if (Platform.OS !== 'android') return;
   const permissions: any[] = [PermissionsAndroid.PERMISSIONS.ACCESS_FINE_LOCATION];
@@ -95,6 +98,10 @@ async function requestAndroidPermissions() {
 }
 
 function relativePosition(position: GeometryPosition, origin: GeometryPosition) {
+  return { x_m: position.x_m - origin.x_m, y_m: position.y_m - origin.y_m };
+}
+
+function relativeVisualPosition(position: VisualPosition, origin: VisualPosition) {
   return { x_m: position.x_m - origin.x_m, y_m: position.y_m - origin.y_m };
 }
 
@@ -126,6 +133,8 @@ export default function App() {
   const [scanning, setScanning] = useState(false);
   const [calibrating, setCalibrating] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [visualPositions, setVisualPositions] = useState<Record<string, VisualPosition>>({});
+  const visualFrame = useRef<string | null>(null);
   const tx = T[lang];
 
   useEffect(() => {
@@ -175,6 +184,7 @@ export default function App() {
     [nodes, coordinator, local?.node_id, computedGeometry],
   );
   const geometry = geometrySelection.solution;
+  const graphDiagnostics = useMemo(() => diagnoseGeometryGraph(nodes), [nodes]);
 
   useEffect(() => {
     const elected = Boolean(local?.node_id && coordinator === local.node_id);
@@ -186,6 +196,30 @@ export default function App() {
     } catch {}
   }, [local?.node_id, coordinator, computedGeometry]);
 
+  // Display-only hysteresis. The authoritative geometry/export stays untouched;
+  // the radar eases small same-frame revisions and resets immediately on reframe.
+  useEffect(() => {
+    if (!geometry) {
+      visualFrame.current = null;
+      setVisualPositions({});
+      return;
+    }
+    const sameFrame = visualFrame.current === geometry.frame_id;
+    setVisualPositions(previous => {
+      const next: Record<string, VisualPosition> = {};
+      for (const position of geometry.positions) {
+        const old = sameFrame ? previous[position.node_id] : undefined;
+        const alpha = old ? 0.35 : 1;
+        next[position.node_id] = {
+          x_m: old ? old.x_m + alpha * (position.x_m - old.x_m) : position.x_m,
+          y_m: old ? old.y_m + alpha * (position.y_m - old.y_m) : position.y_m,
+        };
+      }
+      return next;
+    });
+    visualFrame.current = geometry.frame_id;
+  }, [geometry]);
+
   const arrayTarget = useMemo(() => estimateHuman(nodes, geometry), [nodes, geometry]);
   const localGeometry = useMemo(
     () => geometry?.positions.find(position => position.node_id === local?.node_id),
@@ -194,6 +228,7 @@ export default function App() {
   const target = useMemo(() => relativeTarget(arrayTarget, localGeometry), [arrayTarget, localGeometry]);
   const rangeCount = nodes.reduce((count, node) => count + (node.ranges?.length ?? 0), 0);
   const unresolved = Math.max(0, nodes.length - (geometry?.positions.length ?? 0));
+  const visualLocal = local?.node_id ? visualPositions[local.node_id] : undefined;
 
   async function calibrate() {
     setCalibrating(true);
@@ -227,7 +262,7 @@ export default function App() {
 
   async function share() {
     const payload = {
-      report_version: 4,
+      report_version: 5,
       generated_at: new Date().toISOString(),
       app: 'Body Finder – RuView',
       build: '0.2.0-experimental.3',
@@ -242,6 +277,7 @@ export default function App() {
       geometry_source: geometrySelection.source,
       geometry,
       locally_computed_geometry: computedGeometry,
+      graph_diagnostics: graphDiagnostics,
       range_observations: nodes.flatMap(node => node.ranges ?? []),
       estimate_array_frame: arrayTarget,
       estimate_relative_to_this_device: target,
@@ -298,14 +334,24 @@ export default function App() {
               <View key={diameter} style={[s.ring, { width: diameter, height: diameter, borderRadius: diameter / 2, left: 150 - diameter / 2, top: 150 - diameter / 2 }]} />
             ))}
             <View style={s.operator} />
-            {localGeometry && geometry?.positions
-              .filter(position => position.node_id !== localGeometry.node_id)
+            {visualLocal && geometry?.positions
+              .filter(position => position.node_id !== local?.node_id && visualPositions[position.node_id])
               .map((position, index) => {
-                const relative = relativePosition(position, localGeometry);
+                const relative = relativeVisualPosition(visualPositions[position.node_id], visualLocal);
+                const diameter = Math.min(90, Math.max(10, position.error_radius_95_m * scale * 2));
                 return (
-                  <View key={position.node_id} style={[s.sensor, { left: 144 + relative.x_m * scale, top: 144 - relative.y_m * scale }]}>
-                    <Text style={s.dotLabel}>{index + 1}</Text>
-                  </View>
+                  <React.Fragment key={position.node_id}>
+                    <View style={[s.sensorUncertainty, {
+                      width: diameter,
+                      height: diameter,
+                      borderRadius: diameter / 2,
+                      left: 150 + relative.x_m * scale - diameter / 2,
+                      top: 150 - relative.y_m * scale - diameter / 2,
+                    }]} />
+                    <View style={[s.sensor, { left: 144 + relative.x_m * scale, top: 144 - relative.y_m * scale }]}>
+                      <Text style={s.dotLabel}>{index + 1}</Text>
+                    </View>
+                  </React.Fragment>
                 );
               })}
             {target && (
@@ -350,13 +396,14 @@ export default function App() {
             <Text style={s.h2}>Truth / source classification</Text>
             <Text style={s.text}>Node geometry: AUTO ONLY — manual override disabled</Text>
             <Text style={s.text}>Geometry authority: {geometrySelection.source}</Text>
-            <Text style={s.text}>Pairwise range: live native measurement when present; every edge exposes technology/sigma/source</Text>
+            <Text style={s.text}>Pairwise range: live native measurement when present; every edge exposes technology/sigma/source/age</Text>
             <Text style={s.text}>Connected Wi‑Fi RSSI: human-presence experiment only; never used as phone-to-phone distance</Text>
             <Text style={s.text}>CSI: UNSUPPORTED unless a future verified adapter is loaded</Text>
           </View>
           {[
             ['Geometry solution', geometry],
             ['Locally computed geometry', computedGeometry],
+            ['Graph diagnostics / sample age', graphDiagnostics],
             ['Range observations', nodes.flatMap(node => node.ranges ?? [])],
             ['Capabilities', caps],
             ['Local node', local],
@@ -394,6 +441,7 @@ const s = StyleSheet.create({
   radar: { width: 300, height: 300, alignSelf: 'center', position: 'relative', overflow: 'hidden', borderRadius: 150, backgroundColor: '#081a22' },
   ring: { position: 'absolute', borderWidth: 1, borderColor: '#1d4556' },
   operator: { position: 'absolute', left: 144, top: 144, width: 12, height: 12, borderRadius: 6, backgroundColor: '#fff' },
+  sensorUncertainty: { position: 'absolute', borderWidth: 1, borderColor: '#2f7390' },
   sensor: { position: 'absolute', width: 12, height: 12, borderRadius: 6, backgroundColor: '#58c8ff', alignItems: 'center', justifyContent: 'center' },
   dotLabel: { fontSize: 8, fontWeight: '900', color: '#001018' },
   target: { position: 'absolute', width: 12, height: 12, borderRadius: 6, backgroundColor: '#ff9d55' },
