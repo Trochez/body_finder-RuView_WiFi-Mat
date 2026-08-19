@@ -50,6 +50,7 @@ private object FabricRuntime {
   var socket: MulticastSocket? = null
   val peers = ConcurrentHashMap<String, Pair<String, Long>>()
   val rssiWindows = ConcurrentHashMap<String, ConcurrentLinkedDeque<RssiSample>>()
+  val bleAddressByIdentity = ConcurrentHashMap<String, String>()
   var advertiser: android.bluetooth.le.BluetoothLeAdvertiser? = null
   var scanner: android.bluetooth.le.BluetoothLeScanner? = null
   var advertiseCallback: AdvertiseCallback? = null
@@ -58,6 +59,9 @@ private object FabricRuntime {
   fun stopBle() {
     try { advertiseCallback?.let { advertiser?.stopAdvertising(it) } } catch (_: Throwable) {}
     try { scanCallback?.let { scanner?.stopScan(it) } } catch (_: Throwable) {}
+    if (Build.VERSION.SDK_INT >= 36) {
+      try { SystemRangingApi36.stop() } catch (_: Throwable) {}
+    }
     advertiser = null
     scanner = null
     advertiseCallback = null
@@ -65,6 +69,7 @@ private object FabricRuntime {
     bleScanning = false
     bleAdvertising = false
     rssiWindows.clear()
+    bleAddressByIdentity.clear()
   }
 
   fun stop() {
@@ -178,6 +183,7 @@ class BodyFinderNativeModule : Module() {
       put("ble_peer_ranging", when {
         !bleFeature -> probe("UNSUPPORTED", "BLE feature absent")
         !blePerm -> probe("PERMISSION_REQUIRED", "Bluetooth permissions required")
+        Build.VERSION.SDK_INT >= 36 && SystemRangingApi36.sessionActive -> probe("WORKING_DEGRADED", SystemRangingApi36.detail + "; Android system BLE-RSSI ranging is preferred; conservative BLE scan fallback remains available")
         FabricRuntime.bleScanning -> probe("WORKING_DEGRADED", FabricRuntime.bleDetail + "; distance uses a conservative RSSI path-loss model and large sigma")
         else -> probe("SUPPORTED_UNVERIFIED", FabricRuntime.bleDetail)
       })
@@ -192,13 +198,16 @@ class BodyFinderNativeModule : Module() {
 
   private fun androidRangingProbe(ctx: Context): JSONObject {
     if (Build.VERSION.SDK_INT < 36) return probe("UNSUPPORTED", "android.ranging.RangingManager requires Android API 36+")
+    if (!hasPermission(ctx, RANGE_PERMISSION)) return probe("PERMISSION_REQUIRED", "android.permission.RANGING is required")
     return try {
       val clazz = Class.forName("android.ranging.RangingManager")
       val method = Context::class.java.getMethod("getSystemService", Class::class.java)
       val service = method.invoke(ctx, clazz)
-      if (service == null) probe("UNSUPPORTED", "RangingManager service unavailable")
-      else if (!hasPermission(ctx, RANGE_PERMISSION)) probe("PERMISSION_REQUIRED", "android.permission.RANGING is required")
-      else probe("SUPPORTED_UNVERIFIED", "RangingManager present and permission granted; advanced UWB/CS/NAN-RTT availability is device/session dependent. BLE-RSSI fallback remains the verified live peer input in this release")
+      when {
+        service == null -> probe("UNSUPPORTED", "RangingManager service unavailable")
+        SystemRangingApi36.sessionActive -> probe("WORKING_DEGRADED", SystemRangingApi36.detail + "; active adapter is raw BLE-RSSI; UWB/CS/NAN-RTT remain unclaimed until separately negotiated and observed")
+        else -> probe("SUPPORTED_UNVERIFIED", SystemRangingApi36.detail + "; system raw BLE-RSSI session is attempted once a Body Finder peer/address is bound; UWB/CS/NAN-RTT remain device/session dependent")
+      }
     } catch (e: Throwable) {
       probe("PROBE_FAILED", "RangingManager probe failed: ${e.javaClass.simpleName}")
     }
@@ -309,6 +318,10 @@ class BodyFinderNativeModule : Module() {
     val now = System.currentTimeMillis()
     val queue = FabricRuntime.rssiWindows.computeIfAbsent(id) { ConcurrentLinkedDeque() }
     queue.addLast(RssiSample(result.rssi, tx, now))
+    try {
+      val address = result.device.address?.uppercase()
+      if (!address.isNullOrBlank()) FabricRuntime.bleAddressByIdentity[id] = address
+    } catch (_: SecurityException) {}
     while (queue.size > 21) queue.pollFirst()
     while (true) {
       val first = queue.peekFirst() ?: break
@@ -322,6 +335,21 @@ class BodyFinderNativeModule : Module() {
     return if (n % 2 == 0) (sorted[n / 2 - 1] + sorted[n / 2]) / 2.0 else sorted[n / 2]
   }
 
+  private fun desiredSystemRangingPeers(): List<SystemRangingApi36.Peer> {
+    if (Build.VERSION.SDK_INT < 36) return emptyList()
+    return FabricRuntime.peers.values.mapNotNull { pair ->
+      try {
+        val peer = JSONObject(pair.first)
+        val peerId = peer.optString("node_id").takeIf { it.isNotBlank() } ?: return@mapNotNull null
+        val identity = peer.optString("ble_identity").takeIf { it.isNotBlank() && it != "null" } ?: return@mapNotNull null
+        val address = FabricRuntime.bleAddressByIdentity[identity] ?: return@mapNotNull null
+        SystemRangingApi36.Peer(peerId, address)
+      } catch (_: Throwable) {
+        null
+      }
+    }
+  }
+
   private fun rangeObservations(): JSONArray {
     val arr = JSONArray()
     val now = System.currentTimeMillis()
@@ -330,6 +358,29 @@ class BodyFinderNativeModule : Module() {
       try {
         val peer = JSONObject(pair.first)
         val peerId = peer.optString("node_id")
+        if (Build.VERSION.SDK_INT >= 36) {
+          val system = SystemRangingApi36.measurements[peerId]
+          if (system != null && now - system.receivedWallMs <= 5000 && system.distanceM != null) {
+            arr.put(
+              JSONObject()
+                .put("session_id", FabricRuntime.sessionId)
+                .put("observer_node_id", FabricRuntime.nodeId)
+                .put("peer_node_id", peerId)
+                .put("technology", system.technology)
+                .put("monotonic_ns", system.monotonicNs)
+                .put("distance_m", system.distanceM)
+                .put("distance_sigma_m", system.distanceSigmaM ?: max(1.5, system.distanceM * 0.75))
+                .put("azimuth_deg", JSONObject.NULL)
+                .put("azimuth_sigma_deg", JSONObject.NULL)
+                .put("elevation_deg", JSONObject.NULL)
+                .put("elevation_sigma_deg", JSONObject.NULL)
+                .put("rssi_dbm", system.rssiDbm ?: JSONObject.NULL)
+                .put("quality", system.quality)
+                .put("source_detail", system.sourceDetail)
+            )
+            return@forEach
+          }
+        }
         val bodyFinderIdentity = peer.optString("ble_identity").takeIf { it.isNotBlank() && it != "null" } ?: return@forEach
         val samples = FabricRuntime.rssiWindows[bodyFinderIdentity]?.filter { now - it.ms <= 5000 } ?: emptyList()
         if (samples.size < 3) return@forEach
@@ -353,7 +404,7 @@ class BodyFinderNativeModule : Module() {
             .put("elevation_sigma_deg", JSONObject.NULL)
             .put("rssi_dbm", rssi)
             .put("quality", "LOW")
-            .put("source_detail", "Live BLE advertisement RSSI; median ${samples.size} samples; advertised/fallback Tx=$tx dBm; path-loss n=$pathLossN; intentionally large uncertainty; not UWB/RTT/CSI")
+            .put("source_detail", "Live BLE advertisement RSSI fallback; median ${samples.size} samples; advertised/fallback Tx=$tx dBm; path-loss n=$pathLossN; intentionally large uncertainty; used only when no fresh API36 system ranging result exists; not UWB/RTT/CSI")
         )
       } catch (_: Throwable) {}
     }
@@ -407,8 +458,13 @@ class BodyFinderNativeModule : Module() {
         val broadcastAddress = InetAddress.getByName("255.255.255.255")
         val buffer = ByteArray(65507)
         var nextSend = 0L
+        var nextSystemRangingRefresh = 0L
         while (FabricRuntime.running) {
           val now = System.currentTimeMillis()
+          if (Build.VERSION.SDK_INT >= 36 && now >= nextSystemRangingRefresh && hasPermission(ctx, RANGE_PERMISSION)) {
+            try { SystemRangingApi36.refresh(ctx, desiredSystemRangingPeers()) } catch (_: Throwable) {}
+            nextSystemRangingRefresh = now + 1000
+          }
           if (now >= nextSend) {
             val bytes = advertisement(ctx).toString().toByteArray(Charsets.UTF_8)
             try { socket.send(DatagramPacket(bytes, bytes.size, groupAddress, PORT)) } catch (_: Throwable) {}
@@ -429,9 +485,13 @@ class BodyFinderNativeModule : Module() {
             }
           } catch (_: java.net.SocketTimeoutException) {
           } catch (_: Throwable) {}
+          FabricRuntime.peers.entries.removeIf { now - it.value.second > 5000 }
         }
       } catch (_: Throwable) {
       } finally {
+        if (Build.VERSION.SDK_INT >= 36) {
+          try { SystemRangingApi36.stop() } catch (_: Throwable) {}
+        }
         try { FabricRuntime.socket?.close() } catch (_: Throwable) {}
         FabricRuntime.socket = null
       }
