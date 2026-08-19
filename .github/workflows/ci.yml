@@ -141,7 +141,7 @@ jobs:
           set -euo pipefail
           WORKSPACE=$(find . -maxdepth 1 -name '*.xcworkspace' -print -quit)
           test -n "$WORKSPACE"
-          SCHEME=$(xcodebuild -workspace "$WORKSPACE" -list -json | ruby -rjson -e 'j=JSON.parse(STDIN.read); puts j.fetch("workspace").fetch("schemes").first')
+          SCHEME=$(xcodebuild -workspace "$WORKSPACE" -list -json | ruby -rjson -e 'j=JSON.parse(STDIN.read); schemes=j.fetch("workspace").fetch("schemes"); preferred="BodyFinderRuView"; abort("Expected app scheme #{preferred} not found: #{schemes.join(", ")}") unless schemes.include?(preferred); puts preferred')
           test -n "$SCHEME"
           xcodebuild -workspace "$WORKSPACE" -scheme "$SCHEME" -configuration Release \
             -sdk iphonesimulator -destination 'generic/platform=iOS Simulator' \
