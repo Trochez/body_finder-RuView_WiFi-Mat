@@ -15,6 +15,8 @@ export type ReciprocalFusionDiagnostic = {
   calibration_profile_id: string | null;
 };
 
+const STALE_NS = 8_000_000_000;
+const REORDER_TOLERANCE_NS = 250_000_000;
 const canonicalPair = (a: string, b: string): [string, string] => a <= b ? [a, b] : [b, a];
 const finitePositive = (value: unknown): value is number => typeof value === 'number' && Number.isFinite(value) && value > 0;
 
@@ -25,6 +27,14 @@ function metricBle(observation: RangeObservation): boolean {
     && ext.range_status === 'VALID_METRIC'
     && finitePositive(observation.distance_m)
     && finitePositive(observation.distance_sigma_m);
+}
+
+function freshForContainer(node: Advertisement, observation: RangeObservation): boolean {
+  if (observation.observer_node_id !== node.node_id || observation.session_id !== node.session_id) return false;
+  const now = node.monotonic_ns;
+  if (typeof now !== 'number' || !Number.isFinite(now)) return true;
+  if (observation.monotonic_ns > now + REORDER_TOLERANCE_NS) return false;
+  return Math.max(0, now - observation.monotonic_ns) <= STALE_NS;
 }
 
 function latestPerObserver(samples: RangeObservation[]) {
@@ -45,17 +55,17 @@ export function applyReciprocalFusion(input: Advertisement[]): {
 
   for (const node of input) {
     for (const observation of node.ranges ?? []) {
-      if (!metricBle(observation)) continue;
+      if (!metricBle(observation) || !freshForContainer(node, observation)) continue;
       const [a, b] = canonicalPair(observation.observer_node_id, observation.peer_node_id);
       const key = `${a}\u0000${b}\u0000BLE_RSSI`;
       groups.set(key, [...(groups.get(key) ?? []), observation]);
     }
   }
 
-  // Metric BLE observations are replaced by one canonical pair observation. Raw
-  // observations remain available to the UI/export through the original node list.
+  // Replace only validated fresh BLE metric observations in the cloned geometry input.
+  // Original nodes remain untouched for raw diagnostics/export.
   for (const node of nodes) {
-    node.ranges = (node.ranges ?? []).filter(observation => !metricBle(observation));
+    node.ranges = (node.ranges ?? []).filter(observation => !(metricBle(observation) && freshForContainer(node, observation)));
   }
 
   const diagnostics: ReciprocalFusionDiagnostic[] = [];
@@ -66,6 +76,9 @@ export function applyReciprocalFusion(input: Advertisement[]): {
     const profileId = profiles.length === 1 ? String(profiles[0]) : null;
     const target = nodes.find(node => node.node_id === a);
     if (!target || !samples.length) continue;
+    const syntheticMonotonicNs = typeof target.monotonic_ns === 'number' && Number.isFinite(target.monotonic_ns)
+      ? target.monotonic_ns
+      : samples.find(sample => sample.observer_node_id === a)?.monotonic_ns ?? samples[0].monotonic_ns;
 
     if (samples.length >= 2) {
       const first = samples[0];
@@ -78,7 +91,7 @@ export function applyReciprocalFusion(input: Advertisement[]): {
       const degradedThreshold = Math.max(1.0, 1.5 * Math.max(s1, s2));
       const rejectThreshold = Math.max(2.5, 2.5 * Math.max(s1, s2));
 
-      if (delta > rejectThreshold || profiles.length > 1) {
+      if (delta > rejectThreshold || profiles.length !== 1) {
         diagnostics.push({
           pair_key: `${a}::${b}`,
           technology,
@@ -106,11 +119,11 @@ export function applyReciprocalFusion(input: Advertisement[]): {
         ...first,
         observer_node_id: a,
         peer_node_id: b,
-        monotonic_ns: Math.max(first.monotonic_ns, second.monotonic_ns),
+        monotonic_ns: syntheticMonotonicNs,
         distance_m: distance,
         distance_sigma_m: sigma,
         quality: 'LOW',
-        source_detail: `reciprocal BLE_RSSI inverse-variance fusion; state=${state}; delta=${delta.toFixed(3)}m; sources=${samples.map(sample => sample.observer_node_id).join(',')}; profile=${profileId ?? 'mixed'}`,
+        source_detail: `reciprocal BLE_RSSI inverse-variance fusion; state=${state}; delta=${delta.toFixed(3)}m; sources=${samples.map(sample => sample.observer_node_id).join(',')}; profile=${profileId}`,
         metric_valid: true,
         range_status: 'VALID_METRIC',
         calibration_profile_id: profileId,
@@ -141,6 +154,7 @@ export function applyReciprocalFusion(input: Advertisement[]): {
         ...sample,
         observer_node_id: a,
         peer_node_id: b,
+        monotonic_ns: syntheticMonotonicNs,
         distance_sigma_m: sigma,
         source_detail: `single-direction validated BLE_RSSI metric; conservative sigma inflation; original_observer=${sample.observer_node_id}; profile=${(sample as any).calibration_profile_id ?? 'unknown'}`,
         metric_valid: true,
