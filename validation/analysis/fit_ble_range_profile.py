@@ -26,6 +26,8 @@ from typing import Iterable
 MIN_DISTANCES = {0.5, 1.0, 2.0, 3.0, 5.0}
 MAE_GATE_M = 2.0
 MAX_ERROR_GATE_M = 3.0
+MIN_VALID_RSSI_DBM = -127.0
+MAX_VALID_RSSI_DBM = 20.0
 
 
 def _finite(value: object) -> float | None:
@@ -48,6 +50,8 @@ def load_rows(path: Path) -> list[dict]:
         d = _finite(row.get("true_distance_m"))
         rssi = _finite(row.get("rssi_dbm"))
         if d is None or rssi is None or d <= 0:
+            continue
+        if rssi < MIN_VALID_RSSI_DBM or rssi > MAX_VALID_RSSI_DBM:
             continue
         clean.append({**row, "true_distance_m": d, "rssi_dbm": rssi})
     if len(clean) < 10:
@@ -182,6 +186,7 @@ def main() -> None:
         "in_sample_metrics": in_sample,
         "leave_one_distance_out": holdout,
         "metric_gate": {"mae_m_lte": MAE_GATE_M, "max_error_m_lte": MAX_ERROR_GATE_M},
+        "rssi_input_domain_dbm": {"min": MIN_VALID_RSSI_DBM, "max": MAX_VALID_RSSI_DBM},
         "validated": validated,
         "decision": "METRIC_PROFILE_ACCEPTED" if validated else "PROXIMITY_ONLY_KEEP_METRIC_DISABLED",
         "ground_truth_runtime_input": False,
