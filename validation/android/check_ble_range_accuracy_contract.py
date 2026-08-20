@@ -12,10 +12,14 @@ ESTIMATOR = ROOT / "apps/mobile/modules/body-finder-native/android/src/main/java
 SERVICE = ROOT / "apps/mobile/modules/body-finder-native/android/src/main/java/com/trochez/bodyfindernative/BodyFinderFieldService.kt"
 MANIFEST = ROOT / "apps/mobile/modules/body-finder-native/android/src/main/AndroidManifest.xml"
 APP_JSON = ROOT / "apps/mobile/app.json"
+INDEX_TS = ROOT / "apps/mobile/modules/body-finder-native/index.ts"
 APP = ROOT / "apps/mobile/App.tsx"
 GRAPH = ROOT / "apps/mobile/src/geometryDiagnostics.ts"
+FUSION = ROOT / "apps/mobile/src/rangeFusion.ts"
 PROFILE = ROOT / "calibration/ble-range-calibration-profiles.json"
-FIXTURE = ROOT / "validation/fixtures/ble-range/t2-t4b-screening.json"
+PROFILE_SCHEMA = ROOT / "calibration/ble-range-calibration-schema.json"
+SCREENING_FIXTURE = ROOT / "validation/fixtures/ble-range/t2-t4b-screening.json"
+P0C_FIXTURE = ROOT / "validation/fixtures/ble-range/p0c-calibration-summary.json"
 FITTER = ROOT / "validation/analysis/fit_ble_range_profile.py"
 
 
@@ -24,66 +28,101 @@ def require(condition: bool, message: str) -> None:
         raise SystemExit(message)
 
 
+def close(a: float, b: float, tol: float = 1e-6) -> bool:
+    return abs(a - b) <= tol
+
+
 def main() -> None:
     module = MODULE.read_text(encoding="utf-8")
     estimator = ESTIMATOR.read_text(encoding="utf-8")
     service = SERVICE.read_text(encoding="utf-8")
     manifest = MANIFEST.read_text(encoding="utf-8")
-    app_json = APP_JSON.read_text(encoding="utf-8")
+    app_json_text = APP_JSON.read_text(encoding="utf-8")
+    index_ts = INDEX_TS.read_text(encoding="utf-8")
     app = APP.read_text(encoding="utf-8")
     graph = GRAPH.read_text(encoding="utf-8")
+    fusion = FUSION.read_text(encoding="utf-8")
     fitter = FITTER.read_text(encoding="utf-8")
-    profile = json.loads(PROFILE.read_text(encoding="utf-8"))
-    fixture = json.loads(FIXTURE.read_text(encoding="utf-8"))
+    profiles = json.loads(PROFILE.read_text(encoding="utf-8"))
+    json.loads(PROFILE_SCHEMA.read_text(encoding="utf-8"))
+    screening_fixture = json.loads(SCREENING_FIXTURE.read_text(encoding="utf-8"))
+    p0c = json.loads(P0C_FIXTURE.read_text(encoding="utf-8"))
+    app_json = json.loads(app_json_text)
 
+    # Permanent truth guards inherited from experimental.5.
     require("coerceIn(0.20, 30.0)" not in module, "experimental.4 silent 30m clamp is still present")
-    require(not re.search(r"10\.0\.pow\(\(tx\s*-\s*rssi\)", module), "TxPower is still being used as RSSI@1m")
+    require("coerceIn(0.5, 5.0)" not in estimator, "validated profile has a forbidden silent domain clamp")
+    require(not re.search(r"10\.0\.pow\(\(tx\s*-\s*rssi\)", module + estimator), "TxPower is still being used as RSSI@1m")
     require("advertised_tx_power_semantics" in module, "TxPower diagnostic semantics missing")
     require("metric_valid" in module and "raw_distance_m" in module, "range truth fields missing")
-    require("PROXIMITY_ONLY" in estimator, "proximity-only state missing")
-    require("SATURATED_HIGH" in estimator and "SATURATED_LOW" in estimator, "saturation states missing")
-    require("activeProfile.validated" in estimator, "unvalidated profile metric gate missing")
-    require("validRssiSamples" in estimator and "-127.0..20.0" in estimator, "invalid Android RSSI sentinel filtering missing")
-    require("MAX_VALID_RSSI_DBM" in fitter and "MIN_VALID_RSSI_DBM" in fitter, "calibration fitter RSSI domain guard missing")
-    require("metric_valid" in graph and "metric_edge_pairs" in graph, "geometry metric-edge gate missing")
-    require("GEOMETRY UNTRUSTED / NO METRIC RANGE" in app, "truthful no-metric UI missing")
-    require("startValidationRun" in app and "validation_run" in app, "validation run UI/export missing")
+    require("CHANGE_WIFI_MULTICAST_STATE" in manifest and "CHANGE_WIFI_MULTICAST_STATE" in app_json_text, "field-service multicast permission missing")
     require("BodyFinderFieldService" in service and "PARTIAL_WAKE_LOCK" in service, "field service/wake strategy missing")
-    require("FOREGROUND_SERVICE_CONNECTED_DEVICE" in manifest, "connected-device foreground service manifest permission missing")
-    require("CHANGE_WIFI_MULTICAST_STATE" in manifest, "native field-service multicast lock permission missing")
-    require("CHANGE_WIFI_MULTICAST_STATE" in app_json, "Expo Android multicast lock permission missing")
+    require("MAX_VALID_RSSI_DBM" in fitter and "MIN_VALID_RSSI_DBM" in fitter, "offline fitter RSSI domain guard missing")
 
-    active = next(p for p in profile["profiles"] if p["profile_id"] == profile["active_profile_id"])
-    require(active["validated"] is False, "screening profile must remain unvalidated until multi-distance physical calibration passes")
-    require(profile["policy"]["silent_distance_clamp"] is False, "profile policy permits silent clamp")
-    require(profile["policy"]["ground_truth_used_at_runtime"] is False, "ground truth must not be a runtime input")
-    require(fixture["runtime_input"] is False, "physical evidence fixture is incorrectly marked as runtime input")
+    # Active profile must exactly match the P0c physically accepted candidate.
+    active = next(p for p in profiles["profiles"] if p["profile_id"] == profiles["active_profile_id"])
+    expected = p0c["profile"]
+    require(active["profile_id"] == "android-ble-lab-v1", "android-ble-lab-v1 is not active")
+    require(active["validated"] is True, "android-ble-lab-v1 must be validated")
+    require(active["physical_confidence"] == "COARSE", "BLE lab profile must remain COARSE")
+    require(close(float(active["rssi_at_1m_dbm"]), float(expected["rssi_at_1m_dbm"])), "RSSI@1m drifted from P0c profile")
+    require(close(float(active["path_loss_exponent"]), float(expected["path_loss_exponent"])), "path-loss exponent drifted from P0c profile")
+    require(close(float(active["valid_distance_min_m"]), 0.5), "validated minimum distance must be 0.5 m")
+    require(close(float(active["valid_distance_max_m"]), 5.0), "validated maximum distance must be 5.0 m")
+    metrics = active["validation_metrics"]
+    require(float(metrics["mae_m"]) <= 2.0, "P0c MAE no longer passes metric gate")
+    require(float(metrics["max_error_m"]) <= 3.0, "P0c max error no longer passes metric gate")
+    require(profiles["policy"]["silent_distance_clamp"] is False, "profile policy permits silent clamp")
+    require(profiles["policy"]["ground_truth_used_at_runtime"] is False, "ground truth must not be a runtime input")
+    require(p0c["runtime_input"] is False and screening_fixture["runtime_input"] is False, "physical evidence fixture marked as runtime input")
 
-    # Reproduce the physical reason experimental.4 saturated: these representative values
-    # all produce raw values beyond the old 30 m bound when advertised TxPower is misused.
-    old_raw = []
-    for row in fixture["representative_observations"]:
-        raw = 10.0 ** ((row["advertised_tx_power_dbm"] - row["rssi_dbm"]) / (10.0 * 2.2))
-        old_raw.append(raw)
-    require(any(v > 30.0 for v in old_raw), "fixture no longer reproduces the old saturation cause")
+    # Runtime estimator and export guards.
+    for token in ["android-ble-lab-v1", "RssiAtOneMeterDbm(-69.19)", "PathLossExponent(3.62)", "validDistanceMinM = 0.50", "validDistanceMaxM = 5.0", "validated = true", "physicalConfidence = \"COARSE\""]:
+        require(token in estimator, f"runtime profile contract missing: {token}")
+    require("OUT_OF_DOMAIN_LOW" in estimator and "OUT_OF_DOMAIN_HIGH" in estimator, "out-of-domain states missing")
+    require("VALID_METRIC" in estimator, "validated metric state missing")
+    require("value != 127.0" in estimator and "-127.0..20.0" in estimator, "RSSI sentinel/domain filtering missing")
+    require("rssi_samples_dbm" in index_ts and "sample !== 127" in index_ts, "calibration snapshot sentinel filter missing")
+    require("validationRmseM" in estimator and "holdoutFloor" in estimator, "validation-error sigma floor missing")
 
-    # New screening prior is diagnostic only; even if its raw estimate lies in-domain it
-    # cannot become a metric edge while validated=false.
+    # Reciprocal fusion/gating contract.
+    require("RECIPROCAL_INVERSE_VARIANCE" in fusion, "reciprocal inverse-variance fusion missing")
+    require("SINGLE_DIRECTION_CONSERVATIVE" in fusion, "single-direction conservative fallback missing")
+    require("REJECTED_DISAGREEMENT" in fusion and "rejectThreshold" in fusion, "reciprocal disagreement rejection missing")
+    require("1 / (s1 * s1)" in fusion and "1 / (s2 * s2)" in fusion, "inverse variance weights missing")
+    require("applyReciprocalFusion" in app and "geometryNodes = fused.nodes" in app, "solver is not consuming fused observations")
+    require("reciprocal_fusion" in app and "fused_range_observations" in app, "fusion provenance not exported")
+    require("reciprocal_disagreement_count" in graph and "out_of_domain_sample_count" in graph, "measurement-health diagnostics incomplete")
+
+    # Version/release truth.
+    require("0.2.0-experimental.6" in app, "mobile build is not experimental.6")
+    require(app_json["expo"]["android"]["versionCode"] == 6, "Android versionCode must be 6")
+    require(app_json["expo"]["extra"]["releaseIteration"] == "experimental.6", "releaseIteration must be experimental.6")
+    require("VALIDATED_COARSE_BLE_METRIC_ONLY_IN_0P5_TO_5M_DOMAIN" in app, "experimental.6 truth classification missing")
+
+    # Representative physics sanity: in-domain examples remain finite; outside-domain values are never clamped.
     rssi1m = float(active["rssi_at_1m_dbm"])
     n = float(active["path_loss_exponent"])
-    require(n > 0, "profile path-loss exponent must be physically positive")
-    new_raw = [10.0 ** ((rssi1m - row["rssi_dbm"]) / (10.0 * n)) for row in fixture["representative_observations"]]
-    require(all(math.isfinite(v) and v > 0 for v in new_raw), "new diagnostic model produced non-finite raw distances")
+    require(0.5 < n <= 8.0, "profile path-loss exponent outside physical sanity gate")
+    at_1m = 10.0 ** ((rssi1m - rssi1m) / (10.0 * n))
+    require(close(at_1m, 1.0), "profile equation does not return 1 m at RSSI@1m")
+    weak_raw = 10.0 ** ((rssi1m - (-110.0)) / (10.0 * n))
+    strong_raw = 10.0 ** ((rssi1m - (-40.0)) / (10.0 * n))
+    require(weak_raw > 5.0 and strong_raw < 0.5, "out-of-domain synthetic cases do not exercise both boundaries")
 
     print(json.dumps({
-        "contract": "experimental.5 BLE range truth",
-        "old_raw_max_m": max(old_raw),
-        "new_diagnostic_raw_min_m": min(new_raw),
-        "new_diagnostic_raw_max_m": max(new_raw),
-        "active_profile_validated": active["validated"],
-        "metric_ble_rssi_enabled": False,
-        "multicast_permission_declared": True,
-        "invalid_rssi_filtering_declared": True,
+        "contract": "experimental.6 validated coarse BLE metric",
+        "profile_id": active["profile_id"],
+        "rssi_at_1m_dbm": active["rssi_at_1m_dbm"],
+        "path_loss_exponent": active["path_loss_exponent"],
+        "valid_domain_m": [active["valid_distance_min_m"], active["valid_distance_max_m"]],
+        "physical_confidence": active["physical_confidence"],
+        "holdout_mae_m": metrics["mae_m"],
+        "holdout_max_error_m": metrics["max_error_m"],
+        "metric_ble_rssi_enabled": True,
+        "reciprocal_fusion": True,
+        "silent_clamp": False,
+        "sentinel_127_filtered": True,
     }, indent=2))
 
 
