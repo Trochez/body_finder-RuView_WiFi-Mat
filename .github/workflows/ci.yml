@@ -140,23 +140,34 @@ jobs:
       - run: npm audit --omit=dev --audit-level=critical
       - run: npx tsc --noEmit
       - run: CI=1 npx expo prebuild --platform android --clean
-      - name: Verify generated Android permissions and field service
+      - name: Verify generated Android permissions and native field-service declaration
         shell: bash
         run: |
           set -euo pipefail
-          MANIFEST=android/app/src/main/AndroidManifest.xml
-          grep -q 'android.permission.BLUETOOTH' "$MANIFEST"
-          grep -q 'android.permission.BLUETOOTH_ADMIN' "$MANIFEST"
-          grep -q 'android.permission.BLUETOOTH_SCAN' "$MANIFEST"
-          grep -q 'android.permission.BLUETOOTH_CONNECT' "$MANIFEST"
-          grep -q 'android.permission.BLUETOOTH_ADVERTISE' "$MANIFEST"
-          grep -q 'android.permission.WAKE_LOCK' "$MANIFEST"
-          grep -q 'android.permission.FOREGROUND_SERVICE' "$MANIFEST"
-          grep -q 'android.permission.FOREGROUND_SERVICE_CONNECTED_DEVICE' "$MANIFEST"
-          grep -q 'BodyFinderFieldService' "$MANIFEST"
+          APP_MANIFEST=android/app/src/main/AndroidManifest.xml
+          MODULE_MANIFEST=modules/body-finder-native/android/src/main/AndroidManifest.xml
+          grep -q 'android.permission.BLUETOOTH' "$APP_MANIFEST"
+          grep -q 'android.permission.BLUETOOTH_ADMIN' "$APP_MANIFEST"
+          grep -q 'android.permission.BLUETOOTH_SCAN' "$APP_MANIFEST"
+          grep -q 'android.permission.BLUETOOTH_CONNECT' "$APP_MANIFEST"
+          grep -q 'android.permission.BLUETOOTH_ADVERTISE' "$APP_MANIFEST"
+          grep -q 'android.permission.WAKE_LOCK' "$APP_MANIFEST"
+          grep -q 'android.permission.FOREGROUND_SERVICE' "$APP_MANIFEST"
+          grep -q 'android.permission.FOREGROUND_SERVICE_CONNECTED_DEVICE' "$APP_MANIFEST"
+          grep -q 'BodyFinderFieldService' "$MODULE_MANIFEST"
+          grep -q 'android:foregroundServiceType="connectedDevice"' "$MODULE_MANIFEST"
       - run: chmod +x android/gradlew
       - run: ./gradlew assembleRelease bundleRelease --stacktrace
         working-directory: apps/mobile/android
+      - name: Verify foreground service in merged release manifest
+        shell: bash
+        run: |
+          set -euo pipefail
+          MERGED=$(find android/app/build/intermediates -path '*release*' -name AndroidManifest.xml -type f -exec grep -l 'BodyFinderFieldService' {} \; | head -n 1)
+          test -n "$MERGED"
+          grep -q 'BodyFinderFieldService' "$MERGED"
+          grep -q 'foregroundServiceType="connectedDevice"' "$MERGED"
+          echo "Verified merged manifest: $MERGED"
       - uses: actions/upload-artifact@v4
         with:
           name: android-ci
