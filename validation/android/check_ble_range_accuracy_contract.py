@@ -11,10 +11,12 @@ MODULE = ROOT / "apps/mobile/modules/body-finder-native/android/src/main/java/co
 ESTIMATOR = ROOT / "apps/mobile/modules/body-finder-native/android/src/main/java/com/trochez/bodyfindernative/BleRangeEstimator.kt"
 SERVICE = ROOT / "apps/mobile/modules/body-finder-native/android/src/main/java/com/trochez/bodyfindernative/BodyFinderFieldService.kt"
 MANIFEST = ROOT / "apps/mobile/modules/body-finder-native/android/src/main/AndroidManifest.xml"
+APP_JSON = ROOT / "apps/mobile/app.json"
 APP = ROOT / "apps/mobile/App.tsx"
 GRAPH = ROOT / "apps/mobile/src/geometryDiagnostics.ts"
 PROFILE = ROOT / "calibration/ble-range-calibration-profiles.json"
 FIXTURE = ROOT / "validation/fixtures/ble-range/t2-t4b-screening.json"
+FITTER = ROOT / "validation/analysis/fit_ble_range_profile.py"
 
 
 def require(condition: bool, message: str) -> None:
@@ -27,8 +29,10 @@ def main() -> None:
     estimator = ESTIMATOR.read_text(encoding="utf-8")
     service = SERVICE.read_text(encoding="utf-8")
     manifest = MANIFEST.read_text(encoding="utf-8")
+    app_json = APP_JSON.read_text(encoding="utf-8")
     app = APP.read_text(encoding="utf-8")
     graph = GRAPH.read_text(encoding="utf-8")
+    fitter = FITTER.read_text(encoding="utf-8")
     profile = json.loads(PROFILE.read_text(encoding="utf-8"))
     fixture = json.loads(FIXTURE.read_text(encoding="utf-8"))
 
@@ -39,11 +43,15 @@ def main() -> None:
     require("PROXIMITY_ONLY" in estimator, "proximity-only state missing")
     require("SATURATED_HIGH" in estimator and "SATURATED_LOW" in estimator, "saturation states missing")
     require("activeProfile.validated" in estimator, "unvalidated profile metric gate missing")
+    require("validRssiSamples" in estimator and "-127.0..20.0" in estimator, "invalid Android RSSI sentinel filtering missing")
+    require("MAX_VALID_RSSI_DBM" in fitter and "MIN_VALID_RSSI_DBM" in fitter, "calibration fitter RSSI domain guard missing")
     require("metric_valid" in graph and "metric_edge_pairs" in graph, "geometry metric-edge gate missing")
     require("GEOMETRY UNTRUSTED / NO METRIC RANGE" in app, "truthful no-metric UI missing")
     require("startValidationRun" in app and "validation_run" in app, "validation run UI/export missing")
     require("BodyFinderFieldService" in service and "PARTIAL_WAKE_LOCK" in service, "field service/wake strategy missing")
     require("FOREGROUND_SERVICE_CONNECTED_DEVICE" in manifest, "connected-device foreground service manifest permission missing")
+    require("CHANGE_WIFI_MULTICAST_STATE" in manifest, "native field-service multicast lock permission missing")
+    require("CHANGE_WIFI_MULTICAST_STATE" in app_json, "Expo Android multicast lock permission missing")
 
     active = next(p for p in profile["profiles"] if p["profile_id"] == profile["active_profile_id"])
     require(active["validated"] is False, "screening profile must remain unvalidated until multi-distance physical calibration passes")
@@ -74,6 +82,8 @@ def main() -> None:
         "new_diagnostic_raw_max_m": max(new_raw),
         "active_profile_validated": active["validated"],
         "metric_ble_rssi_enabled": False,
+        "multicast_permission_declared": True,
+        "invalid_rssi_filtering_declared": True,
     }, indent=2))
 
 

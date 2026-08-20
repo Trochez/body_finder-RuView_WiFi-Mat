@@ -123,6 +123,9 @@ internal object BleRangeEstimator {
     return if (n % 2 == 0) (sorted[n / 2 - 1] + sorted[n / 2]) / 2.0 else sorted[n / 2]
   }
 
+  private fun validRssiSamples(values: List<Double>): List<Double> =
+    values.filter { it.isFinite() && it in -127.0..20.0 }
+
   private fun mad(values: List<Double>, center: Double): Double =
     if (values.isEmpty()) 0.0 else median(values.map { abs(it - center) })
 
@@ -139,24 +142,29 @@ internal object BleRangeEstimator {
     minSamples: Int,
     activeProfile: BleRangeCalibrationProfile = profile,
   ): BleRangeEstimate {
-    if (rssiValues.size < minSamples) {
+    val validRssiValues = validRssiSamples(rssiValues)
+    if (validRssiValues.size < minSamples) {
       return BleRangeEstimate(
         status = BleRangeStatus.INSUFFICIENT_SAMPLES,
         distanceM = null,
         sigmaM = null,
         rawDistanceM = null,
-        medianRssiDbm = rssiValues.takeIf { it.isNotEmpty() }?.let(::median),
+        medianRssiDbm = validRssiValues.takeIf { it.isNotEmpty() }?.let(::median),
         medianAdvertisedTxPowerDbm = advertisedTxPowerValues.takeIf { it.isNotEmpty() }?.let(::median),
-        sampleCount = rssiValues.size,
+        sampleCount = validRssiValues.size,
         profileId = activeProfile.profileId,
         calibrationState = if (activeProfile.validated) "CALIBRATED_COARSE" else "UNVALIDATED_SCREENING",
-        proximityBand = rssiValues.takeIf { it.isNotEmpty() }?.let(::median)?.let(::proximityBand),
+        proximityBand = validRssiValues.takeIf { it.isNotEmpty() }?.let(::median)?.let(::proximityBand),
         metricValid = false,
-        detail = "Need at least $minSamples fresh RSSI samples",
+        detail = if (validRssiValues.size == rssiValues.size) {
+          "Need at least $minSamples fresh RSSI samples"
+        } else {
+          "Need at least $minSamples fresh valid RSSI samples; invalid Android RSSI sentinel/out-of-domain values were ignored"
+        },
       )
     }
 
-    val rssi = median(rssiValues)
+    val rssi = median(validRssiValues)
     val tx = advertisedTxPowerValues.takeIf { it.isNotEmpty() }?.let(::median)
     val n = activeProfile.pathLossExponent.value
     val exponent = (activeProfile.rssiAtOneMeter.value - rssi) / (10.0 * n)
@@ -165,7 +173,7 @@ internal object BleRangeEstimator {
     if (!rawDistance.isFinite() || rawDistance <= 0.0) {
       return BleRangeEstimate(
         BleRangeStatus.NONFINITE, null, null, rawDistance.takeIf { it.isFinite() },
-        rssi, tx, rssiValues.size, activeProfile.profileId,
+        rssi, tx, validRssiValues.size, activeProfile.profileId,
         if (activeProfile.validated) "CALIBRATED_COARSE" else "UNVALIDATED_SCREENING",
         proximityBand(rssi), false, "Log-distance estimate is non-finite",
       )
@@ -180,7 +188,7 @@ internal object BleRangeEstimator {
 
     val metricValid = status == BleRangeStatus.VALID
     val distance = rawDistance.takeIf { metricValid }
-    val rssiMadSigma = max(1.4826 * mad(rssiValues, rssi), 1.0)
+    val rssiMadSigma = max(1.4826 * mad(validRssiValues, rssi), 1.0)
     val combinedRssiSigma = sqrt(
       rssiMadSigma * rssiMadSigma +
         activeProfile.rssiAtOneMeterSigmaDb * activeProfile.rssiAtOneMeterSigmaDb
@@ -214,7 +222,7 @@ internal object BleRangeEstimator {
       rawDistanceM = rawDistance,
       medianRssiDbm = rssi,
       medianAdvertisedTxPowerDbm = tx,
-      sampleCount = rssiValues.size,
+      sampleCount = validRssiValues.size,
       profileId = activeProfile.profileId,
       calibrationState = calibrationState,
       proximityBand = proximityBand(rssi),
