@@ -8,7 +8,7 @@
     "newArchEnabled": false,
     "android": {
       "package": "com.trochez.bodyfinderruview",
-      "versionCode": 4,
+      "versionCode": 5,
       "permissions": [
         "android.permission.INTERNET",
         "android.permission.ACCESS_NETWORK_STATE",
@@ -21,7 +21,11 @@
         "android.permission.BLUETOOTH_SCAN",
         "android.permission.BLUETOOTH_CONNECT",
         "android.permission.BLUETOOTH_ADVERTISE",
-        "android.permission.RANGING"
+        "android.permission.RANGING",
+        "android.permission.WAKE_LOCK",
+        "android.permission.FOREGROUND_SERVICE",
+        "android.permission.FOREGROUND_SERVICE_CONNECTED_DEVICE",
+        "android.permission.POST_NOTIFICATIONS"
       ]
     },
     "ios": {
@@ -36,7 +40,7 @@
     "extra": {
       "truthMode": "experimental-auto-geometry",
       "protocolVersion": 2,
-      "releaseIteration": "experimental.4"
+      "releaseIteration": "experimental.5"
     }
   }
 }
