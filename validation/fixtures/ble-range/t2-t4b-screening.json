@@ -1,0 +1,20 @@
+{
+  "schema_version": 1,
+  "classification": "VALIDATION_ONLY_NOT_RUNTIME_INPUT",
+  "source_build": "0.2.0-experimental.4",
+  "ground_truth_m": {
+    "lenovo__pixel7": 1.18,
+    "pixel10__pixel7": 3.20,
+    "lenovo__pixel10": 3.50
+  },
+  "representative_observations": [
+    { "observer": "pixel7", "peer": "pixel10", "rssi_dbm": -75.0, "advertised_tx_power_dbm": -7.0, "old_distance_m": 30.0 },
+    { "observer": "pixel7", "peer": "lenovo", "rssi_dbm": -84.0, "advertised_tx_power_dbm": -11.0, "old_distance_m": 30.0 },
+    { "observer": "lenovo", "peer": "pixel10", "rssi_dbm": -65.0, "advertised_tx_power_dbm": -7.0, "old_distance_m": 30.0 },
+    { "observer": "lenovo", "peer": "pixel7", "rssi_dbm": -78.0, "advertised_tx_power_dbm": -7.0, "old_distance_m": 30.0 },
+    { "observer": "pixel10", "peer": "lenovo", "rssi_dbm": -78.0, "advertised_tx_power_dbm": -11.0, "old_distance_m": 30.0 },
+    { "observer": "pixel10", "peer": "pixel7", "rssi_dbm": -81.0, "advertised_tx_power_dbm": -7.0, "old_distance_m": 30.0 }
+  ],
+  "finding": "Experimental.4 mixed Android advertised TxPower with RSSI@1m semantics and silently clamped the resulting path-loss distance to 30m. T4b also shows that a single-layout RSSI dataset is not sufficient to validate a monotonic metric model.",
+  "runtime_input": false
+}

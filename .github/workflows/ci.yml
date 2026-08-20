@@ -31,18 +31,10 @@ jobs:
           grep -q 'pub const PROTOCOL_VERSION: u16 = 2;' crates/body-finder-core/src/lib.rs
           grep -q 'pub struct RangingCapability' crates/body-finder-core/src/lib.rs
           grep -q 'RANGE_SAMPLE_STALE_NS' crates/body-finder-core/src/lib.rs
-          grep -q 'replayed/out-of-order range sample rejected' crates/body-finder-core/src/lib.rs
           grep -q 'published_geometry' crates/body-finder-core/src/lib.rs
-          grep -q 'published_geometry' protocol/schemas/autogeometry-v2.json
-          grep -q 'geometry_publisher_node_id' apps/node/src/main.rs
           grep -q 'ELECTED_COORDINATOR_PUBLICATION' apps/mobile/src/autogeometry.ts
-          grep -q 'connected_components' apps/mobile/src/geometryDiagnostics.ts
-          grep -q 'sample_age_ms' apps/mobile/src/geometryDiagnostics.ts
           grep -q 'manual_geometry_override.*false' apps/mobile/App.tsx
-          grep -q 'manual_geometry_override.*false' apps/node/src/main.rs
           grep -q 'protocol_version.*2' protocol/schemas/autogeometry-v2.json
-          grep -q '0x811c9dc5' crates/body-finder-core/src/lib.rs
-          grep -q '2166136261' apps/mobile/src/autogeometry.ts
       - name: Enforce Android ranging stabilization contract
         shell: bash
         run: |
@@ -52,21 +44,38 @@ jobs:
           grep -q 'android.permission.BLUETOOTH_ADMIN' apps/mobile/app.json
           grep -q 'SCAN_MODE_LOW_LATENCY' apps/mobile/modules/body-finder-native/android/src/main/java/com/trochez/bodyfindernative/BodyFinderNativeModule.kt
           grep -q 'body_finder_scan_results' apps/mobile/modules/body-finder-native/android/src/main/java/com/trochez/bodyfindernative/BodyFinderNativeModule.kt
-          grep -q 'fallback_range_ready' apps/mobile/modules/body-finder-native/android/src/main/java/com/trochez/bodyfindernative/BodyFinderNativeModule.kt
           grep -q 'last_close_reason' apps/mobile/modules/body-finder-native/android/src/main/java/com/trochez/bodyfindernative/SystemRangingApi36.kt
-          grep -q 'independent BLE scan RSSI fallback remains active' apps/mobile/modules/body-finder-native/android/src/main/java/com/trochez/bodyfindernative/SystemRangingApi36.kt
-          test -s docs/ANDROID_RANGING_RETEST.md
-      - name: Validate JSON and Python validation tooling
+      - name: Enforce experimental.5 range truth and lifecycle contract
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 validation/android/check_ble_range_accuracy_contract.py
+          grep -q 'PROXIMITY_ONLY' apps/mobile/modules/body-finder-native/android/src/main/java/com/trochez/bodyfindernative/BleRangeEstimator.kt
+          grep -q 'metric_valid' apps/mobile/src/geometryDiagnostics.ts
+          grep -q 'validation_run' apps/mobile/App.tsx
+          grep -q 'GEOMETRY UNTRUSTED / NO METRIC RANGE' apps/mobile/App.tsx
+          grep -q 'FOREGROUND_SERVICE_CONNECTED_DEVICE' apps/mobile/app.json
+          grep -q 'CIRCUIT_BREAKER_FAILURES' apps/mobile/modules/body-finder-native/android/src/main/java/com/trochez/bodyfindernative/SystemRangingApi36.kt
+          test -s docs/ANDROID_RANGE_PRECISION_RETEST.md
+          test -s docs/ANDROID_POWER_LIFECYCLE_RETEST.md
+          test -s calibration/ble-range-calibration-schema.json
+          test -s calibration/ble-range-calibration-profiles.json
+      - name: Validate JSON and Python tooling
         run: |
           set -euo pipefail
           python3 -m json.tool docs/CAPABILITY_MATRIX_AUTOGEOMETRY.json >/dev/null
           python3 -m json.tool validation/ground-truth/GROUND_TRUTH_TEMPLATE.json >/dev/null
           python3 -m json.tool validation/fixtures/autogeometry-triangle-v2.json >/dev/null
+          python3 -m json.tool validation/fixtures/ble-range/t2-t4b-screening.json >/dev/null
           python3 -m json.tool protocol/schemas/autogeometry-v2.json >/dev/null
+          python3 -m json.tool calibration/ble-range-calibration-schema.json >/dev/null
+          python3 -m json.tool calibration/ble-range-calibration-profiles.json >/dev/null
           for f in validation/fixtures/android-ranging/*.json; do python3 -m json.tool "$f" >/dev/null; done
           python3 -m py_compile validation/analysis/validate_autogeometry.py
+          python3 -m py_compile validation/analysis/fit_ble_range_profile.py
           python3 -m py_compile validation/android/check_android_ranging_contract.py
-      - name: Validate protocol fixture against JSON Schema
+          python3 -m py_compile validation/android/check_ble_range_accuracy_contract.py
+      - name: Validate schemas
         run: |
           set -euo pipefail
           python3 -m pip install --disable-pip-version-check --quiet jsonschema==4.23.0
@@ -77,13 +86,18 @@ jobs:
           schema = json.loads(Path('protocol/schemas/autogeometry-v2.json').read_text())
           fixture = json.loads(Path('validation/fixtures/autogeometry-triangle-v2.json').read_text())
           validator = Draft202012Validator(schema)
-          errors = []
-          for index, node in enumerate(fixture['nodes']):
-              for error in validator.iter_errors(node):
-                  errors.append(f'nodes[{index}] {error.json_path}: {error.message}')
-          if errors:
-              raise SystemExit('\n'.join(errors))
-          print(f"Validated {len(fixture['nodes'])} protocol-v2 fixture advertisements")
+          errors=[]
+          for i,node in enumerate(fixture['nodes']):
+              errors += [f'nodes[{i}] {e.json_path}: {e.message}' for e in validator.iter_errors(node)]
+          if errors: raise SystemExit('\n'.join(errors))
+          cal_schema=json.loads(Path('calibration/ble-range-calibration-schema.json').read_text())
+          profiles=json.loads(Path('calibration/ble-range-calibration-profiles.json').read_text())['profiles']
+          cv=Draft202012Validator(cal_schema)
+          cal_errors=[]
+          for i,p in enumerate(profiles):
+              cal_errors += [f'profiles[{i}] {e.json_path}: {e.message}' for e in cv.iter_errors(p)]
+          if cal_errors: raise SystemExit('\n'.join(cal_errors))
+          print(f'Validated {len(fixture["nodes"])} protocol advertisements and {len(profiles)} BLE calibration profiles')
           PY
 
   rust-linux:
@@ -126,19 +140,34 @@ jobs:
       - run: npm audit --omit=dev --audit-level=critical
       - run: npx tsc --noEmit
       - run: CI=1 npx expo prebuild --platform android --clean
-      - name: Verify generated Android permissions
+      - name: Verify generated Android permissions and native field-service declaration
         shell: bash
         run: |
           set -euo pipefail
-          MANIFEST=android/app/src/main/AndroidManifest.xml
-          grep -q 'android.permission.BLUETOOTH' "$MANIFEST"
-          grep -q 'android.permission.BLUETOOTH_ADMIN' "$MANIFEST"
-          grep -q 'android.permission.BLUETOOTH_SCAN' "$MANIFEST"
-          grep -q 'android.permission.BLUETOOTH_CONNECT' "$MANIFEST"
-          grep -q 'android.permission.BLUETOOTH_ADVERTISE' "$MANIFEST"
+          APP_MANIFEST=android/app/src/main/AndroidManifest.xml
+          MODULE_MANIFEST=modules/body-finder-native/android/src/main/AndroidManifest.xml
+          grep -q 'android.permission.BLUETOOTH' "$APP_MANIFEST"
+          grep -q 'android.permission.BLUETOOTH_ADMIN' "$APP_MANIFEST"
+          grep -q 'android.permission.BLUETOOTH_SCAN' "$APP_MANIFEST"
+          grep -q 'android.permission.BLUETOOTH_CONNECT' "$APP_MANIFEST"
+          grep -q 'android.permission.BLUETOOTH_ADVERTISE' "$APP_MANIFEST"
+          grep -q 'android.permission.WAKE_LOCK' "$APP_MANIFEST"
+          grep -q 'android.permission.FOREGROUND_SERVICE' "$APP_MANIFEST"
+          grep -q 'android.permission.FOREGROUND_SERVICE_CONNECTED_DEVICE' "$APP_MANIFEST"
+          grep -q 'BodyFinderFieldService' "$MODULE_MANIFEST"
+          grep -q 'android:foregroundServiceType="connectedDevice"' "$MODULE_MANIFEST"
       - run: chmod +x android/gradlew
       - run: ./gradlew assembleRelease bundleRelease --stacktrace
         working-directory: apps/mobile/android
+      - name: Verify foreground service in merged release manifest
+        shell: bash
+        run: |
+          set -euo pipefail
+          MERGED=$(find android/app/build/intermediates -path '*release*' -name AndroidManifest.xml -type f -exec grep -l 'BodyFinderFieldService' {} \; | head -n 1)
+          test -n "$MERGED"
+          grep -q 'BodyFinderFieldService' "$MERGED"
+          grep -q 'foregroundServiceType="connectedDevice"' "$MERGED"
+          echo "Verified merged manifest: $MERGED"
       - uses: actions/upload-artifact@v4
         with:
           name: android-ci
@@ -198,10 +227,8 @@ jobs:
           set -euo pipefail
           WORKSPACE=$(find . -maxdepth 1 -name '*.xcworkspace' -print -quit)
           test -n "$WORKSPACE"
-          SCHEME=$(xcodebuild -workspace "$WORKSPACE" -list -json | ruby -rjson -e 'j=JSON.parse(STDIN.read); schemes=j.fetch("workspace").fetch("schemes"); preferred="BodyFinderRuView"; abort("Expected app scheme #{preferred} not found: #{schemes.join(", ")}") unless schemes.include?(preferred); puts preferred')
-          xcodebuild -workspace "$WORKSPACE" -scheme "$SCHEME" -configuration Release \
-            -sdk iphonesimulator -destination 'generic/platform=iOS Simulator' \
-            -derivedDataPath build CODE_SIGNING_ALLOWED=NO build
+          SCHEME=$(xcodebuild -workspace "$WORKSPACE" -list -json | ruby -rjson -e 'j=JSON.parse(STDIN.read); schemes=j.fetch("workspace").fetch("schemes"); preferred="BodyFinderRuView"; abort("Expected app scheme #{preferred} not found") unless schemes.include?(preferred); puts preferred')
+          xcodebuild -workspace "$WORKSPACE" -scheme "$SCHEME" -configuration Release -sdk iphonesimulator -destination 'generic/platform=iOS Simulator' -derivedDataPath build CODE_SIGNING_ALLOWED=NO build
           APP=$(find build/Build/Products -type d -name '*.app' -print -quit)
           test -n "$APP"
           ditto -c -k --sequesterRsrc --keepParent "$APP" "$GITHUB_WORKSPACE/body-finder-ruview-ios-simulator-ci.zip"

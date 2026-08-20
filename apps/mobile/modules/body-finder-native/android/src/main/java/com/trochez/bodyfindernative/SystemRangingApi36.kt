@@ -17,18 +17,23 @@ import java.util.UUID
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.atomic.AtomicLong
 import kotlin.math.max
+import kotlin.math.min
 
 /**
- * Android API-36+ raw BLE-RSSI adapter for Body Finder peers.
+ * Android API-36+ precise/system ranging adapter.
  *
- * This is a preferred source only when it produces a fresh real distance.
- * BodyFinderNativeModule keeps its scan-RSSI fallback completely independent:
- * session close/open failure here must never clear fallback RSSI windows.
+ * This path is preferred only after a fresh real distance is produced. Failure,
+ * backoff, or circuit-breaker state here never clears Body Finder BLE scan RSSI
+ * evidence. Commodity RSSI remains independently observable (metric only after a
+ * validated calibration profile exists).
  */
 @RequiresApi(36)
 internal object SystemRangingApi36 {
   private const val RESULT_FRESHNESS_MS = 5_000L
-  private const val RETRY_BACKOFF_MS = 2_000L
+  private const val BASE_RETRY_MS = 2_000L
+  private const val MAX_RETRY_MS = 60_000L
+  private const val CIRCUIT_BREAKER_FAILURES = 6
+  private const val CIRCUIT_OPEN_MS = 60_000L
 
   data class Peer(val nodeId: String, val bluetoothAddress: String)
 
@@ -56,11 +61,16 @@ internal object SystemRangingApi36 {
   @Volatile private var lastOpenFailureReason: Int? = null
   @Volatile private var lastError: String? = null
   @Volatile private var nextRetryWallMs: Long = 0
+  @Volatile private var circuitOpenUntilWallMs: Long = 0
+  @Volatile private var consecutiveFailures: Int = 0
 
   private var session: RangingSession? = null
   private var fingerprint: String = ""
   private val peerByUuid = ConcurrentHashMap<UUID, String>()
   private val resultCount = AtomicLong(0)
+  private val openFailureCount = AtomicLong(0)
+  private val closeFailureCount = AtomicLong(0)
+  private val unexpectedFailureCount = AtomicLong(0)
   val measurements = ConcurrentHashMap<String, Measurement>()
 
   fun hasFreshResult(now: Long = System.currentTimeMillis()): Boolean =
@@ -77,7 +87,12 @@ internal object SystemRangingApi36 {
     put("last_close_reason", lastCloseReason ?: JSONObject.NULL)
     put("last_open_failure_reason", lastOpenFailureReason ?: JSONObject.NULL)
     put("last_error", lastError ?: JSONObject.NULL)
+    put("consecutive_failures", consecutiveFailures)
+    put("open_failure_count", openFailureCount.get())
+    put("close_failure_count", closeFailureCount.get())
+    put("unexpected_failure_count", unexpectedFailureCount.get())
     put("retry_in_ms", max(0L, nextRetryWallMs - now))
+    put("circuit_open_in_ms", max(0L, circuitOpenUntilWallMs - now))
     put("fresh_result_available", hasFreshResult(now))
   }
 
@@ -86,6 +101,9 @@ internal object SystemRangingApi36 {
     closeSessionOnly()
     measurements.clear()
     resultCount.set(0)
+    openFailureCount.set(0)
+    closeFailureCount.set(0)
+    unexpectedFailureCount.set(0)
     requestedPeerCount = 0
     activePeerCount = 0
     lastResultWallMs = null
@@ -93,8 +111,29 @@ internal object SystemRangingApi36 {
     lastOpenFailureReason = null
     lastError = null
     nextRetryWallMs = 0
+    circuitOpenUntilWallMs = 0
+    consecutiveFailures = 0
     state = "IDLE"
     detail = "API36 RangingManager idle"
+  }
+
+  private fun registerFailure(now: Long, kind: String) {
+    consecutiveFailures++
+    val exponent = (consecutiveFailures - 1).coerceIn(0, 5)
+    val backoff = min(MAX_RETRY_MS, BASE_RETRY_MS * (1L shl exponent))
+    nextRetryWallMs = now + backoff
+    if (consecutiveFailures >= CIRCUIT_BREAKER_FAILURES) {
+      circuitOpenUntilWallMs = now + CIRCUIT_OPEN_MS
+      state = "CIRCUIT_OPEN"
+      detail = "API36 RangingManager circuit open after $consecutiveFailures consecutive failures ($kind); independent BLE evidence remains active"
+    }
+  }
+
+  private fun registerSuccess() {
+    consecutiveFailures = 0
+    nextRetryWallMs = 0
+    circuitOpenUntilWallMs = 0
+    lastError = null
   }
 
   @SuppressLint("MissingPermission")
@@ -114,9 +153,14 @@ internal object SystemRangingApi36 {
       return
     }
     if (nextFingerprint == fingerprint && session != null) return
+    if (now < circuitOpenUntilWallMs) {
+      state = "CIRCUIT_OPEN"
+      detail = "API36 RangingManager circuit breaker active; independent BLE evidence remains available"
+      return
+    }
     if (now < nextRetryWallMs) {
       state = "BACKOFF"
-      detail = "API36 RangingManager retry backoff active; BLE scan RSSI fallback remains available"
+      detail = "API36 RangingManager bounded retry backoff active; independent BLE evidence remains available"
       return
     }
 
@@ -154,32 +198,36 @@ internal object SystemRangingApi36 {
           sessionActive = true
           activePeerCount = normalized.size
           state = "ACTIVE_NO_RESULT"
-          lastError = null
+          registerSuccess()
           detail = "API36 RangingManager raw BLE-RSSI session opened for ${normalized.size} peer(s)"
         }
 
         override fun onOpenFailed(reason: Int) {
+          val failureNow = System.currentTimeMillis()
           sessionActive = false
           activePeerCount = 0
           lastOpenFailureReason = reason
+          openFailureCount.incrementAndGet()
           state = "OPEN_FAILED"
-          detail = "API36 RangingManager session open failed reason=$reason; independent BLE scan RSSI fallback remains active"
+          detail = "API36 RangingManager session open failed reason=$reason; independent BLE evidence remains active"
           session = null
           fingerprint = ""
           peerByUuid.clear()
-          nextRetryWallMs = System.currentTimeMillis() + RETRY_BACKOFF_MS
+          registerFailure(failureNow, "open reason=$reason")
         }
 
         override fun onClosed(reason: Int) {
+          val failureNow = System.currentTimeMillis()
           sessionActive = false
           activePeerCount = 0
           lastCloseReason = reason
+          closeFailureCount.incrementAndGet()
           state = "CLOSED"
-          detail = "API36 RangingManager session closed reason=$reason; independent BLE scan RSSI fallback remains active and system ranging will retry"
+          detail = "API36 RangingManager session closed reason=$reason; independent BLE evidence remains active"
           session = null
           fingerprint = ""
           peerByUuid.clear()
-          nextRetryWallMs = System.currentTimeMillis() + RETRY_BACKOFF_MS
+          registerFailure(failureNow, "closed reason=$reason")
         }
 
         override fun onStarted(peer: RangingDevice, technology: Int) {
@@ -191,7 +239,7 @@ internal object SystemRangingApi36 {
 
         override fun onStopped(peer: RangingDevice, technology: Int) {
           val id = peerByUuid[peer.uuid] ?: peer.uuid.toString()
-          detail = "API36 ranging stopped peer=$id technology=${technologyName(technology)}; independent BLE RSSI fallback remains available"
+          detail = "API36 ranging stopped peer=$id technology=${technologyName(technology)}; independent BLE evidence remains available"
         }
 
         override fun onResults(peer: RangingDevice, data: RangingData) {
@@ -222,11 +270,12 @@ internal object SystemRangingApi36 {
             rssiDbm = rssi,
             quality = quality,
             technology = technology,
-            sourceDetail = "Android API36 RangingManager raw session; technology=$technology; platform confidence=$confidence; conservative sigma derived from confidence because API36 base does not guarantee distance standard deviation",
+            sourceDetail = "Android API36 RangingManager raw session; technology=$technology; platform confidence=$confidence; conservative sigma derived from platform confidence",
             receivedWallMs = received,
           )
           lastResultWallMs = received
           resultCount.incrementAndGet()
+          if (distanceM != null) registerSuccess()
           state = if (distanceM != null) "ACTIVE_RESULT" else "ACTIVE_NO_DISTANCE"
           detail = "API36 RangingManager live result peer=$peerNodeId technology=$technology distance=${distanceM ?: "null"}"
         }
@@ -235,8 +284,8 @@ internal object SystemRangingApi36 {
       val newSession = manager.createRangingSession(context.mainExecutor, callback)
       if (newSession == null) {
         state = "CREATE_FAILED"
-        detail = "API36 RangingManager could not create a session; BLE scan RSSI fallback remains active"
-        nextRetryWallMs = now + RETRY_BACKOFF_MS
+        detail = "API36 RangingManager could not create a session; independent BLE evidence remains active"
+        registerFailure(now, "create failed")
         return
       }
       session = newSession
@@ -247,15 +296,16 @@ internal object SystemRangingApi36 {
     } catch (e: SecurityException) {
       lastError = "${e.javaClass.simpleName}: ${e.message}"
       state = "PERMISSION_REQUIRED"
-      detail = "API36 RangingManager permission denied: ${e.message}; BLE scan RSSI fallback remains active"
+      detail = "API36 RangingManager permission denied: ${e.message}; independent BLE evidence remains active"
       closeSessionOnly()
-      nextRetryWallMs = now + RETRY_BACKOFF_MS
+      registerFailure(now, "permission")
     } catch (e: Throwable) {
+      unexpectedFailureCount.incrementAndGet()
       lastError = "${e.javaClass.simpleName}: ${e.message}"
       state = "FAILED"
-      detail = "API36 RangingManager unavailable for current peers: ${e.javaClass.simpleName}: ${e.message}; BLE scan RSSI fallback remains active"
+      detail = "API36 RangingManager unavailable for current peers: ${e.javaClass.simpleName}: ${e.message}; independent BLE evidence remains active"
       closeSessionOnly()
-      nextRetryWallMs = now + RETRY_BACKOFF_MS
+      registerFailure(now, e.javaClass.simpleName)
     }
   }
 

@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
-"""Static acceptance checks for the Android BLE/ranging stabilization increment.
+"""Static acceptance checks for Android BLE/ranging plumbing.
 
-These checks intentionally complement (not replace) Android compilation and physical
-RF tests. They lock the contracts that regressed during the first three-device test.
+Experimental.5 preserves the experimental.4 acquisition/binding guarantees while
+changing BLE RSSI from an unvalidated metric distance to proximity-only evidence.
 """
 from pathlib import Path
 import json
@@ -42,11 +42,12 @@ for token in [
     "setReportDelay(0L)",
     "setManufacturerData(MANUFACTURER_ID, prefix, mask)",
     "bodyFinderScanResults",
-    "PeerBindingState" if "PeerBindingState" in native else "binding_state",
+    "binding_state",
     "sample_count_5s",
     "last_sample_age_ms",
     "address_fingerprint",
-    "fallback_range_ready",
+    "fallback_evidence_ready",
+    "metric_range_ready",
     "ADVERTISEMENT_NOT_SEEN",
     "INSUFFICIENT_SAMPLES",
     "fabric_diagnostics",
@@ -55,30 +56,28 @@ for token in [
 ]:
     require(token in native or token in app, f"missing diagnostic/behavior token {token}")
 
-# Scanner start alone must not claim live degraded ranging.
 require(
     'FabricRuntime.bleScanning -> probe("SUPPORTED_UNVERIFIED"' in native,
-    "scanner-only BLE state must be SUPPORTED_UNVERIFIED rather than WORKING_DEGRADED",
+    "scanner-only BLE state must be SUPPORTED_UNVERIFIED rather than live ranging",
 )
-require("LIVE_BLE_RSSI" in native, "live BLE RSSI capability detail missing")
+require("PROXIMITY_ONLY" in native, "experimental.5 proximity-only BLE state missing")
 require("MIN_SAMPLES_FOR_RANGE = 3" in native, "minimum 3-sample gate missing")
 require("RANGE_FRESHNESS_MS = 5_000L" in native, "5-second freshness gate missing")
 require("WINDOW_RETENTION_MS = 8_000L" in native, "8-second sample window missing")
 
-# API36 close/open failure must clear the session/fingerprint so refresh can retry,
-# while fallback state is owned by BodyFinderNativeModule and remains untouched.
 for callback in ["onOpenFailed", "onClosed"]:
     block_match = re.search(rf"override fun {callback}\([^{{]+\) \{{(.*?)\n        \}}", system, re.S)
     require(block_match is not None, f"missing {callback} callback")
     block = block_match.group(1)
     require('session = null' in block, f"{callback} must release dead session")
     require('fingerprint = ""' in block, f"{callback} must clear fingerprint for retry")
-    require("nextRetryWallMs" in block, f"{callback} must schedule bounded retry")
+    require("registerFailure" in block, f"{callback} must enter bounded retry/circuit-breaker policy")
 
 require("rssiWindows" not in system, "SystemRangingApi36 must not own/clear BLE fallback RSSI windows")
 require("hasFreshResult" in system, "fresh system-result predicate missing")
 require("last_close_reason" in system, "system close reason diagnostics missing")
 require("result_count" in system, "system result count diagnostics missing")
+require("CIRCUIT_BREAKER_FAILURES" in system, "bounded failure circuit breaker missing")
 
 for token in [
     "getDiagnosticsJson",
@@ -86,13 +85,12 @@ for token in [
     "Fabric diagnostics",
     "ble_diagnostics",
     "fabric_diagnostics",
-    "0.2.0-experimental.4",
+    "0.2.0-experimental.5",
     "report_version: REPORT_VERSION",
 ]:
     require(token in app or token in native, f"mobile report/Expert token missing: {token}")
 
-# Product contract: no required/manual sensor placement controls reintroduced.
 for forbidden in ["SET MEASURED POSITION", "Guardar posición", "Set position"]:
     require(forbidden not in app, f"manual geometry UI reintroduced: {forbidden}")
 
-print("Android ranging stabilization contract: PASS")
+print("Android ranging acquisition/binding contract: PASS")

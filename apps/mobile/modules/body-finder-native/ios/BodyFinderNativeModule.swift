@@ -11,6 +11,10 @@ private final class BodyFinderIOSRuntime {
   var scanning = false
   var running = false
   var publishedGeometry: [String: Any]?
+  var geometryState = "UNKNOWN"
+  var appVisibility = "UNKNOWN"
+  var validationRunId: String?
+  var validationStartedAt: Date?
   let startedNs = DispatchTime.now().uptimeNanoseconds
 
   private init() {
@@ -49,7 +53,7 @@ public class BodyFinderNativeModule: Module {
       let bleDetail = "iOS Simulator has no physical BLE ranging radio; this artifact validates application/native-module build and UI behavior only"
       #else
       let bleState = "SUPPORTED_UNVERIFIED"
-      let bleDetail = "CoreBluetooth hardware may be available on a physical iOS device, but pairwise ranging/fabric is not validated in this release"
+      let bleDetail = "Physical iOS pairwise ranging remains unvalidated in experimental.5"
       #endif
       return jsonString([
         "platform": "ios",
@@ -58,21 +62,25 @@ public class BodyFinderNativeModule: Module {
           "wifi_rssi": ["state": "UNSUPPORTED", "detail": "General connected-link Wi-Fi RSSI is not exposed by this adapter"],
           "wifi_rtt": ["state": "UNSUPPORTED", "detail": "No verified public iOS Wi-Fi RTT adapter in this release"],
           "ble_peer_ranging": ["state": bleState, "detail": bleDetail],
+          "ble_range_calibration": ["state": "UNSUPPORTED", "detail": "Android BLE RSSI screening profile does not apply to iOS"],
+          "field_session_service": ["state": "UNSUPPORTED", "detail": "Android foreground-service lifecycle hardening is not an iOS capability"],
           "automatic_geometry_compute": ["state": "WORKING", "detail": "Protocol-v2 automatic geometry solver runs in the shared application layer"],
-          "geometry_publication": ["state": "WORKING", "detail": "The shared UI can attach an elected-coordinator GeometrySolution to its local advertisement; simulator has no cross-device RF fabric"],
+          "geometry_publication": ["state": "WORKING", "detail": "Shared UI can publish a GeometrySolution when metric constraints exist"],
           "csi": ["state": "UNSUPPORTED", "detail": "No verified iOS CSI path; RSSI is never labeled CSI"],
-          "udp_fabric": ["state": "UNSUPPORTED", "detail": "Cross-platform physical-iOS field fabric is not implemented in experimental.4; do not treat simulator participation as RF validation"],
+          "udp_fabric": ["state": "UNSUPPORTED", "detail": "Physical iOS field fabric remains unimplemented/unvalidated in experimental.5"],
           "compute": ["state": "WORKING", "detail": "Body Finder React Native / Expo runtime"]
         ]
       ])
     }
 
     Function("getDiagnosticsJson") {
+      let runtime = BodyFinderIOSRuntime.shared
       #if targetEnvironment(simulator)
       let detail = "iOS Simulator has no physical BLE/fabric participation; diagnostics are truthful build/UI placeholders"
       #else
-      let detail = "Physical iOS BLE/fabric diagnostics are not implemented/validated in experimental.4"
+      let detail = "Physical iOS BLE/fabric diagnostics are not implemented/validated in experimental.5"
       #endif
+      let validationElapsed: Any = runtime.validationStartedAt.map { Int(Date().timeIntervalSince($0) * 1000) as Any } ?? NSNull()
       return jsonString([
         "ble_diagnostics": [
           "scan_state": "UNSUPPORTED",
@@ -80,27 +88,28 @@ public class BodyFinderNativeModule: Module {
           "scan_mode": "NONE",
           "total_scan_results": 0,
           "body_finder_scan_results": 0,
-          "malformed_body_finder_payloads": 0,
-          "self_scan_results_ignored": 0,
-          "last_any_scan_result_age_ms": NSNull(),
-          "last_body_finder_scan_result_age_ms": NSNull(),
           "peers": [] as [Any],
-          "system_ranging": [
-            "state": "UNSUPPORTED",
-            "detail": detail,
-            "fresh_result_available": false
-          ]
+          "system_ranging": ["state": "UNSUPPORTED", "detail": detail, "fresh_result_available": false]
         ],
         "fabric_diagnostics": [
           "socket_state": "UNSUPPORTED",
           "multicast_join_state": "UNSUPPORTED",
           "tx_packets": 0,
           "rx_packets": 0,
-          "rx_protocol_v2_packets": 0,
-          "rx_same_session_packets": 0,
           "peer_count_active": 0,
           "peer_expire_count": 0,
           "peers": [] as [Any]
+        ],
+        "lifecycle_diagnostics": [
+          "foreground_service_state": "UNSUPPORTED",
+          "app_visibility": runtime.appVisibility
+        ],
+        "validation_run": [
+          "active": runtime.validationRunId != nil,
+          "run_id": runtime.validationRunId as Any? ?? NSNull(),
+          "elapsed_ms": validationElapsed,
+          "current_geometry_state": runtime.geometryState,
+          "physical_ios_validation": false
         ]
       ])
     }
@@ -119,6 +128,51 @@ public class BodyFinderNativeModule: Module {
       let runtime = BodyFinderIOSRuntime.shared
       runtime.publishedGeometry = publish ? geometryDictionary(geometryJson) : nil
       return true
+    }
+
+    Function("updateGeometryState") { (state: String) -> Bool in
+      BodyFinderIOSRuntime.shared.geometryState = state
+      return true
+    }
+
+    Function("updateAppVisibility") { (visibility: String) -> Bool in
+      BodyFinderIOSRuntime.shared.appVisibility = visibility
+      return true
+    }
+
+    Function("startValidationRun") {
+      let runtime = BodyFinderIOSRuntime.shared
+      let id = UUID().uuidString.lowercased()
+      runtime.validationRunId = id
+      runtime.validationStartedAt = Date()
+      return id
+    }
+
+    Function("endValidationRun") {
+      BodyFinderIOSRuntime.shared.validationRunId = nil
+      return true
+    }
+
+    Function("getValidationRunJson") {
+      let runtime = BodyFinderIOSRuntime.shared
+      return jsonString([
+        "active": runtime.validationRunId != nil,
+        "run_id": runtime.validationRunId as Any? ?? NSNull(),
+        "current_geometry_state": runtime.geometryState,
+        "physical_ios_validation": false
+      ])
+    }
+
+    Function("getCalibrationSnapshotJson") {
+      let runtime = BodyFinderIOSRuntime.shared
+      return jsonString([
+        "schema_version": 1,
+        "session_id": runtime.sessionId,
+        "observer_node_id": runtime.nodeId,
+        "peers": [] as [Any],
+        "ground_truth_in_runtime": false,
+        "detail": "No physical iOS BLE calibration adapter in experimental.5"
+      ])
     }
 
     AsyncFunction("startFabric") { (nodeId: String?, displayName: String?, sessionId: String?) -> Bool in
