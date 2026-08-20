@@ -6,6 +6,12 @@ export type NativeApi = {
   getWifiRssi(): number | null;
   updateLocalState(baseline: number | null, sigma: number | null, scanning: boolean): boolean;
   updatePublishedGeometry(publish: boolean, geometryJson: string | null): boolean;
+  updateGeometryState(geometryState: string): boolean;
+  updateAppVisibility(visibility: string): boolean;
+  startValidationRun(): string;
+  endValidationRun(): boolean;
+  getValidationRunJson(): string;
+  getCalibrationSnapshotJson(): string;
   startFabric(nodeId: string | null, displayName: string | null, sessionId: string | null): Promise<boolean>;
   stopFabric(): boolean;
   getPeersJson(): string;
