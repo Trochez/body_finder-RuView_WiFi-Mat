@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "active_profile_id": "android-ble-screening-v1",
+  "active_profile_id": "android-ble-lab-v1",
   "profiles": [
     {
       "schema_version": 1,
@@ -15,13 +15,40 @@
       "environment": "INDOOR_OPEN_FIELD_SCREENING",
       "sample_count": 13,
       "validated": false,
-      "validation_note": "T2/T4b single-layout evidence is non-monotonic across approximately 1.18-3.50 m. This profile is diagnostic/proximity-only and MUST NOT provide metric geometry until a multi-distance calibration/holdout run passes.",
+      "physical_confidence": "NONE",
+      "validation_note": "T2/T4b single-layout evidence is non-monotonic across approximately 1.18-3.50 m. Diagnostic/proximity-only profile retained for historical regression only.",
       "validation_metrics": null
+    },
+    {
+      "schema_version": 1,
+      "profile_id": "android-ble-lab-v1",
+      "source": "PHYSICAL_MULTI_DISTANCE_CALIBRATION_P0C",
+      "rssi_at_1m_dbm": -69.19,
+      "rssi_at_1m_sigma_db": 6.0,
+      "path_loss_exponent": 3.62,
+      "path_loss_exponent_sigma": 0.7,
+      "valid_distance_min_m": 0.5,
+      "valid_distance_max_m": 5.0,
+      "environment": "INDOOR_OPEN_ROOM_MULTI_DISTANCE_P0C",
+      "sample_count": 521,
+      "validated": true,
+      "physical_confidence": "COARSE",
+      "validation_note": "P0c campaign: three Android pairs, five distances (0.5/1/2/3/5 m), both observation directions. Ground truth is validation-only. BLE RSSI remains coarse and environment/orientation sensitive; do not extrapolate outside the validated domain.",
+      "validation_metrics": {
+        "mae_m": 0.85,
+        "rmse_m": 1.11,
+        "max_error_m": 2.58,
+        "holdout_count": 30,
+        "reciprocal_fused_mae_m": 0.83,
+        "reciprocal_fused_rmse_m": 1.07,
+        "reciprocal_fused_max_error_m": 2.30
+      }
     }
   ],
   "policy": {
     "advertised_tx_power_semantics": "diagnostic transmitter metadata only; never treated as RSSI at 1 m",
     "silent_distance_clamp": false,
+    "invalid_rssi_sentinel_127_filtered": true,
     "unvalidated_profile_metric_valid": false,
     "ground_truth_used_at_runtime": false,
     "metric_gate": {
@@ -29,6 +56,8 @@
       "max_error_m_lte": 3.0,
       "saturation_rate_percent": 0.0,
       "required_distances_m": [0.5, 1.0, 2.0, 3.0, 5.0]
-    }
+    },
+    "metric_domain_policy": "Outside a validated profile domain, distance_m MUST be null and the sample MUST NOT enter metric geometry. No silent clamp is permitted.",
+    "reciprocal_policy": "Prefer reciprocal A<->B inverse-variance fusion when both fresh directions are available; otherwise use single-direction metric with conservative sigma."
   }
 }
