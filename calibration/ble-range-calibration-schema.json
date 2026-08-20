@@ -1,0 +1,36 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://body-finder.local/schema/ble-range-calibration-v1.json",
+  "title": "Body Finder BLE range calibration profile",
+  "type": "object",
+  "required": [
+    "schema_version", "profile_id", "source", "rssi_at_1m_dbm", "rssi_at_1m_sigma_db",
+    "path_loss_exponent", "path_loss_exponent_sigma", "valid_distance_min_m",
+    "valid_distance_max_m", "environment", "sample_count", "validated", "validation_note"
+  ],
+  "properties": {
+    "schema_version": { "const": 1 },
+    "profile_id": { "type": "string", "minLength": 1 },
+    "source": { "type": "string", "minLength": 1 },
+    "rssi_at_1m_dbm": { "type": "number", "minimum": -120, "maximum": -20 },
+    "rssi_at_1m_sigma_db": { "type": "number", "exclusiveMinimum": 0 },
+    "path_loss_exponent": { "type": "number", "exclusiveMinimum": 0, "maximum": 8 },
+    "path_loss_exponent_sigma": { "type": "number", "minimum": 0 },
+    "valid_distance_min_m": { "type": "number", "exclusiveMinimum": 0 },
+    "valid_distance_max_m": { "type": "number", "exclusiveMinimum": 0 },
+    "environment": { "type": "string" },
+    "sample_count": { "type": "integer", "minimum": 0 },
+    "validated": { "type": "boolean" },
+    "validation_note": { "type": "string" },
+    "validation_metrics": {
+      "type": ["object", "null"],
+      "properties": {
+        "mae_m": { "type": "number", "minimum": 0 },
+        "rmse_m": { "type": "number", "minimum": 0 },
+        "max_error_m": { "type": "number", "minimum": 0 },
+        "holdout_count": { "type": "integer", "minimum": 0 }
+      }
+    }
+  },
+  "additionalProperties": true
+}
