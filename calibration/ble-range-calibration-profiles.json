@@ -1,0 +1,34 @@
+{
+  "schema_version": 1,
+  "active_profile_id": "android-ble-screening-v1",
+  "profiles": [
+    {
+      "schema_version": 1,
+      "profile_id": "android-ble-screening-v1",
+      "source": "T2_T4B_SCREENING_PLUS_GENERIC_PRIOR",
+      "rssi_at_1m_dbm": -67.0,
+      "rssi_at_1m_sigma_db": 8.0,
+      "path_loss_exponent": 2.4,
+      "path_loss_exponent_sigma": 0.7,
+      "valid_distance_min_m": 0.3,
+      "valid_distance_max_m": 12.0,
+      "environment": "INDOOR_OPEN_FIELD_SCREENING",
+      "sample_count": 13,
+      "validated": false,
+      "validation_note": "T2/T4b single-layout evidence is non-monotonic across approximately 1.18-3.50 m. This profile is diagnostic/proximity-only and MUST NOT provide metric geometry until a multi-distance calibration/holdout run passes.",
+      "validation_metrics": null
+    }
+  ],
+  "policy": {
+    "advertised_tx_power_semantics": "diagnostic transmitter metadata only; never treated as RSSI at 1 m",
+    "silent_distance_clamp": false,
+    "unvalidated_profile_metric_valid": false,
+    "ground_truth_used_at_runtime": false,
+    "metric_gate": {
+      "mae_m_lte": 2.0,
+      "max_error_m_lte": 3.0,
+      "saturation_rate_percent": 0.0,
+      "required_distances_m": [0.5, 1.0, 2.0, 3.0, 5.0]
+    }
+  }
+}
