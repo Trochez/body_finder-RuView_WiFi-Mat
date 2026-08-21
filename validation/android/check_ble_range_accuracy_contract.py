@@ -49,9 +49,9 @@ def main() -> None:
     p0c = json.loads(P0C_FIXTURE.read_text(encoding="utf-8"))
     app_json = json.loads(app_json_text)
 
-    # Permanent truth guards inherited from experimental.5.
+    # Permanent physical-truth guards inherited from experimental.5/6.
     require("coerceIn(0.20, 30.0)" not in module, "experimental.4 silent 30m clamp is still present")
-    require("coerceIn(0.5, 5.0)" not in estimator, "validated profile has a forbidden silent domain clamp")
+    require("coerceIn(0.5, 5.0)" not in estimator + module, "validated profile has a forbidden silent domain clamp")
     require(not re.search(r"10\.0\.pow\(\(tx\s*-\s*rssi\)", module + estimator), "TxPower is still being used as RSSI@1m")
     require("advertised_tx_power_semantics" in module, "TxPower diagnostic semantics missing")
     require("metric_valid" in module and "raw_distance_m" in module, "range truth fields missing")
@@ -59,7 +59,7 @@ def main() -> None:
     require("BodyFinderFieldService" in service and "PARTIAL_WAKE_LOCK" in service, "field service/wake strategy missing")
     require("MAX_VALID_RSSI_DBM" in fitter and "MIN_VALID_RSSI_DBM" in fitter, "offline fitter RSSI domain guard missing")
 
-    # Active profile must exactly match the P0c physically accepted candidate.
+    # Active profile must remain exactly the P0c physically accepted candidate.
     active = next(p for p in profiles["profiles"] if p["profile_id"] == profiles["active_profile_id"])
     expected = p0c["profile"]
     require(active["profile_id"] == "android-ble-lab-v1", "android-ble-lab-v1 is not active")
@@ -76,16 +76,14 @@ def main() -> None:
     require(profiles["policy"]["ground_truth_used_at_runtime"] is False, "ground truth must not be a runtime input")
     require(p0c["runtime_input"] is False and screening_fixture["runtime_input"] is False, "physical evidence fixture marked as runtime input")
 
-    # Runtime estimator and export guards.
     for token in ["android-ble-lab-v1", "RssiAtOneMeterDbm(-69.19)", "PathLossExponent(3.62)", "validDistanceMinM = 0.50", "validDistanceMaxM = 5.0", "validated = true", "physicalConfidence = \"COARSE\""]:
         require(token in estimator, f"runtime profile contract missing: {token}")
     require("OUT_OF_DOMAIN_LOW" in estimator and "OUT_OF_DOMAIN_HIGH" in estimator, "out-of-domain states missing")
     require("VALID_METRIC" in estimator, "validated metric state missing")
     require("value != 127.0" in estimator and "-127.0..20.0" in estimator, "RSSI sentinel/domain filtering missing")
-    require("rssi_samples_dbm" in index_ts and "sample !== 127" in index_ts, "calibration snapshot sentinel filter missing")
+    require("rssi_samples_dbm" in index_ts and "sample !== 127" in index_ts, "calibration snapshot sentinel defense missing")
     require("validationRmseM" in estimator and "holdoutFloor" in estimator, "validation-error sigma floor missing")
 
-    # Reciprocal fusion/gating contract.
     require("RECIPROCAL_INVERSE_VARIANCE" in fusion, "reciprocal inverse-variance fusion missing")
     require("SINGLE_DIRECTION_CONSERVATIVE" in fusion, "single-direction conservative fallback missing")
     require("REJECTED_DISAGREEMENT" in fusion and "rejectThreshold" in fusion, "reciprocal disagreement rejection missing")
@@ -94,13 +92,12 @@ def main() -> None:
     require("reciprocal_fusion" in app and "fused_range_observations" in app, "fusion provenance not exported")
     require("reciprocal_disagreement_count" in graph and "out_of_domain_sample_count" in graph, "measurement-health diagnostics incomplete")
 
-    # Version/release truth.
-    require("0.2.0-experimental.6" in app, "mobile build is not experimental.6")
-    require(app_json["expo"]["android"]["versionCode"] == 6, "Android versionCode must be 6")
-    require(app_json["expo"]["extra"]["releaseIteration"] == "experimental.6", "releaseIteration must be experimental.6")
-    require("VALIDATED_COARSE_BLE_METRIC_ONLY_IN_0P5_TO_5M_DOMAIN" in app, "experimental.6 truth classification missing")
+    # experimental.7 must preserve experimental.6 physical accuracy while changing temporal policy only.
+    require("0.2.0-experimental.7" in app, "mobile build is not experimental.7")
+    require(app_json["expo"]["android"]["versionCode"] == 7, "Android versionCode must be 7")
+    require(app_json["expo"]["extra"]["releaseIteration"] == "experimental.7", "releaseIteration must be experimental.7")
+    require("VALIDATED_COARSE_BLE_METRIC_0P5_TO_5M" in app, "experimental.7 physical-truth classification missing")
 
-    # Representative physics sanity: in-domain examples remain finite; outside-domain values are never clamped.
     rssi1m = float(active["rssi_at_1m_dbm"])
     n = float(active["path_loss_exponent"])
     require(0.5 < n <= 8.0, "profile path-loss exponent outside physical sanity gate")
@@ -111,7 +108,7 @@ def main() -> None:
     require(weak_raw > 5.0 and strong_raw < 0.5, "out-of-domain synthetic cases do not exercise both boundaries")
 
     print(json.dumps({
-        "contract": "experimental.6 validated coarse BLE metric",
+        "contract": "experimental.7 preserves validated coarse BLE metric physics",
         "profile_id": active["profile_id"],
         "rssi_at_1m_dbm": active["rssi_at_1m_dbm"],
         "path_loss_exponent": active["path_loss_exponent"],
@@ -120,7 +117,6 @@ def main() -> None:
         "holdout_mae_m": metrics["mae_m"],
         "holdout_max_error_m": metrics["max_error_m"],
         "metric_ble_rssi_enabled": True,
-        "reciprocal_fusion": True,
         "silent_clamp": False,
         "sentinel_127_filtered": True,
     }, indent=2))
