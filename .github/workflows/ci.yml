@@ -35,7 +35,7 @@ jobs:
           grep -q 'ELECTED_COORDINATOR_PUBLICATION' apps/mobile/src/autogeometry.ts
           grep -q 'manual_geometry_override.*false' apps/mobile/App.tsx
           grep -q 'protocol_version.*2' protocol/schemas/autogeometry-v2.json
-      - name: Enforce Android ranging stabilization contract
+      - name: Enforce Android ranging acquisition/lifecycle contract
         shell: bash
         run: |
           set -euo pipefail
@@ -45,21 +45,29 @@ jobs:
           grep -q 'SCAN_MODE_LOW_LATENCY' apps/mobile/modules/body-finder-native/android/src/main/java/com/trochez/bodyfindernative/BodyFinderNativeModule.kt
           grep -q 'body_finder_scan_results' apps/mobile/modules/body-finder-native/android/src/main/java/com/trochez/bodyfindernative/BodyFinderNativeModule.kt
           grep -q 'last_close_reason' apps/mobile/modules/body-finder-native/android/src/main/java/com/trochez/bodyfindernative/SystemRangingApi36.kt
-      - name: Enforce experimental.5 range truth and lifecycle contract
+      - name: Enforce validated BLE metric accuracy contract
         shell: bash
         run: |
           set -euo pipefail
           python3 validation/android/check_ble_range_accuracy_contract.py
-          grep -q 'PROXIMITY_ONLY' apps/mobile/modules/body-finder-native/android/src/main/java/com/trochez/bodyfindernative/BleRangeEstimator.kt
+          grep -q 'android-ble-lab-v1' apps/mobile/modules/body-finder-native/android/src/main/java/com/trochez/bodyfindernative/BleRangeEstimator.kt
           grep -q 'metric_valid' apps/mobile/src/geometryDiagnostics.ts
-          grep -q 'validation_run' apps/mobile/App.tsx
-          grep -q 'GEOMETRY UNTRUSTED / NO METRIC RANGE' apps/mobile/App.tsx
+          grep -q 'RECIPROCAL_INVERSE_VARIANCE' apps/mobile/src/rangeFusion.ts
           grep -q 'FOREGROUND_SERVICE_CONNECTED_DEVICE' apps/mobile/app.json
           grep -q 'CIRCUIT_BREAKER_FAILURES' apps/mobile/modules/body-finder-native/android/src/main/java/com/trochez/bodyfindernative/SystemRangingApi36.kt
-          test -s docs/ANDROID_RANGE_PRECISION_RETEST.md
-          test -s docs/ANDROID_POWER_LIFECYCLE_RETEST.md
-          test -s calibration/ble-range-calibration-schema.json
-          test -s calibration/ble-range-calibration-profiles.json
+      - name: Enforce experimental.7 BLE metric continuity contract
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 validation/android/check_ble_continuity_contract.py
+          grep -q '0.2.0-experimental.7' apps/mobile/App.tsx
+          grep -q 'HUMAN_SCANNING_ENABLED = false' apps/mobile/App.tsx
+          grep -q 'BleRangeTemporalState.HOLDOVER' apps/mobile/modules/body-finder-native/android/src/main/java/com/trochez/bodyfindernative/BleContinuityPolicy.kt
+          grep -q 'valid_rssi_sample_count_5s' apps/mobile/modules/body-finder-native/android/src/main/java/com/trochez/bodyfindernative/BodyFinderNativeModule.kt
+          grep -q 'geometry_temporal_quality' apps/mobile/src/geometryDiagnostics.ts
+          test -s IMPLEMENTATION_PLAN_BLE_METRIC_CONTINUITY_STABILIZATION.md
+          test -s docs/ANDROID_BLE_METRIC_CONTINUITY_RETEST.md
+          test -s validation/fixtures/ble-continuity/dev6-continuity-baseline.json
       - name: Validate JSON and Python tooling
         run: |
           set -euo pipefail
@@ -67,6 +75,8 @@ jobs:
           python3 -m json.tool validation/ground-truth/GROUND_TRUTH_TEMPLATE.json >/dev/null
           python3 -m json.tool validation/fixtures/autogeometry-triangle-v2.json >/dev/null
           python3 -m json.tool validation/fixtures/ble-range/t2-t4b-screening.json >/dev/null
+          python3 -m json.tool validation/fixtures/ble-range/p0c-calibration-summary.json >/dev/null
+          python3 -m json.tool validation/fixtures/ble-continuity/dev6-continuity-baseline.json >/dev/null
           python3 -m json.tool protocol/schemas/autogeometry-v2.json >/dev/null
           python3 -m json.tool calibration/ble-range-calibration-schema.json >/dev/null
           python3 -m json.tool calibration/ble-range-calibration-profiles.json >/dev/null
@@ -75,6 +85,7 @@ jobs:
           python3 -m py_compile validation/analysis/fit_ble_range_profile.py
           python3 -m py_compile validation/android/check_android_ranging_contract.py
           python3 -m py_compile validation/android/check_ble_range_accuracy_contract.py
+          python3 -m py_compile validation/android/check_ble_continuity_contract.py
       - name: Validate schemas
         run: |
           set -euo pipefail
@@ -146,14 +157,9 @@ jobs:
           set -euo pipefail
           APP_MANIFEST=android/app/src/main/AndroidManifest.xml
           MODULE_MANIFEST=modules/body-finder-native/android/src/main/AndroidManifest.xml
-          grep -q 'android.permission.BLUETOOTH' "$APP_MANIFEST"
-          grep -q 'android.permission.BLUETOOTH_ADMIN' "$APP_MANIFEST"
-          grep -q 'android.permission.BLUETOOTH_SCAN' "$APP_MANIFEST"
-          grep -q 'android.permission.BLUETOOTH_CONNECT' "$APP_MANIFEST"
-          grep -q 'android.permission.BLUETOOTH_ADVERTISE' "$APP_MANIFEST"
-          grep -q 'android.permission.WAKE_LOCK' "$APP_MANIFEST"
-          grep -q 'android.permission.FOREGROUND_SERVICE' "$APP_MANIFEST"
-          grep -q 'android.permission.FOREGROUND_SERVICE_CONNECTED_DEVICE' "$APP_MANIFEST"
+          for P in BLUETOOTH BLUETOOTH_ADMIN BLUETOOTH_SCAN BLUETOOTH_CONNECT BLUETOOTH_ADVERTISE WAKE_LOCK FOREGROUND_SERVICE FOREGROUND_SERVICE_CONNECTED_DEVICE CHANGE_WIFI_MULTICAST_STATE; do
+            grep -q "android.permission.${P}" "$APP_MANIFEST"
+          done
           grep -q 'BodyFinderFieldService' "$MODULE_MANIFEST"
           grep -q 'android:foregroundServiceType="connectedDevice"' "$MODULE_MANIFEST"
       - run: chmod +x android/gradlew
@@ -167,7 +173,6 @@ jobs:
           test -n "$MERGED"
           grep -q 'BodyFinderFieldService' "$MERGED"
           grep -q 'foregroundServiceType="connectedDevice"' "$MERGED"
-          echo "Verified merged manifest: $MERGED"
       - uses: actions/upload-artifact@v4
         with:
           name: android-ci
