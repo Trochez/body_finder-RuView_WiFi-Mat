@@ -1,6 +1,8 @@
 name: Exp9 Bootstrap
 
 on:
+  pull_request:
+    branches: [main]
   push:
     branches: [feat/ble-adaptive-acquisition-recovery-exp9]
 
@@ -9,7 +11,7 @@ permissions:
 
 jobs:
   apply:
-    if: github.actor != 'github-actions[bot]'
+    if: github.head_ref == 'feat/ble-adaptive-acquisition-recovery-exp9' && github.actor != 'github-actions[bot]'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
