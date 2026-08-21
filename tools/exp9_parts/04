@@ -1,0 +1,131 @@
+BleAcquisitionPolicy.recoveryStartedMs() ?: now
+        val recovered = recentKnownPeerCount(now) > 0 && FabricRuntime.lastBodyFinderScanResultWallMs?.let { it >= started } == true
+        if (recovered) {
+          BleAcquisitionPolicy.noteRecoverySuccess(now)
+          restartScannerWithStrategy(now, BleAcquisitionStrategy.FILTERED_RECOVERY_PROBE, "BF_COHORT_RECOVERED")
+        } else if (now - started >= BleAcquisitionPolicy.RECOVERY_UNFILTERED_WINDOW_MS) {
+          BleAcquisitionPolicy.noteRecoveryFailure()
+          restartScannerWithStrategy(now, BleAcquisitionStrategy.FILTERED_RECOVERY_PROBE, "RECOVERY_WINDOW_EXPIRED")
+        }
+      }
+      BleAcquisitionStrategy.FILTERED_RECOVERY_PROBE -> {
+        cohort = bodyFinderCohortHealth(now)
+        if (cohort == BodyFinderCohortHealth.BF_COHORT_STALLED) {
+          if (BleAcquisitionPolicy.canStartRecovery(now)) {
+            BleAcquisitionPolicy.beginRecovery(now, "PROBE_STALLED")
+            restartScannerWithStrategy(now, BleAcquisitionStrategy.UNFILTERED_RECOVERY, "PROBE_STALLED")
+          } else {
+            BleAcquisitionPolicy.transition(BleAcquisitionStrategy.COOLDOWN, now, "RECOVERY_COOLDOWN")
+          }
+        } else if (now - BleAcquisitionPolicy.strategySinceMs() >= BleAcquisitionPolicy.FILTERED_PROBE_WINDOW_MS) {
+          BleAcquisitionPolicy.transition(BleAcquisitionStrategy.FILTERED_PRIMARY, now, "PROBE_STABLE")
+        }
+      }
+      BleAcquisitionStrategy.COOLDOWN -> {
+        if (now - BleAcquisitionPolicy.strategySinceMs() >= BleAcquisitionPolicy.MIN_RESTART_COOLDOWN_MS) {
+          BleAcquisitionPolicy.transition(BleAcquisitionStrategy.FILTERED_PRIMARY, now, "COOLDOWN_COMPLETE")
+        }
+      }
+      BleAcquisitionStrategy.FAILED_SAFE -> Unit
+    }
+  }
+
+'''
+s=s[:start]+scanner_block+s[end:]
+
+# Record strategy provenance in scan stats.
+s=s.replace('''.record(now, validRssi)''','''.record(now, validRssi, BleAcquisitionPolicy.currentStrategy())''')
+
+# Replace network-loop maintenance call.
+s=s.replace('''          restartScannerIfStalled(ctx, now)\n''','''          maintainAdaptiveScanner(ctx, now)
+          if (ValidationRuntime.runId != null && ValidationRuntime.endedWallMs == null) {
+            ValidationRuntime.recordEnvironmentViolation(now, validationEnvironmentIssues(ctx))
+          }
+''')
+
+# Diagnostics: replace scan health/policy fields.
+s=s.replace('''    put("scan_strategy", BleAcquisitionPolicy.SCAN_STRATEGY)
+    put("hardware_filter_count", if (FabricRuntime.bleScanMode == BleAcquisitionPolicy.SCAN_STRATEGY) 0 else 1)
+''','''    put("scan_strategy", BleAcquisitionPolicy.currentStrategy().name)
+    put("hardware_filter_count", if (BleAcquisitionPolicy.currentStrategy() == BleAcquisitionStrategy.UNFILTERED_RECOVERY) 0 else 1)
+''')
+s=s.replace('''    put("software_body_finder_filter", true)
+    put("scan_callback_health", scanCallbackHealth(now))
+''','''    put("software_body_finder_filter", true)
+    put("global_scanner_health", globalScannerHealth(now).name)
+    put("body_finder_cohort_health", bodyFinderCohortHealth(now).name)
+    put("scan_callback_health", globalScannerHealth(now).name)
+    put("expected_known_peer_count", expectedKnownPeerCount())
+    put("recent_known_peer_count", recentKnownPeerCount(now))
+    put("last_bf_cohort_callback_age_ms", ageMs(now, FabricRuntime.lastBodyFinderScanResultWallMs))
+''')
+old_policy='''    put("acquisition_policy", JSONObject()
+      .put("strategy", BleAcquisitionPolicy.SCAN_STRATEGY)
+      .put("primary_hardware_filter_count", 0)
+      .put("match_mode", BleAcquisitionPolicy.matchModeLabel())
+      .put("num_matches", BleAcquisitionPolicy.numMatchesLabel())
+      .put("report_delay_ms", BleAcquisitionPolicy.REPORT_DELAY_MS)
+      .put("gap_1s_ms", BleAcquisitionPolicy.GAP_1S_MS)
+      .put("gap_2s_ms", BleAcquisitionPolicy.GAP_2S_MS)
+      .put("gap_5s_ms", BleAcquisitionPolicy.GAP_5S_MS)
+      .put("gap_10s_ms", BleAcquisitionPolicy.GAP_10S_MS)
+      .put("system_ranging_ble_yield_ms", BleAcquisitionPolicy.SYSTEM_RANGING_BLE_YIELD_MS))
+'''
+new_policy='''    put("acquisition_policy", BleAcquisitionPolicy.diagnostics(now)
+      .put("primary_hardware_filter_count", 1)
+      .put("recovery_hardware_filter_count", 0)
+      .put("match_mode", BleAcquisitionPolicy.matchModeLabel())
+      .put("num_matches", BleAcquisitionPolicy.numMatchesLabel())
+      .put("report_delay_ms", BleAcquisitionPolicy.REPORT_DELAY_MS)
+      .put("gap_1s_ms", BleAcquisitionPolicy.GAP_1S_MS)
+      .put("gap_2s_ms", BleAcquisitionPolicy.GAP_2S_MS)
+      .put("gap_5s_ms", BleAcquisitionPolicy.GAP_5S_MS)
+      .put("gap_10s_ms", BleAcquisitionPolicy.GAP_10S_MS)
+      .put("system_ranging_ble_yield_ms", BleAcquisitionPolicy.SYSTEM_RANGING_BLE_YIELD_MS))
+'''
+if old_policy in s: s=s.replace(old_policy,new_policy,1)
+
+# Validation diagnostics now need Context so environment drift is represented.
+s=s.replace('''  private fun validationRunDiagnostics(now: Long = System.currentTimeMillis()): JSONObject =
+    ValidationRuntime.diagnostics(
+      now,
+      FabricRuntime.peerExpireCount.get(),
+      FabricRuntime.totalRebinds(),
+      FabricRuntime.scanRestartCount.get(),
+      FabricRuntime.txPackets.get(),
+      FabricRuntime.rxPackets.get(),
+    )
+''','''  private fun validationRunDiagnostics(ctx: Context, now: Long = System.currentTimeMillis()): JSONObject {
+    if (ValidationRuntime.runId != null && ValidationRuntime.endedWallMs == null) {
+      ValidationRuntime.recordEnvironmentViolation(now, validationEnvironmentIssues(ctx))
+    }
+    return ValidationRuntime.diagnostics(
+      now,
+      FabricRuntime.peerExpireCount.get(),
+      FabricRuntime.totalRebinds(),
+      FabricRuntime.scanRestartCount.get(),
+      FabricRuntime.txPackets.get(),
+      FabricRuntime.rxPackets.get(),
+    ).put("acquisition_strategy", BleAcquisitionPolicy.currentStrategy().name)
+      .put("body_finder_cohort_health", bodyFinderCohortHealth(now).name)
+  }
+''')
+s=s.replace('''.put("validation_run", validationRunDiagnostics(now))''','''.put("validation_run", validationRunDiagnostics(ctx, now))''')
+
+# Ensure initial scan is filtered primary.
+s=s.replace('''      startScanner(scanner, scanCb)\n''','''      BleAcquisitionPolicy.reset(System.currentTimeMillis())
+      startScanner(scanner, scanCb, BleAcquisitionStrategy.FILTERED_PRIMARY, "INITIAL_FILTERED_PRIMARY")
+''',1)
+
+mod.write_text(s)
+
+# ---- App.tsx ----
+app=ROOT/'apps/mobile/App.tsx'
+a=app.read_text()
+a=a.replace("const BUILD = '0.2.0-experimental.8';", "const BUILD = '0.2.0-experimental.9';")
+a=a.replace('const REPORT_VERSION = 10;', 'const REPORT_VERSION = 11;')
+a=a.replace('experimental.8', 'experimental.9')
+a=a.replace('SOFTWARE_FILTERED_ALL_MATCHES_ACQUISITION', 'ADAPTIVE_FILTERED_PRIMARY_WITH_BF_COHORT_RECOVERY')
+a=a.replace('''      else BodyFinderNative.startValidationRun();\n''','''      else {
+        const result = BodyFinderNative.startValidationRun();
+        if (typeof result === 'string' && result.startsWith('VALIDATION_ENV
