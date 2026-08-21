@@ -50,23 +50,33 @@ def main() -> None:
     require("SIGMA_AGING_M_PER_S = 0.15" in cont, "holdover sigma aging changed")
     require("coerceIn(0.5, 5.0)" not in module + estimator, "silent metric clamp reintroduced")
 
-    # Primary acquisition strategy.
+    # experimental.9 acquisition strategy: controller/manufacturer filtered primary, unfiltered only for bounded recovery.
     for token in [
-        "SCAN_STRATEGY = \"LOW_LATENCY_SOFTWARE_FILTERED_ALL_MATCHES\"",
-        "ScanSettings.SCAN_MODE_LOW_LATENCY",
-        "setReportDelay(REPORT_DELAY_MS)",
-        "ScanSettings.CALLBACK_TYPE_ALL_MATCHES",
-        "ScanSettings.MATCH_MODE_AGGRESSIVE",
-        "ScanSettings.MATCH_NUM_MAX_ADVERTISEMENT",
-        "scanner.startScan(null, scanSettings(), callback)",
+        "FILTERED_PRIMARY", "UNFILTERED_RECOVERY", "FILTERED_RECOVERY_PROBE", "COOLDOWN", "FAILED_SAFE",
+        "ScanSettings.SCAN_MODE_LOW_LATENCY", "setReportDelay(REPORT_DELAY_MS)",
+        "ScanSettings.CALLBACK_TYPE_ALL_MATCHES", "ScanSettings.MATCH_MODE_AGGRESSIVE", "ScanSettings.MATCH_NUM_MAX_ADVERTISEMENT",
+        "startFilteredScan", "startUnfilteredRecoveryScan", "manufacturerFilter",
+        "COHORT_STALL_THRESHOLD_MS = 5_000L", "RECOVERY_UNFILTERED_WINDOW_MS = 10_000L",
+        "FILTERED_PROBE_WINDOW_MS = 15_000L", "MIN_RESTART_COOLDOWN_MS = 30_000L",
+        "MAX_RECOVERY_ATTEMPTS_PER_5MIN = 3",
     ]:
-        require(token in acq, f"acquisition strategy missing: {token}")
-    require("BleAcquisitionPolicy.startSoftwareFilteredScan(scanner, callback)" in module, "primary scanner does not use software-filtered path")
-    require("getManufacturerSpecificData(MANUFACTURER_ID)" in module and "payloadIdentity(raw)" in module, "software Body Finder manufacturer/payload filter missing")
-    require("LOW_LATENCY_HARDWARE_FILTER_FALLBACK" in module, "safe hardware-filter fallback missing")
-    require("ADVERTISE_TX_POWER_MEDIUM" in module, "advertise Tx power changed; calibration would no longer be comparable")
+        require(token in acq, f"adaptive acquisition token missing: {token}")
+    require("BleAcquisitionPolicy.startFilteredScan" in module, "primary scanner is not filtered")
+    require("BleAcquisitionPolicy.startUnfilteredRecoveryScan" in module, "unfiltered recovery path missing")
+    require("getManufacturerSpecificData(MANUFACTURER_ID)" in module and "payloadIdentity(raw)" in module, "Body Finder payload validation missing")
+    require("ADVERTISE_TX_POWER_MEDIUM" in module, "advertise Tx power changed")
 
-    # Acquisition telemetry.
+    # Cohort-specific health and recovery.
+    for token in [
+        "GLOBAL_SCANNER_HEALTHY", "GLOBAL_SCANNER_STALLED", "BF_COHORT_HEALTHY", "BF_COHORT_SPARSE",
+        "BF_COHORT_STALLED", "BF_COHORT_RECOVERING", "maintainAdaptiveScanner", "bodyFinderCohortHealth",
+        "strategy_transition_count", "cohort_stall_count", "cohort_recovery_count",
+        "cohort_recovery_failure_count", "restart_suppressed_by_cooldown_count",
+        "filtered_mode_total_ms", "unfiltered_recovery_total_ms",
+    ]:
+        require(token in acq + module, f"cohort recovery token missing: {token}")
+
+    # Acquisition telemetry remains available per peer.
     for token in [
         "BleAcquisitionStats", "acquisitionStatsByIdentity", "callback_rate_hz", "valid_callback_rate_hz",
         "mean_interarrival_ms", "max_interarrival_ms", "p50_interarrival_ms", "p95_interarrival_ms",
@@ -76,13 +86,10 @@ def main() -> None:
     ]:
         require(token in acq + module, f"acquisition telemetry missing: {token}")
     require("snapshotAcquisitionForValidation" in module, "validation run does not snapshot acquisition counters")
-    require("FabricRuntime.snapshotAcquisitionForValidation()" in module, "validation start does not establish acquisition baseline")
+    require("FabricRuntime.snapshotAcquisitionForValidation()" in module, "validation start lacks acquisition baseline")
 
-    # Global scanner recovery remains separate from isolated peer gaps.
-    require("SCANNER_CALLBACK_STALLED" in module, "global scanner stall state missing")
-    require("isolated peer gaps never trigger scanner restart" in module, "peer-gap restart protection missing")
-
-    # API36 coexistence: opening a session is no longer a success.
+    # Environment gate and API36 coexistence.
+    require("VALIDATION_ENVIRONMENT_INVALID" in module and "BATTERY_SAVER_ON" in module, "Battery Saver validation gate missing")
     on_opened_start = system.find("override fun onOpened()")
     on_open_failed_start = system.find("override fun onOpenFailed", on_opened_start)
     on_opened_body = system[on_opened_start:on_open_failed_start]
@@ -91,25 +98,26 @@ def main() -> None:
     require("SYSTEM_RANGING_BLE_YIELD_MS = 120_000L" in acq, "BLE yield duration changed")
     require("SYSTEM_RANGING_CLOSES_BEFORE_YIELD = 6L" in acq, "BLE yield close threshold changed")
     for token in ["BLE_ACQUISITION_YIELD", "ble_yield_active", "ble_yield_reason", "closes_since_real_result", "isBleYieldActive"]:
-        require(token in system, f"RangingManager BLE-yield contract missing: {token}")
+        require(token in system, f"RangingManager BLE-yield token missing: {token}")
 
     # UI/release truth.
-    require("0.2.0-experimental.8" in app, "mobile build is not experimental.8")
-    require("const REPORT_VERSION = 10" in app, "report version must be 10")
+    require("0.2.0-experimental.9" in app, "mobile build is not experimental.9")
+    require("const REPORT_VERSION = 11" in app, "report version must be 11")
     require("HUMAN_SCANNING_ENABLED = false" in app, "human scanning must remain blocked")
-    require(app_json["expo"]["android"]["versionCode"] == 8, "Android versionCode must be 8")
-    require(app_json["expo"]["extra"]["releaseIteration"] == "experimental.8", "release iteration must be experimental.8")
-    require("experimental.8 uses low-latency ALL_MATCHES" in app, "Expert acquisition truth is missing")
+    require(app_json["expo"]["android"]["versionCode"] == 9, "Android versionCode must be 9")
+    require(app_json["expo"]["extra"]["releaseIteration"] == "experimental.9", "release iteration must be experimental.9")
 
     print(json.dumps({
-        "contract": "experimental.8 BLE acquisition continuity",
+        "contract": "experimental.9 adaptive BLE acquisition continuity",
         "profile_frozen": True,
         "min_samples": 3,
         "fresh_ms": 5000,
         "holdover_max_ms": 10000,
-        "scan_strategy": "LOW_LATENCY_SOFTWARE_FILTERED_ALL_MATCHES",
-        "match_mode": "AGGRESSIVE_API23_PLUS",
-        "hardware_filter_primary": False,
+        "primary_strategy": "FILTERED_PRIMARY",
+        "recovery_strategy": "UNFILTERED_RECOVERY",
+        "cohort_stall_ms": 5000,
+        "restart_cooldown_ms": 30000,
+        "max_recovery_attempts_per_5min": 3,
         "ranging_manager_ble_yield_ms": 120000,
         "human_scanning_enabled": False,
     }, indent=2))
