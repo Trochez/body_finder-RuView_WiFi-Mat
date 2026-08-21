@@ -1,0 +1,88 @@
+zOC7b5aITf6EOnLR9AtV+0ps+Y2iMSLVeR+8E5+lIpnppmjIy+Z5qvVCHpg6TNsgRQoDAXfXi09SOluQndy4Q/MurzqP4ySc25h5FAD1Uvl+TV0GQwotdt/yZc1TbZ7D6G0UAQrVM33DYZiWl+gu8EtFdB3w3L3d4YRnT9M+ZmBAwAROsPgrm/AoKPhtVHom7wq5TwM3/j1c036i8jYMdr7KSzqgWkgGwU3iixsY/+9i2Oxf4ufoSfY/L6c6XbMAIw6kTwG48BnbXcGndF0RQCZuL+iHPYPX9rGAN3d7/MokI6QTRY89G1mn3Arx8B4yb6w5/2wznYHfw/if9si+vsR++6+oEbdje/mb4i5u9uNN785nYB8T67x48bRSYkoNOqz5QZ2FZR4n7++dYMbG1pYE+xGdU47c0B9UKUyNzubB/Fkr9t0JEbQiepbp6M/Ut6Rq1Z5DQu85FxVM1rYu/89zNHwdopqmhr46VaWJjfW3pGmkf2UkO+fkyz2MI8cYPxpisWf2JEL6hVXOi7nBYZXP63yojPuW2aKVjAjwEm7rh9UTlm9w6si3JvwLoqkNZBXrWHN4KqOjZ0lcYGVl1UK8r9oTWho30h85QyKO2FASyGzMA2iUNBWXtG6gLHe1qTN35e0EnG4OdP1ceKQm1WLaeCjSB69OgEP9aJfe5imXQfPQr+H0/TKyE='''
+(ROOT/'IMPLEMENTATION_PLAN_BLE_ADAPTIVE_ACQUISITION_RECOVERY.md').write_bytes(zlib.decompress(base64.b64decode(PLAN_B64)))
+
+# CI additions/version
+ci=ROOT/'.github/workflows/ci.yml'; c=ci.read_text(); c=c.replace('0.2.0-experimental.8','0.2.0-experimental.9')
+anchor='''          python3 validation/android/check_ble_acquisition_contract.py\n'''
+if 'check_ble_adaptive_acquisition_contract.py' not in c:
+    c=c.replace(anchor, anchor+'''          python3 validation/android/check_ble_adaptive_acquisition_contract.py
+          test -s IMPLEMENTATION_PLAN_BLE_ADAPTIVE_ACQUISITION_RECOVERY.md
+          test -s docs/ANDROID_BLE_ADAPTIVE_ACQUISITION_RETEST.md
+          python3 -m json.tool validation/fixtures/ble-adaptive-acquisition/experimental8-cohort-stall-baseline.json >/dev/null
+''')
+    c=c.replace('''          python3 -m py_compile validation/android/check_ble_acquisition_contract.py\n''','''          python3 -m py_compile validation/android/check_ble_acquisition_contract.py validation/android/check_ble_adaptive_acquisition_contract.py
+''')
+ci.write_text(c)
+
+# Release workflow: version bump, contract additions, artifacts, manifest fields.
+rp=ROOT/'.github/workflows/release.yml'; r=rp.read_text(); r=r.replace('experimental.8','experimental.9').replace('experimental8','experimental9').replace('~experimental8','~experimental9')
+if 'check_ble_adaptive_acquisition_contract.py' not in r:
+    r=r.replace('''          python3 validation/android/check_ble_acquisition_contract.py\n''','''          python3 validation/android/check_ble_acquisition_contract.py
+          python3 validation/android/check_ble_adaptive_acquisition_contract.py
+          test -s IMPLEMENTATION_PLAN_BLE_ADAPTIVE_ACQUISITION_RECOVERY.md
+          test -s docs/ANDROID_BLE_ADAPTIVE_ACQUISITION_RETEST.md
+''')
+# Add docs/plan copies after existing acquisition docs/plan.
+r=r.replace('''          cp docs/ANDROID_BLE_ACQUISITION_CONTINUITY_RETEST.md dist/ANDROID_BLE_ACQUISITION_CONTINUITY_RETEST.md\n''','''          cp docs/ANDROID_BLE_ACQUISITION_CONTINUITY_RETEST.md dist/ANDROID_BLE_ACQUISITION_CONTINUITY_RETEST.md
+          cp docs/ANDROID_BLE_ADAPTIVE_ACQUISITION_RETEST.md dist/ANDROID_BLE_ADAPTIVE_ACQUISITION_RETEST.md
+''')
+r=r.replace('''          cp IMPLEMENTATION_PLAN_BLE_ACQUISITION_CONTINUITY.md dist/IMPLEMENTATION_PLAN_BLE_ACQUISITION_CONTINUITY.md\n''','''          cp IMPLEMENTATION_PLAN_BLE_ACQUISITION_CONTINUITY.md dist/IMPLEMENTATION_PLAN_BLE_ACQUISITION_CONTINUITY.md
+          cp IMPLEMENTATION_PLAN_BLE_ADAPTIVE_ACQUISITION_RECOVERY.md dist/IMPLEMENTATION_PLAN_BLE_ADAPTIVE_ACQUISITION_RECOVERY.md
+''')
+# Adaptive fixtures zip.
+marker='''          rm -rf dist/acquisition-fixtures\n'''
+if 'adaptive-acquisition-fixtures' not in r:
+    r=r.replace(marker, marker+'''\n          mkdir -p dist/adaptive-acquisition-fixtures
+          cp validation/fixtures/ble-adaptive-acquisition/*.json dist/adaptive-acquisition-fixtures/
+          cp validation/android/check_ble_adaptive_acquisition_contract.py dist/adaptive-acquisition-fixtures/
+          (cd dist/adaptive-acquisition-fixtures && zip -r ../ble-adaptive-acquisition-regression-fixtures.zip .)
+          rm -rf dist/adaptive-acquisition-fixtures
+''')
+# Required list.
+r=r.replace('''            ANDROID_BLE_ACQUISITION_CONTINUITY_RETEST.md\n''','''            ANDROID_BLE_ACQUISITION_CONTINUITY_RETEST.md
+            ANDROID_BLE_ADAPTIVE_ACQUISITION_RETEST.md
+            IMPLEMENTATION_PLAN_BLE_ADAPTIVE_ACQUISITION_RECOVERY.md
+            ble-adaptive-acquisition-regression-fixtures.zip
+''')
+# Add manifest fields after scan report delay line if not present.
+manifest_anchor='''            "ble_scan_report_delay_ms": 0,\n'''
+if 'ble_primary_strategy' not in r:
+    r=r.replace(manifest_anchor, manifest_anchor+'''            "ble_primary_strategy": "FILTERED_PRIMARY",
+            "ble_recovery_strategy": "UNFILTERED_RECOVERY",
+            "ble_global_scanner_health_separate": true,
+            "ble_body_finder_cohort_health": true,
+            "ble_cohort_stall_threshold_ms": 5000,
+            "ble_global_scanner_fresh_ms": 2000,
+            "ble_recovery_unfiltered_window_ms": 10000,
+            "ble_filtered_probe_window_ms": 15000,
+            "ble_restart_cooldown_ms": 30000,
+            "ble_max_recovery_attempts_per_5min": 3,
+            "validation_blocks_battery_saver": true,
+''')
+# Artifacts array items.
+r=r.replace('''              "ANDROID_BLE_ACQUISITION_CONTINUITY_RETEST.md",\n''','''              "ANDROID_BLE_ACQUISITION_CONTINUITY_RETEST.md",
+              "ANDROID_BLE_ADAPTIVE_ACQUISITION_RETEST.md",
+''')
+r=r.replace('''              "IMPLEMENTATION_PLAN_BLE_ACQUISITION_CONTINUITY.md",\n''','''              "IMPLEMENTATION_PLAN_BLE_ACQUISITION_CONTINUITY.md",
+              "IMPLEMENTATION_PLAN_BLE_ADAPTIVE_ACQUISITION_RECOVERY.md",
+''')
+r=r.replace('''              "ble-acquisition-regression-fixtures.zip",\n''','''              "ble-acquisition-regression-fixtures.zip",
+              "ble-adaptive-acquisition-regression-fixtures.zip",
+''')
+# Assert manifest new fields.
+assert_anchor="""          assert m['ble_scan_report_delay_ms']==0\n"""
+if "ble_primary_strategy" not in r[r.find("python3 - <<'PY'"):]:
+    r=r.replace(assert_anchor, assert_anchor+"""          assert m['ble_primary_strategy']=='FILTERED_PRIMARY'
+          assert m['ble_recovery_strategy']=='UNFILTERED_RECOVERY'
+          assert m['ble_cohort_stall_threshold_ms']==5000
+          assert m['ble_restart_cooldown_ms']==30000
+          assert m['ble_max_recovery_attempts_per_5min']==3
+          assert m['validation_blocks_battery_saver'] is True
+""")
+# checksum guards
+r=r.replace("""          grep -q 'ANDROID_BLE_ACQUISITION_CONTINUITY_RETEST.md' dist/SHA256SUMS\n""","""          grep -q 'ANDROID_BLE_ACQUISITION_CONTINUITY_RETEST.md' dist/SHA256SUMS
+          grep -q 'ANDROID_BLE_ADAPTIVE_ACQUISITION_RETEST.md' dist/SHA256SUMS
+          grep -q 'ble-adaptive-acquisition-regression-fixtures.zip' dist/SHA256SUMS
+""")
+# Release notes text primary strategy statement.
+r=r.replace('primary BLE scanning is LOW_LATENCY + ALL_MATCHES with Body Finder manufacturer/payload validation in software', 'primary BLE scanning is manufacturer-filtered LOW_LATENCY; ALL_MATCHES software filtering is bounded recovery-onl
