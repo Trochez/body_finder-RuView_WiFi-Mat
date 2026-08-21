@@ -1,8 +1,9 @@
 #!/usr/bin/env python3
 """Static acceptance checks for Android BLE/ranging plumbing.
 
-Experimental.8 preserves the validated COARSE ranging and bounded continuity
-contracts while changing Android BLE callback acquisition strategy.
+Experimental.9 preserves the validated COARSE metric/continuity contracts while
+restoring manufacturer-filtered scanning as primary and using unfiltered
+ALL_MATCHES only for bounded Body Finder cohort recovery.
 """
 from pathlib import Path
 import json
@@ -60,8 +61,13 @@ for token in [
 ]:
     require(token in native or token in acquisition or token in app, f"missing diagnostic/behavior token {token}")
 
-require("scanner.startScan(null, scanSettings(), callback)" in acquisition, "experimental.8 primary scan must be software filtered")
-require("setManufacturerData(MANUFACTURER_ID, prefix, mask)" in native, "hardware-filter fallback missing")
+require("startFilteredScan" in acquisition, "filtered primary scan missing")
+require("scanner.startScan(listOf(manufacturerFilter(manufacturerId)), scanSettings(), callback)" in acquisition, "manufacturer-filtered primary scan missing")
+require("startUnfilteredRecoveryScan" in acquisition, "unfiltered recovery scan missing")
+require("scanner.startScan(null, scanSettings(), callback)" in acquisition, "ALL_MATCHES recovery scan missing")
+require("setManufacturerData(manufacturerId, prefix, mask)" in acquisition, "manufacturer filter missing")
+require("FILTERED_PRIMARY" in acquisition and "UNFILTERED_RECOVERY" in acquisition, "adaptive acquisition strategies missing")
+require("BF_COHORT_STALLED" in acquisition, "Body Finder cohort stall state missing")
 require(
     'FabricRuntime.bleScanning -> probe("SUPPORTED_UNVERIFIED"' in native,
     "scanner-only BLE state must be SUPPORTED_UNVERIFIED rather than live ranging",
@@ -70,7 +76,7 @@ require("PROXIMITY_ONLY" in native, "proximity fallback state missing")
 require("MIN_SAMPLES_FOR_RANGE = 3" in native, "minimum 3-sample gate missing")
 require("RANGE_FRESHNESS_MS = 5_000L" in native, "5-second freshness gate missing")
 require("WINDOW_RETENTION_MS = 8_000L" in native, "8-second sample window missing")
-require("SCANNER_CALLBACK_STALLED" in native, "global scanner callback stall classifier missing")
+require("GLOBAL_SCANNER_STALLED" in native or "GLOBAL_SCANNER_STALLED" in acquisition, "global scanner stall classifier missing")
 
 for callback in ["onOpenFailed", "onClosed"]:
     block_match = re.search(rf"override fun {callback}\([^{{]+\) \{{(.*?)\n        \}}", system, re.S)
@@ -93,7 +99,7 @@ for token in [
     "Fabric diagnostics",
     "ble_diagnostics",
     "fabric_diagnostics",
-    "0.2.0-experimental.8",
+    "0.2.0-experimental.9",
     "report_version: REPORT_VERSION",
 ]:
     require(token in app or token in native, f"mobile report/Expert token missing: {token}")
@@ -101,4 +107,4 @@ for token in [
 for forbidden in ["SET MEASURED POSITION", "Guardar posición", "Set position"]:
     require(forbidden not in app, f"manual geometry UI reintroduced: {forbidden}")
 
-print("Android ranging acquisition/binding/continuity contract: PASS")
+print("Android ranging adaptive acquisition/binding/continuity contract: PASS")
