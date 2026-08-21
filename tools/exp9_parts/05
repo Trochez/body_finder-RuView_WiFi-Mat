@@ -1,0 +1,147 @@
+VIRONMENT_INVALID:')) {
+          const reason = result.split(':').slice(1).join(':');
+          setError(lang === 'es' ? `Ambiente de validación inválido: ${reason}. Desactiva Battery Saver, mantén pantalla encendida y Body Finder en primer plano.` : `Invalid validation environment: ${reason}. Turn Battery Saver off, keep the screen on and Body Finder in foreground.`);
+          return;
+        }
+      }
+''')
+a=a.replace('Return this JSON and screenshots from the 5-minute experimental.9 BLE acquisition-continuity run.', 'Return this JSON and screenshots from the 5-minute experimental.9 adaptive BLE acquisition-recovery run.')
+a=a.replace("title: 'Body Finder experimental.9 BLE acquisition continuity result'", "title: 'Body Finder experimental.9 adaptive BLE acquisition result'")
+app.write_text(a)
+
+# app.json
+p=ROOT/'apps/mobile/app.json'; data=json.loads(p.read_text()); data['expo']['android']['versionCode']=9; data['expo']['extra']['releaseIteration']='experimental.9'; p.write_text(json.dumps(data,ensure_ascii=False,indent=2)+'\n')
+
+# Capability matrix simple version bump / description additions.
+cap=ROOT/'docs/CAPABILITY_MATRIX_AUTOGEOMETRY.json'
+cd=json.loads(cap.read_text())
+cd['release_iteration']='experimental.9'
+cd['ble_adaptive_acquisition_recovery']=True
+cd['ble_primary_strategy']='FILTERED_PRIMARY'
+cd['ble_recovery_strategy']='UNFILTERED_RECOVERY'
+cd['validation_blocks_battery_saver']=True
+cap.write_text(json.dumps(cd,ensure_ascii=False,indent=2)+'\n')
+
+# New checker
+checker=r'''#!/usr/bin/env python3
+from pathlib import Path
+import json
+ROOT=Path(__file__).resolve().parents[2]
+policy=(ROOT/'apps/mobile/modules/body-finder-native/android/src/main/java/com/trochez/bodyfindernative/BleAcquisitionPolicy.kt').read_text()
+module=(ROOT/'apps/mobile/modules/body-finder-native/android/src/main/java/com/trochez/bodyfindernative/BodyFinderNativeModule.kt').read_text()
+app=(ROOT/'apps/mobile/App.tsx').read_text()
+profile=json.loads((ROOT/'calibration/ble-range-calibration-profiles.json').read_text())
+assert 'FILTERED_PRIMARY' in policy
+assert 'UNFILTERED_RECOVERY' in policy
+assert 'BF_COHORT_STALLED' in policy
+assert 'GLOBAL_SCANNER_HEALTHY' in policy
+assert 'COHORT_STALL_THRESHOLD_MS = 5_000L' in policy
+assert 'MIN_RESTART_COOLDOWN_MS = 30_000L' in policy
+assert 'MAX_RECOVERY_ATTEMPTS_PER_5MIN = 3' in policy
+assert 'startFilteredScan' in policy and 'startUnfilteredRecoveryScan' in policy
+assert 'bodyFinderCohortHealth' in module
+assert 'maintainAdaptiveScanner' in module
+assert 'VALIDATION_ENVIRONMENT_INVALID' in module
+assert 'BATTERY_SAVER_ON' in module
+assert '0.2.0-experimental.9' in app
+assert 'HUMAN_SCANNING_ENABLED = false' in app
+# frozen truth guards
+assert '-69.19' in (ROOT/'apps/mobile/modules/body-finder-native/android/src/main/java/com/trochez/bodyfindernative/BleRangeEstimator.kt').read_text()
+assert '3.62' in (ROOT/'apps/mobile/modules/body-finder-native/android/src/main/java/com/trochez/bodyfindernative/BleRangeEstimator.kt').read_text()
+cont=(ROOT/'apps/mobile/modules/body-finder-native/android/src/main/java/com/trochez/bodyfindernative/BleContinuityPolicy.kt').read_text()
+assert 'FRESH_MS = 5_000L' in cont and 'HOLDOVER_MAX_MS = 10_000L' in cont and 'SIGMA_AGING_M_PER_S = 0.15' in cont
+print('experimental.9 adaptive acquisition contract OK')
+'''
+(ROOT/'validation/android/check_ble_adaptive_acquisition_contract.py').write_text(checker)
+
+fixture={
+  'schema_version':1,
+  'source':'experimental.8 physical three-device retest',
+  'finding':'generic BLE scanner remains active while complete Body Finder cohort disappears on Pixel receivers',
+  'pixel7':{'usable_metric_uptime_percent':18.44,'geometry_2d_uptime_percent':17.06,'scan_restart_total_approx':130,'power_save_mode':False},
+  'pixel10':{'usable_metric_uptime_percent':7.21,'geometry_2d_uptime_percent':13.62,'scan_restart_total_approx':126,'power_save_mode':True},
+  'lenovo':{'usable_metric_uptime_percent':96.55,'geometry_2d_uptime_percent':14.96,'scan_restart_total_approx':0,'power_save_mode':False},
+  'required_behavior':'detect BF_COHORT_STALLED independently of global scanner health and execute bounded adaptive recovery'
+}
+fp=ROOT/'validation/fixtures/ble-adaptive-acquisition/experimental8-cohort-stall-baseline.json'; fp.parent.mkdir(parents=True,exist_ok=True); fp.write_text(json.dumps(fixture,indent=2)+'\n')
+
+# Retest doc
+retest=r'''# Android BLE Adaptive Acquisition Retest — experimental.9
+
+## Goal
+Validate that Pixel receivers recover a stalled Body Finder cohort without relaxing metric truth.
+
+## Required build truth
+- Build `0.2.0-experimental.9`, protocol 2.
+- `android-ble-lab-v1`, validated COARSE, 0.5–5.0 m.
+- minSamples=3, fresh=5s, holdover=10s, sigma aging=0.15 m/s.
+- primary strategy `FILTERED_PRIMARY`; recovery `UNFILTERED_RECOVERY`.
+- human scanning disabled.
+
+## Environment
+Use the same universal APK on Pixel 10 Pro, Pixel 7 Pro and Lenovo TB-J606L. Same LAN, Bluetooth ON, Battery Saver OFF, screen ON, app foreground. Lenovo Location ON. Keep a non-collinear triangle with all pair distances within 0.5–5.0 m.
+
+The app must refuse to start a validation run if Battery Saver is ON, screen is OFF, the app is not foreground, Bluetooth is OFF or the field service is not RUNNING.
+
+## Procedure
+1. Install the `body-finder-ruview-universal.apk` from the experimental.9 prerelease on all three devices.
+2. Open all three apps and wait 30 s.
+3. Verify `3 nodes`, `2 BLE PEERS`, `FILTERED_PRIMARY`, `global_scanner_health=GLOBAL_SCANNER_HEALTHY` and no environment error.
+4. Start validation runs on all three within a few seconds.
+5. Leave devices stationary for exactly 5 minutes; do not background the app or perform human scanning.
+6. End validation run on all three, wait ~2 s, capture screenshots, then Share complete test JSON.
+
+## Hard gates
+Every device must satisfy:
+- `environment_valid=true`
+- `usable_metric_range_uptime_percent >= 90`
+- `geometry_2d_uptime_percent >= 90`
+- `peer_expire_delta = 0`
+Preferred: `all_peer_uptime_percent >= 99`, `scan_restart_delta <= 3`.
+
+## Acquisition evidence
+Capture/export:
+- `global_scanner_health`
+- `body_finder_cohort_health`
+- `acquisition_strategy`
+- `strategy_transition_count`
+- `cohort_stall_count`
+- `cohort_recovery_count`
+- `cohort_recovery_failure_count`
+- `cohort_recovery_last_latency_ms`
+- `filtered_mode_total_ms`
+- `unfiltered_recovery_total_ms`
+- `restart_suppressed_by_cooldown_count`
+- expected/recent known peer counts
+- per-peer callback rate, p95 inter-arrival and >1/2/5/10s gap counters, including filtered/unfiltered callback counts.
+
+## Pixel 10
+Also capture the `system_ranging` block, including BLE acquisition yield state/count/reason.
+
+## Files to return
+```
+experimental9-adaptive-acquisition/
+├── pixel10_adaptive_acquisition.txt
+├── pixel7_adaptive_acquisition.txt
+├── lenovo_adaptive_acquisition.txt
+└── screenshots/
+    ├── pixel10_radar.png
+    ├── pixel10_validation.png
+    ├── pixel10_ble.png
+    ├── pixel10_strategy.png
+    ├── pixel10_system_ranging.png
+    ├── pixel7_radar.png
+    ├── pixel7_validation.png
+    ├── pixel7_ble.png
+    ├── pixel7_strategy.png
+    ├── lenovo_radar.png
+    ├── lenovo_validation.png
+    ├── lenovo_ble.png
+    └── lenovo_strategy.png
+```
+Zip this directory and return it for analysis.
+'''
+(ROOT/'docs/ANDROID_BLE_ADAPTIVE_ACQUISITION_RETEST.md').write_text(retest)
+
+# Plan artifact from compressed source generated from approved plan.
+PLAN_B64='''eNq1fctyG0e24L6+Iq877iwkASTBl2Q3FQOSoASbJGiAejgmJkoJIAmWVKjCrQclajQTHbPomLubuN0xq1mMl3fhRYd3HbPjn/hL5jwyszKrCpTvjaEjbEuoPFmZ55w87zz1B3GYzm/FSZTMVSZ++9NfxLh8HamPwR/ERSwTMVciWq5itVRJIWfR3a+JWMlMikzNypXK9E9yLleFLKIbiQBy/k9llEf86PB04L4iCJ6LR4/GapXmUZFmUSrS6XsFkOm3jx6Jd5dZOrtWnzemABFeEUSHFxS+iU6izpks3glBcxzKXMVRoghurm46T9+JDfFus9vrbnbUJ1hcRIuOu08NyFjFCqDsK3EXKQyayzm/vgX4mQG+yNIinaWxuFFZHqWJv/CeGTbICz3beNA//kmcjMZieHZxOjgbnF/2L4ejcz1w5IBnKk9jmFeoWAB8HAuVr9Ts7peraJYCSmMxS6/TrPCIlU5zld3Ay4RKxEX0CUbtC1iluNV/29qkv+ZRAi+I5XuZiViKGxlHc/VZXN39AjSST/C3Gfw2NcQEisGPaS7iu1+WUaFyUajlKs1krPIniLJoBVSSsbgqCQ9JRMumDXSDoNPpBMA9m10xVnkJWBTqPTALbjUITqVYZaWaSvN65Jd3dWrJKI/vfhUlzF0qINOsVHGMeBDTtIA/yi7NJDPgs0LNihIYcqESYEdcVDKDVclvg+Ddu3eF+lQEr44vxJWcZtFMtP1z0Z9MgpUCjM6jfJbCLm7bx1ylmVpkaZnMBWI+mqnmmI/ygwI2fBN1TiL4/7KMC9hlXgBCZx/cd8Geo5YXmXnw2BSZTHKgwH1jNOUKJETbGNhSIRNYqcqLaCnhyDXHjCeTodjq7YtcJlHRmIvGTHHbai6u03iOKGp711gmiyhZnMlELmAELu82UvHcHQM0CYIJcKRaTmW2SJ98hXnTWZllwJa4fgWip8iARR3aEtmBsBoX8VTOPuRwWpIiSu7+LpPArPC3P/8lyGcygeGin8yzNJqjJFOAmhtkTXece8rkHHZbRDlJwBx48D1LxThWC5l5YDHQOZTJbYjvCeFMA/FDQIVYqX8q1d3fUh7hyLbGSJWk2VI1Fh2arYXXSsbFtTgQk6P++flgHL4c9E8vX/5Eg/+niJJZmsGmCn9DCYs6Yu1KskhvzBUs41osVYHoBDknV7k/wJKeWNd/9kKlCHkrescWlkh9FgHaMgkyRCYFUPsUdognmghUAl1Rnkxh0Bx/pKVLxLSqIx5kzo1KcDaFVLA8U/ELCi0BiAYkzFGy4B/hAQBOQX9JAUhQOA8cgyzSL4GJ9CnLUfaxXAFWgxOlFpEU705Hb8LT/uXg/Ogn8Vj0T0/Ds/7l0cvBBP6Wp1fFR2AhcRXFBXBhsngnyhx0IexkmYplCnvSryMZ3ZBzsLR5+T4FQYcKdQEEIAF8VcLGkRdICtP2cljZBZxdjcV3dRU1V1PlnIqtrrhhhSLFUibllUQhCbqUVwrn2N1Xc7XfBb0uSkOg0aKMMrGI0ynIVnN+NBMC8tyTolUUP/wu2IYZFEpnUDuHo+OfwpPh+TEw7NHo5Wh8GU4uAZmD4++Cna5WEDDOMinyRwZ8NIel7HYRq5mHfIP6akOgf1LeyZU+K1ZtfRfsdTV+YRrYB+0VITPUnrNSIvdVShYsBGPefBfsd4VcxcBPsO3bHN+VR/nGLMXD8FEbQ+om4tWDrAX44hoY/hpQ913wtIunBSaFx5qrbpnjIhSzObCv3XMMT5PZ7XfBsy7aXGoOiEfOIIXNUjkDlZhH4lAWBUJMJB3HvLj7WYzOvwu2QOkCuQuUiaKATebEQbDGu5/xeMKfWe2mJCIXChEMrEUnVettYJ2XgED5eZHSOTOmFZ0mksFsFk4VIA50Klh0f/iDeNnZ3ALr8a9iYjbJ+EYDAdiyzvhlfverw64OMwYOlYNrmc2RyiFTOZyBEipA9m0G9ui5DGiPIW/oliwbFjSAwDmonJVKM9QltZPlWm2ji8E5KO6Lza7ZWI821sLpbKlFyQ0IDxAxQTB4D68gNgSNuypKYDVrpDnbXacnwmVuZeo//w/A8UwlkoiwzL+qOhAYoWYoIpl0uVqA0k7zdhXi/9NQKIxDkIa5jMu5kQBoihopQEplBStAsiKueWTDAagQ91VUbxOqWaCjao7Q1harSGVztCPtCYVzDj4JKLmgqQZIRWcpKWlWLnD0IjTE7n5OlFEuyykeDIXTu5SdgymJz4lzwPCYg328NCoM8Xn3C3A/6X7SWNbiQPsDlYnKZipLv85UO7RTrQ3nalmS0qFThqxpTL8CF5hHixK2j2ZKDiRhGN4aMDOId7R41yhFgfIjw8cvP9vdwRNQeCAq8VSCmKit9uh0NBkcszC9jlZ3vxYo83D+y7eaEew+dmkfYy356IDikoHDUNiAIpPEMyC4wOxT5jggeeSsBKJINNZJo8NZISrPXUVG29gXwjA7vkWLgf+2tb3Jz2GXrc97ewZZbc9RjBCPyzJBtL/zxsB6Cnmw+a6FI2DvgKvUmBnXoCbBkaXDUYl+gc9xrmkUk/CBg3ITSfcAfZVH9ljweMIe5Zlcgm37q9B7N2cAsADHEU6HJ1pX6UeUFQAbgtZTsOsC/C/euNkaKhntlZGU/xQtgM1rLx6dnKxbMCtBVlM6HrBEk65w+GSf+cT3ENg7yO9+MV7b3a/ObvDUwTZ9q1C5xj8curB/9OOr4WSIjnX403Bwesx7owO7vPs7uF8gKXIUizBNTs6w9okiNLpoiS3Mv1EpUgSZ4Y7oWGs1CfbRMMGTJckgbVGrdbUHVtr5SKxKhfI8nUdogGcupbIUFJgKwS85gENNHkoH1EonltPOzRZ5af9xawkPO3vPulvPxPxwGYBDdB2CwMhDNDMSeJNIYMR2d68XBNpwUHNDdf4lND5hCHwU4oSb3d3GI/mJHu12gcFWYPnAamM4OclVBId0hox0NOqPJ4MggFlAvC5DniGXS0I4LCJgnwI1E0y0ublpXQieHn/e2qTfQdGH7BG7Pwcg+ZYStBvwTLgMV8jJtNyt3SBoBiLAVQBqRLPcfQY7kmCJkBchFhIt2kA7OYtMrq5BNMFyAx1/4b8QB10iye/+NcEzMccDkl6DwPUUuSyJtlnlFdNJiJKrGH4sV+Bxq2BKgRdA0kRjZvu3P//LVoB/iSRFfOYpojBFMvz2p7/siiWsP0L7d17OSHnFuPZZDCAB4ADUAvxqnXbUDIh5XCfQOC9R4bVQDJCMsoiWWwKiWAxZa0nzNVjtF2BCAfpgQTbAAmcaA1EzUoQxyD8QYsAp6FWRJZgr3HiGa8z4oDpYenE6OuyfkobUNoZgG6PyIP/5/wToIgh2EQS7CMI52gaClvoqsTYIHydUzFHmupI1dSxun5DdT0qviNAveCIAHzgD2BYRuj5pZs0Kx3aueaGurZCpWN3Q8e8SRqwhTygB0TKjQBR5HNoUQwsaZMMTtJ3u/g44NeZITK4XLLWSMOAXAQvKu79xAFABKVYpidOd7pZ95EQwUY49RWtlOc0oevfrAkXSo0ddxzEUl2p2DXYHaKQNMUnjkvyKfja7JkLDABMcQRRegE9ylWZLMUC5DdYSPB+fAGR/RhYeAY8VMDKx1q07zsZL/wM4BSCFOmcSXpIod8xZCnBKvHoLUx5HcpGkOZ5fd8iPfXh2CXgT/bJIl+wHOc+P1c1olcMYE9x1np2Qfnld+U/2GfHRAN0Z4PWMiIu4hE2Bg4eBR4qSgFJHeQhMEBEpScWD/1NIRIqs4khpVg82sFPmxFqM+iImQ4eQzErmVOQ9kFMUEwcjbwPeOfvQ1bTuWVov734BSZuCISjJ3Xj0aAfZN4eVAZWf4MzTKEHD1Dl9l6fisaXFBlFCaEoELqkfI2EdUgYVbR4DEQKN58cNpDIuaanbzlJ//oRLrbHnM2e9sL+zu5/JrHxWUQFcVTA9yNLPOT4Drjac0MRNPgB9LKI5WKKP0Sxdoe6tDtFuV4xTFOm4QEAFGiFfOQEBGLOgSnPEMRujncoWiFp0/ncwYK7AK4syN3RU5URwgMQFUxAACbBkArgPwHIEXQl6hOaTJdqUn1FxqGxBA6dxCkzWkN7MJv3DC9rb/Ye3bWsTmGeiCtSL9Gb8+wk50vg3MoaBH9PVholuaNGLT22kBfUCWTWMjcot0uthFGHEvEPnCg4EugSoH0FGY3apyG4JMgXrM8c4SES+e81i5M2O+2O2Jn+XJGrbdIVs5rDKncdFVHEeXhKHevDPzVhNB2yKFVmUWTQlVmL6JXc/g+yItB+O/48AmJ0d3sXF5Iy93a/KybYdSGfbNrBEzKUXjVvqaFe/+r0KPemAKhp7+ICjVPgjLQZ/quJOHYw7Gd+OV3/26phW/1UJ3rb4AdrFBb5jDKeEWEklNxF4hWSlVS9mFtS7m8r5wt2djr/Mq7c6G3n1ltf5Y39A67xfjbTyCDAn5hfFVfQJg6e5txgHkYDaImfuMCEvZPbO/gaFzvCJ70pZgCTtVA6jMw0rsoUsDK8cj3kX65Vd2w6Ohu50FFKVM34HHOQIg8IgiYBxP7njQLhEV7AWEgaHozP6/8t+b3cP/wRurBm4KqcYF0Uc8CpPXvMq16vdtlVud1gywAIK/VqXGXQkmH6+0b4HMGgMolozCBCKYq1AHVAiKoGDzZtcgQjCpEqCDvOiUgp7oBT6R8Mg+CKOten9RfTh3zH8ewT/DsWX4AsMbvwLEBcUIr8lMVixwxdULl9IDH9B+fSEGO8LHXKEOvI4lsLiiBgNhgKNgJ8wAJ0uBOujDolulK82DBiPJTCegd4JYBNtHVtxVV8e/BdZCse+bAlq15flTO1zMrKoGU1r5tXw3pEdEMQRCxv6dHogsI36BvCg5ubv+r9skzMkDDEnQE9F2/FHIrG0G6R5ywymlblkMhCGQ/a7nl6pCdgAjCFS946ZdTI8vRyMB8fhxXh41h//FLw6tz+NB0ej1wP4rfELjB4dDoKj0ej0ePTmPDjpD0/h8aR/MrBm1T5Y+43ZwToDbwKThTJ2VoH+VXg2Oh6Ebkg9cFNAngtTKfuAY0fHKpa3FBoL+hdD8fxA9La/DSgez/P2X7wYD8D1fD3Qv56/OgvP+m/D/jFs6HI4oToHXrytcAi0nXMDlpd04vQb6dVVnIIhlqCdlLIUYqc3K9EpQ+VsbYkoqzwu0k86wxXXTWq0xcEsBNPpPRjWjcTb/ruuRmxPtFEpmFAqibNCuTJZLLQ6zfnVGshxrP6NaQsnp+MWxxDajktTiRGDZAN/ESOO56n2dUEekkeawcqwOqJyLDiDp4AlMA6kzCa3xTq2AzbOV+Xdv+Y6VF4V9BDFNH5NFk2b2MJk3IgEgFWKY9nANYfUq/w70B2T7OSVk4iOBOsY8MJhmU+cvJx4V2dzS6gdYY9IMMBkGwaYVQbO9QaGSsA7o/TbCthtzggxkLvCPVPBhGpVqlz4pxni1BS6uKGd6vhXOffjwYtx/3hwjPn0JfoujYyfCS1N1bW8idLM0IOUVqJTQZkXcXnaFS/5BRigjTFMTsGUb2kHT+H0v2jLvtbjK2E9f1P7Wedb6z8PxuPRmNdzKHMuJvp9qSrKKoELEMUgVuwxDQ7jUhVpaqxOK8aewmlbmy12QronJkFs9lH9MrmggKPzg95T9Yvm8OH5C+fHV+f918AEfXCK1u/0Q4KaD4QkqltdLUTMTDjQITZvA8b5WVEUCU4vDQRktQ4LknKJ8ab0Sp8RzG8lRXyrcyJq7nHFsy56A66xEATgKawwT4QRRmT52ONXXHjICw/xDVrsgAjfAmF+fhy0JvFv+dl9Kck/ghKgaKwd+JU05HMO9tJ43qUH4SzuwCZhUHCDaecewSadTdSGXMO5zi8a8aw+ySpLEJtSIXGD6RlSApzIZsHwDI7VBM5rrDpUjQVOHAkHqiLA8AKVg4Fc4hKh9lUxO9KigAdSTogaacTY5uVEYMqCm1K4oukZnIeTMo47rjNDa3AS9838pF1S0khqOosEx2WBKWlxlWbGgo7V3Ao+P+NPpXpaIuZYqoTR4vWWjQna/vW/O38UDWoBG7C6tM62Hf6//m8wuRxdGFZsmxGG5IQXDMkVgMECZWe8Zii8cnzZqszXLNZBKZG6sjI0ipS3Wu1wVIrjI8CmH9esZp2+bVvL//7tr3/SdMZkIZDstz//i/hdOP8rgjKK5UJGCUGaOr2MqrE2bPTCp/iWQ3F2n1qkiyl0BQPEYS2XyOHlSzAGX4JmDs8mJsdjN+2Q483wHJQ3D+LUjrNDQI0/gKY5G54D/oiwoVH+/HybJkCb076qf3k5OLu4nIQXoNJ2Q4Cl/JORF3CUgHfSjPLMUzw6SPJyGoEhhccs1T65uBW6liNHieFEFtgCS2dw4LxYHcyHh4tqNOQCVAZLeSdRuNUDXwKsncrTh6nKZCa1ve
