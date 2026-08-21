@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """Static acceptance checks for Android BLE/ranging plumbing.
 
-Experimental.6 preserves the experimental.5 acquisition/binding/lifecycle guarantees
-while enabling validated COARSE BLE RSSI metric ranging only inside the P0c domain.
+Experimental.7 preserves the experimental.6 acquisition/binding/lifecycle and
+validated COARSE ranging guarantees while adding bounded BLE metric continuity.
 """
 from pathlib import Path
 import json
@@ -44,12 +44,15 @@ for token in [
     "bodyFinderScanResults",
     "binding_state",
     "sample_count_5s",
+    "valid_rssi_sample_count_5s",
+    "invalid_rssi_sample_count_5s",
     "last_sample_age_ms",
     "address_fingerprint",
     "fallback_evidence_ready",
     "metric_range_ready",
+    "range_temporal_state",
     "ADVERTISEMENT_NOT_SEEN",
-    "INSUFFICIENT_SAMPLES",
+    "INSUFFICIENT_VALID_SAMPLES",
     "fabric_diagnostics",
     "peer_expire_count",
     "manual_geometry_override",
@@ -64,6 +67,7 @@ require("PROXIMITY_ONLY" in native, "proximity fallback state missing")
 require("MIN_SAMPLES_FOR_RANGE = 3" in native, "minimum 3-sample gate missing")
 require("RANGE_FRESHNESS_MS = 5_000L" in native, "5-second freshness gate missing")
 require("WINDOW_RETENTION_MS = 8_000L" in native, "8-second sample window missing")
+require("SCANNER_CALLBACK_STALLED" in native, "global scanner callback stall classifier missing")
 
 for callback in ["onOpenFailed", "onClosed"]:
     block_match = re.search(rf"override fun {callback}\([^{{]+\) \{{(.*?)\n        \}}", system, re.S)
@@ -85,7 +89,7 @@ for token in [
     "Fabric diagnostics",
     "ble_diagnostics",
     "fabric_diagnostics",
-    "0.2.0-experimental.6",
+    "0.2.0-experimental.7",
     "report_version: REPORT_VERSION",
 ]:
     require(token in app or token in native, f"mobile report/Expert token missing: {token}")
@@ -93,4 +97,4 @@ for token in [
 for forbidden in ["SET MEASURED POSITION", "Guardar posición", "Set position"]:
     require(forbidden not in app, f"manual geometry UI reintroduced: {forbidden}")
 
-print("Android ranging acquisition/binding contract: PASS")
+print("Android ranging acquisition/binding/continuity contract: PASS")
