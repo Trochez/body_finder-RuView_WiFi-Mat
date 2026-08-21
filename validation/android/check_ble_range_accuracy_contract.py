@@ -59,7 +59,6 @@ def main() -> None:
     require("BodyFinderFieldService" in service and "PARTIAL_WAKE_LOCK" in service, "field service/wake strategy missing")
     require("MAX_VALID_RSSI_DBM" in fitter and "MIN_VALID_RSSI_DBM" in fitter, "offline fitter RSSI domain guard missing")
 
-    # Active profile must remain exactly the P0c physically accepted candidate.
     active = next(p for p in profiles["profiles"] if p["profile_id"] == profiles["active_profile_id"])
     expected = p0c["profile"]
     require(active["profile_id"] == "android-ble-lab-v1", "android-ble-lab-v1 is not active")
@@ -92,11 +91,11 @@ def main() -> None:
     require("reciprocal_fusion" in app and "fused_range_observations" in app, "fusion provenance not exported")
     require("reciprocal_disagreement_count" in graph and "out_of_domain_sample_count" in graph, "measurement-health diagnostics incomplete")
 
-    # experimental.7 must preserve experimental.6 physical accuracy while changing temporal policy only.
-    require("0.2.0-experimental.7" in app, "mobile build is not experimental.7")
-    require(app_json["expo"]["android"]["versionCode"] == 7, "Android versionCode must be 7")
-    require(app_json["expo"]["extra"]["releaseIteration"] == "experimental.7", "releaseIteration must be experimental.7")
-    require("VALIDATED_COARSE_BLE_METRIC_0P5_TO_5M" in app, "experimental.7 physical-truth classification missing")
+    # experimental.8 must preserve experimental.6 physical accuracy while changing acquisition policy only.
+    require("0.2.0-experimental.8" in app, "mobile build is not experimental.8")
+    require(app_json["expo"]["android"]["versionCode"] == 8, "Android versionCode must be 8")
+    require(app_json["expo"]["extra"]["releaseIteration"] == "experimental.8", "releaseIteration must be experimental.8")
+    require("VALIDATED_COARSE_BLE_METRIC_0P5_TO_5M" in app, "experimental.8 physical-truth classification missing")
 
     rssi1m = float(active["rssi_at_1m_dbm"])
     n = float(active["path_loss_exponent"])
@@ -108,7 +107,7 @@ def main() -> None:
     require(weak_raw > 5.0 and strong_raw < 0.5, "out-of-domain synthetic cases do not exercise both boundaries")
 
     print(json.dumps({
-        "contract": "experimental.7 preserves validated coarse BLE metric physics",
+        "contract": "experimental.8 preserves validated coarse BLE metric physics",
         "profile_id": active["profile_id"],
         "rssi_at_1m_dbm": active["rssi_at_1m_dbm"],
         "path_loss_exponent": active["path_loss_exponent"],
@@ -118,7 +117,7 @@ def main() -> None:
         "holdout_max_error_m": metrics["max_error_m"],
         "metric_ble_rssi_enabled": True,
         "silent_clamp": False,
-        "sentinel_127_filtered": True,
+        "sentinel_127_filtered": True
     }, indent=2))
 
 
