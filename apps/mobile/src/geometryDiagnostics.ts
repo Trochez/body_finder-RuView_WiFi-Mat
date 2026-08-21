@@ -9,6 +9,8 @@ export type RangeDiagnostic = {
   raw_distance_m: number | null;
   sigma_m: number | null;
   sample_age_ms: number | null;
+  range_age_ms: number | null;
+  range_temporal_state: string | null;
   quality: string;
   metric_valid: boolean;
   range_status: string | null;
@@ -20,6 +22,8 @@ export type RangeDiagnostic = {
   reciprocal_state: string | null;
   source_detail: string;
 };
+
+export type GeometryTemporalQuality = 'FRESH_ONLY' | 'MIXED_FRESH_HOLDOVER' | 'HOLDOVER_DOMINANT' | 'NO_METRIC_GEOMETRY';
 
 export type GeometryGraphDiagnostics = {
   protocol_version: 2;
@@ -37,11 +41,16 @@ export type GeometryGraphDiagnostics = {
   reciprocal_disagreement_count: number;
   uncalibrated_sample_count: number;
   metric_sample_count: number;
+  fresh_metric_edge_count: number;
+  holdover_metric_edge_count: number;
+  oldest_metric_edge_age_ms: number | null;
+  geometry_temporal_quality: GeometryTemporalQuality;
   measurement_health: 'NO_METRIC_RANGE' | 'DEGRADED' | 'COARSE_METRIC_RANGE' | 'GOOD';
   physical_confidence: 'NONE' | 'LOW' | 'COARSE';
 };
 
 const STALE_NS = 8_000_000_000;
+const HOLDOVER_MAX_MS = 10_000;
 
 function preferredSession(nodes: Advertisement[]) {
   const counts = new Map<string, number>();
@@ -62,6 +71,8 @@ export function diagnoseGeometryGraph(nodes: Advertisement[]): GeometryGraphDiag
 
   const validPairs = new Set<string>();
   const metricPairs = new Set<string>();
+  const freshMetricPairs = new Set<string>();
+  const holdoverMetricPairs = new Set<string>();
   const samples: RangeDiagnostic[] = [];
   let stale = 0;
   let crossSession = 0;
@@ -72,6 +83,7 @@ export function diagnoseGeometryGraph(nodes: Advertisement[]): GeometryGraphDiag
   let reciprocalDisagreement = 0;
   let uncalibrated = 0;
   let metricSamples = 0;
+  let oldestMetricAgeMs: number | null = null;
 
   for (const node of active) {
     for (const observation of node.ranges ?? []) {
@@ -82,12 +94,22 @@ export function diagnoseGeometryGraph(nodes: Advertisement[]): GeometryGraphDiag
       const b = observation.observer_node_id <= observation.peer_node_id
         ? observation.peer_node_id
         : observation.observer_node_id;
-      const edgeId = `${a}::${b}::${observation.technology}`;
+      const pairKey = `${a}::${b}`;
+      const edgeId = `${pairKey}::${observation.technology}`;
       const sameSession = observation.session_id === session;
-      const ageNs = node.monotonic_ns == null
+      const monotonicAgeNs = node.monotonic_ns == null
         ? null
         : Math.max(0, node.monotonic_ns - observation.monotonic_ns);
-      const isStale = ageNs != null && ageNs > STALE_NS;
+      const explicitRangeAgeMs = typeof ext.range_age_ms === 'number' && Number.isFinite(ext.range_age_ms)
+        ? Math.max(0, ext.range_age_ms)
+        : null;
+      const temporalState = typeof ext.range_temporal_state === 'string' ? ext.range_temporal_state : 'FRESH';
+      const isHoldover = temporalState === 'HOLDOVER';
+      const isExplicitlyExpired = temporalState === 'STALE' || temporalState === 'EXPIRED';
+      const isStale = isExplicitlyExpired
+        || (isHoldover
+          ? explicitRangeAgeMs != null && explicitRangeAgeMs > HOLDOVER_MAX_MS
+          : monotonicAgeNs != null && monotonicAgeNs > STALE_NS);
       const metricValid = ext.metric_valid !== false
         && observation.distance_m != null
         && Number.isFinite(observation.distance_m);
@@ -111,7 +133,9 @@ export function diagnoseGeometryGraph(nodes: Advertisement[]): GeometryGraphDiag
         distance_m: observation.distance_m,
         raw_distance_m: typeof ext.raw_distance_m === 'number' ? ext.raw_distance_m : null,
         sigma_m: observation.distance_sigma_m,
-        sample_age_ms: ageNs == null ? null : ageNs / 1_000_000,
+        sample_age_ms: monotonicAgeNs == null ? null : monotonicAgeNs / 1_000_000,
+        range_age_ms: explicitRangeAgeMs,
+        range_temporal_state: temporalState,
         quality: observation.quality,
         metric_valid: metricValid,
         range_status: status,
@@ -130,10 +154,11 @@ export function diagnoseGeometryGraph(nodes: Advertisement[]): GeometryGraphDiag
         && observation.observer_node_id !== observation.peer_node_id
         && activeIds.has(observation.peer_node_id)
         && observation.quality !== 'REJECTED';
-      if (structurallyValid) validPairs.add(`${a}::${b}`);
+      if (structurallyValid) validPairs.add(pairKey);
 
       const metricValidForGraph = structurallyValid
         && metricValid
+        && (temporalState === 'FRESH' || temporalState === 'HOLDOVER')
         && status !== 'OUT_OF_DOMAIN_HIGH'
         && status !== 'OUT_OF_DOMAIN_LOW'
         && reciprocalState !== 'REJECT'
@@ -143,7 +168,11 @@ export function diagnoseGeometryGraph(nodes: Advertisement[]): GeometryGraphDiag
       if (metricValidForGraph) {
         adjacency.get(observation.observer_node_id)?.add(observation.peer_node_id);
         adjacency.get(observation.peer_node_id)?.add(observation.observer_node_id);
-        metricPairs.add(`${a}::${b}`);
+        metricPairs.add(pairKey);
+        if (temporalState === 'HOLDOVER') holdoverMetricPairs.add(pairKey);
+        else freshMetricPairs.add(pairKey);
+        const age = explicitRangeAgeMs ?? 0;
+        oldestMetricAgeMs = oldestMetricAgeMs == null ? age : Math.max(oldestMetricAgeMs, age);
       }
     }
   }
@@ -169,6 +198,14 @@ export function diagnoseGeometryGraph(nodes: Advertisement[]): GeometryGraphDiag
   }
   components.sort((a, b) => b.length - a.length || a.join('\0').localeCompare(b.join('\0')));
   samples.sort((a, b) => a.edge_id.localeCompare(b.edge_id) || a.observer_node_id.localeCompare(b.observer_node_id));
+
+  const temporalQuality: GeometryTemporalQuality = metricPairs.size === 0
+    ? 'NO_METRIC_GEOMETRY'
+    : holdoverMetricPairs.size === 0
+      ? 'FRESH_ONLY'
+      : holdoverMetricPairs.size >= metricPairs.size
+        ? 'HOLDOVER_DOMINANT'
+        : 'MIXED_FRESH_HOLDOVER';
 
   const health: GeometryGraphDiagnostics['measurement_health'] = metricSamples === 0
     ? 'NO_METRIC_RANGE'
@@ -199,6 +236,10 @@ export function diagnoseGeometryGraph(nodes: Advertisement[]): GeometryGraphDiag
     reciprocal_disagreement_count: reciprocalDisagreement,
     uncalibrated_sample_count: uncalibrated,
     metric_sample_count: metricSamples,
+    fresh_metric_edge_count: freshMetricPairs.size,
+    holdover_metric_edge_count: holdoverMetricPairs.size,
+    oldest_metric_edge_age_ms: oldestMetricAgeMs,
+    geometry_temporal_quality: temporalQuality,
     measurement_health: health,
     physical_confidence: confidence,
   };
