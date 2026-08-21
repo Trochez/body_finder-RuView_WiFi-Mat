@@ -1,0 +1,51 @@
+name: Fix exp9 Kotlin duplicates
+
+on:
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: write
+
+jobs:
+  fix:
+    if: github.head_ref == 'feat/ble-adaptive-acquisition-recovery-exp9' && github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: feat/ble-adaptive-acquisition-recovery-exp9
+          fetch-depth: 0
+      - name: Remove duplicated validation telemetry blocks
+        shell: bash
+        run: |
+          set -euxo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+          p=Path('apps/mobile/modules/body-finder-native/android/src/main/java/com/trochez/bodyfindernative/BodyFinderNativeModule.kt')
+          s=p.read_text()
+          decl='''  @Volatile private var environmentViolationCount: Long = 0\n  @Volatile private var firstEnvironmentViolationWallMs: Long? = null\n  @Volatile private var environmentViolationTypes: String = ""\n  @Volatile private var baselineStrategyTransitions: Long = 0\n  @Volatile private var baselineCohortStalls: Long = 0\n  @Volatile private var baselineCohortRecoveries: Long = 0\n  @Volatile private var baselineCohortRecoveryFailures: Long = 0\n'''
+          assert s.count(decl)==2, f'declaration block count={s.count(decl)}'
+          s=s.replace(decl+decl, decl, 1)
+          diag='''      .put("environment_valid", environmentViolationCount == 0L)\n      .put("environment_violation_count", environmentViolationCount)\n      .put("first_environment_violation_wall_ms", firstEnvironmentViolationWallMs ?: JSONObject.NULL)\n      .put("environment_violation_types", if (environmentViolationTypes.isBlank()) JSONArray() else JSONArray(environmentViolationTypes.split(',')))\n      .put("strategy_transition_delta", (BleAcquisitionPolicy.transitionCount() - baselineStrategyTransitions).coerceAtLeast(0))\n      .put("cohort_stall_delta", (BleAcquisitionPolicy.cohortStallCount() - baselineCohortStalls).coerceAtLeast(0))\n      .put("cohort_recovery_delta", (BleAcquisitionPolicy.cohortRecoveryCount() - baselineCohortRecoveries).coerceAtLeast(0))\n      .put("cohort_recovery_failure_delta", (BleAcquisitionPolicy.cohortRecoveryFailureCount() - baselineCohortRecoveryFailures).coerceAtLeast(0))\n'''
+          assert s.count(diag)==2, f'diagnostics block count={s.count(diag)}'
+          s=s.replace(diag+diag, diag, 1)
+          reset='    BleAcquisitionPolicy.reset(System.currentTimeMillis())\n'
+          assert reset+reset in s, 'duplicate acquisition reset not found'
+          s=s.replace(reset+reset, reset, 1)
+          assert s.count(decl)==1
+          assert s.count(diag)==1
+          p.write_text(s)
+          PY
+          git diff --check
+          grep -c 'environmentViolationCount: Long' apps/mobile/modules/body-finder-native/android/src/main/java/com/trochez/bodyfindernative/BodyFinderNativeModule.kt | grep -qx '1'
+          grep -c 'baselineStrategyTransitions: Long' apps/mobile/modules/body-finder-native/android/src/main/java/com/trochez/bodyfindernative/BodyFinderNativeModule.kt | grep -qx '1'
+      - name: Commit Kotlin cleanup
+        shell: bash
+        run: |
+          set -euxo pipefail
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add apps/mobile/modules/body-finder-native/android/src/main/java/com/trochez/bodyfindernative/BodyFinderNativeModule.kt
+          git commit -m 'Fix duplicate experimental.9 validation telemetry declarations'
+          git push origin HEAD:feat/ble-adaptive-acquisition-recovery-exp9
