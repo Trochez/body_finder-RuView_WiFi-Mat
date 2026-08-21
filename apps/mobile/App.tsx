@@ -25,8 +25,9 @@ import {
 import { diagnoseGeometryGraph } from './src/geometryDiagnostics';
 import { applyReciprocalFusion } from './src/rangeFusion';
 
-const BUILD = '0.2.0-experimental.6';
-const REPORT_VERSION = 8;
+const BUILD = '0.2.0-experimental.7';
+const REPORT_VERSION = 9;
+const HUMAN_SCANNING_ENABLED = false;
 
 const T = {
   en: {
@@ -36,7 +37,7 @@ const T = {
     peers: 'nodes', share: 'Share complete test JSON', empty: 'Keep the target area empty while calibrating.',
     network: 'OPEN / UNTRUSTED FIELD NETWORK', relative: 'POSITION RELATIVE TO THIS DEVICE', geometry: 'SENSOR GEOMETRY',
     estimating: 'Estimating automatically…', positioned: 'nodes positioned', residual: 'solver residual', condition: 'graph condition',
-    noTarget: 'No defensible human position yet. Valid metric 2D sensor geometry + ≥3 calibrated scanning nodes with measurable RF disturbance are required.',
+    noTarget: 'Human scanning remains intentionally blocked until the experimental.7 BLE metric continuity gate is reviewed. This build validates sensor geometry continuity only.',
     confidence: 'human confidence', uncertainty: 'position uncertainty',
     evidence: 'Evidence: connected-Wi-Fi RSSI disturbance (not CSI). Sensor metric coordinates require validated pairwise ranging.',
     unresolved: 'unresolved nodes are intentionally not placed on the radar', startRun: 'Start validation run', endRun: 'End validation run',
@@ -48,7 +49,7 @@ const T = {
     peers: 'nodos', share: 'Compartir JSON completo de prueba', empty: 'Mantén vacía el área objetivo durante la calibración.',
     network: 'RED DE CAMPO ABIERTA / NO CONFIABLE', relative: 'POSICIÓN RELATIVA A ESTE DISPOSITIVO', geometry: 'GEOMETRÍA DE SENSORES',
     estimating: 'Estimando automáticamente…', positioned: 'nodos posicionados', residual: 'residual del solver', condition: 'condición del grafo',
-    noTarget: 'Aún no hay posición humana defendible. Se requiere geometría métrica automática 2D válida + ≥3 nodos calibrados y escaneando con perturbación RF medible.',
+    noTarget: 'El escaneo humano permanece bloqueado intencionalmente hasta revisar el gate de continuidad BLE métrica de experimental.7. Esta build valida únicamente continuidad de geometría de sensores.',
     confidence: 'confianza humana', uncertainty: 'incertidumbre de posición',
     evidence: 'Evidencia: perturbación RSSI de Wi‑Fi conectado (no CSI). Las coordenadas métricas requieren ranging entre nodos validado.',
     unresolved: 'los nodos no resueltos no se colocan artificialmente en el radar', startRun: 'Iniciar corrida de validación', endRun: 'Finalizar corrida de validación',
@@ -186,6 +187,8 @@ export default function App() {
   const visualLocal = local?.node_id ? visualPositions[local.node_id] : undefined;
   const blePeerCount = Array.isArray(diagnostics?.ble_diagnostics?.peers) ? diagnostics.ble_diagnostics.peers.filter((peer: any) => peer.binding_state !== 'UDP_ONLY').length : 0;
   const physicalConfidence = graphDiagnostics.physical_confidence;
+  const holdoverEdgeCount = graphDiagnostics.holdover_metric_edge_count;
+  const temporalQuality = graphDiagnostics.geometry_temporal_quality;
 
   async function calibrate() {
     setCalibrating(true); setScanning(false); setError(null);
@@ -203,20 +206,34 @@ export default function App() {
     try {
       if (validationRun?.active) BodyFinderNative.endValidationRun();
       else BodyFinderNative.startValidationRun();
-      setDiagnostics(JSON.parse(BodyFinderNative.getDiagnosticsJson()));
+      const fresh = JSON.parse(BodyFinderNative.getDiagnosticsJson());
+      setDiagnostics(fresh);
+      setValidationRun(fresh?.validation_run ?? null);
     } catch (cause: any) { setError(String(cause?.message ?? cause)); }
   }
 
   async function share() {
     let freshDiagnostics = diagnostics;
     let calibrationSnapshot: any = null;
-    try { freshDiagnostics = JSON.parse(BodyFinderNative.getDiagnosticsJson()); } catch {}
+    let autoFinalizedValidationRun = false;
+    try {
+      freshDiagnostics = JSON.parse(BodyFinderNative.getDiagnosticsJson());
+      if (freshDiagnostics?.validation_run?.active) {
+        BodyFinderNative.endValidationRun();
+        autoFinalizedValidationRun = true;
+        freshDiagnostics = JSON.parse(BodyFinderNative.getDiagnosticsJson());
+        setDiagnostics(freshDiagnostics);
+        setValidationRun(freshDiagnostics?.validation_run ?? null);
+      }
+    } catch {}
     try { calibrationSnapshot = JSON.parse(BodyFinderNative.getCalibrationSnapshotJson()); } catch {}
     const payload = {
       report_version: REPORT_VERSION,
       generated_at: new Date().toISOString(), app: 'Body Finder – RuView', build: BUILD, protocol_version: 2,
-      truth: 'LIVE_DEVICE_CAPABILITIES__VALIDATED_COARSE_BLE_METRIC_ONLY_IN_0P5_TO_5M_DOMAIN__RECIPROCAL_FUSION_BEFORE_SOLVER__AUTOGEOMETRY_EXPERIMENTAL_NOT_RESCUE_VALIDATED',
-      manual_geometry_override: false, node_id: local?.node_id ?? null, capabilities: caps,
+      truth: 'LIVE_DEVICE_CAPABILITIES__VALIDATED_COARSE_BLE_METRIC_0P5_TO_5M__BOUNDED_FRESH_HOLDOVER_EXPIRY__RECIPROCAL_FUSION__AUTOGEOMETRY_EXPERIMENTAL_NOT_RESCUE_VALIDATED',
+      manual_geometry_override: false, human_scanning_enabled: HUMAN_SCANNING_ENABLED,
+      export_auto_finalized_validation_run: autoFinalizedValidationRun,
+      node_id: local?.node_id ?? null, capabilities: caps,
       ble_diagnostics: freshDiagnostics?.ble_diagnostics ?? null,
       fabric_diagnostics: freshDiagnostics?.fabric_diagnostics ?? null,
       lifecycle_diagnostics: freshDiagnostics?.lifecycle_diagnostics ?? null,
@@ -226,15 +243,26 @@ export default function App() {
       locally_computed_geometry: computedGeometry, graph_diagnostics: graphDiagnostics,
       reciprocal_fusion: fused.diagnostics,
       fused_range_observations: geometryNodes.flatMap(node => node.ranges ?? []),
-      measurement_health: { health: graphDiagnostics.measurement_health, physical_confidence: physicalConfidence,
-        metric_sample_count: metricCount, proximity_only_sample_count: proximityCount, saturated_sample_count: graphDiagnostics.saturated_sample_count,
-        out_of_domain_sample_count: graphDiagnostics.out_of_domain_sample_count, invalid_rssi_sample_count: graphDiagnostics.invalid_rssi_sample_count,
-        reciprocal_disagreement_count: graphDiagnostics.reciprocal_disagreement_count },
+      measurement_health: {
+        health: graphDiagnostics.measurement_health,
+        physical_confidence: physicalConfidence,
+        metric_sample_count: metricCount,
+        fresh_metric_edge_count: graphDiagnostics.fresh_metric_edge_count,
+        holdover_metric_edge_count: graphDiagnostics.holdover_metric_edge_count,
+        oldest_metric_edge_age_ms: graphDiagnostics.oldest_metric_edge_age_ms,
+        geometry_temporal_quality: graphDiagnostics.geometry_temporal_quality,
+        proximity_only_sample_count: proximityCount,
+        saturated_sample_count: graphDiagnostics.saturated_sample_count,
+        out_of_domain_sample_count: graphDiagnostics.out_of_domain_sample_count,
+        invalid_rssi_sample_count: graphDiagnostics.invalid_rssi_sample_count,
+        native_invalid_rssi_total_count: freshDiagnostics?.ble_diagnostics?.invalid_rssi_total_count ?? 0,
+        reciprocal_disagreement_count: graphDiagnostics.reciprocal_disagreement_count,
+      },
       range_observations: nodes.flatMap(node => node.ranges ?? []), estimate_array_frame: arrayTarget,
       estimate_relative_to_this_device: target,
-      instructions: 'Return this JSON, screenshots, validation-run data and external ground truth. Never feed ground-truth node coordinates/distances into the app during normal solving.',
+      instructions: 'Return this JSON and screenshots from the 5-minute continuity run. BLE holdover is bounded to 10 s with sigma aging; expired/out-of-domain/rejected ranges must not enter geometry. Human scanning remains blocked until continuity is accepted.',
     };
-    await Share.share({ message: JSON.stringify(payload, null, 2), title: 'Body Finder experimental.6 validation result' });
+    await Share.share({ message: JSON.stringify(payload, null, 2), title: 'Body Finder experimental.7 continuity validation result' });
   }
 
   const scale = 18;
@@ -252,7 +280,7 @@ export default function App() {
         <ScrollView contentContainerStyle={s.body}>
           <View style={s.statusRow}>
             <Text style={s.pill}>{nodes.length} {tx.peers}</Text><Text style={s.pill}>{metricCount} METRIC</Text>
-            <Text style={s.pill}>{proximityCount} PROX</Text><Text style={s.pill}>{blePeerCount} BLE PEERS</Text><Text style={s.pill}>COORD {coordinator?.slice(-8) ?? '—'}</Text>
+            <Text style={s.pill}>{holdoverEdgeCount} HOLD</Text><Text style={s.pill}>{proximityCount} PROX</Text><Text style={s.pill}>{blePeerCount} BLE PEERS</Text><Text style={s.pill}>COORD {coordinator?.slice(-8) ?? '—'}</Text>
           </View>
           <Text style={s.network}>{tx.network}</Text>
           <View style={s.card}>
@@ -260,9 +288,10 @@ export default function App() {
             <Text style={s.text}>{geometry?.positions.length ?? 0}/{nodes.length} {tx.positioned} · {geometry?.dimension ?? 'UNKNOWN'} AUTO</Text>
             <Text style={s.text}>{tx.residual}: {geometry?.residual_rms_m != null ? `${geometry.residual_rms_m.toFixed(2)} m` : '—'} · {tx.condition}: {geometry?.condition_score != null ? `${(100 * geometry.condition_score).toFixed(0)}%` : '—'}</Text>
             <Text style={s.text}>measurement health: {graphDiagnostics.measurement_health} · physical confidence: {physicalConfidence}</Text>
-            <Text style={s.text}>metric edges: {graphDiagnostics.metric_edge_pairs.length} · proximity samples: {proximityCount} · out-of-domain: {graphDiagnostics.out_of_domain_sample_count}</Text>
+            <Text style={s.text}>temporal quality: {temporalQuality} · fresh edges: {graphDiagnostics.fresh_metric_edge_count} · holdover edges: {holdoverEdgeCount}</Text>
+            <Text style={s.text}>oldest metric age: {graphDiagnostics.oldest_metric_edge_age_ms != null ? `${graphDiagnostics.oldest_metric_edge_age_ms.toFixed(0)} ms` : '—'} · proximity: {proximityCount} · out-of-domain: {graphDiagnostics.out_of_domain_sample_count}</Text>
             <Text style={s.text}>revision: {geometry?.revision ?? '—'} · source: {geometrySelection.source}</Text>
-            <Text style={s.muted}>{metricCount === 0 && evidenceCount > 0 ? 'BLE peers are visible, but no validated in-domain metric range is currently usable. Out-of-domain and rejected reciprocal observations remain non-metric.' : geometry?.reason ?? tx.estimating}</Text>
+            <Text style={s.muted}>{metricCount === 0 && evidenceCount > 0 ? 'BLE peers are visible, but no validated in-domain fresh or bounded-holdover metric range is currently usable.' : geometry?.reason ?? tx.estimating}</Text>
             {unresolved > 0 && <Text style={s.muted}>{unresolved} {tx.unresolved}</Text>}
           </View>
           <Text style={s.relative}>{tx.relative}</Text>
@@ -275,36 +304,39 @@ export default function App() {
               return <React.Fragment key={position.node_id}><View style={[s.sensorUncertainty, { width: diameter, height: diameter, borderRadius: diameter / 2, left: 150 + relative.x_m * scale - diameter / 2, top: 150 - relative.y_m * scale - diameter / 2 }]} />
                 <View style={[s.sensor, { left: 144 + relative.x_m * scale, top: 144 - relative.y_m * scale }]}><Text style={s.dotLabel}>{index + 1}</Text></View></React.Fragment>;
             })}
-            {target && <><View style={[s.targetRing, { width: Math.min(260, target.error_radius_95_m * 36), height: Math.min(260, target.error_radius_95_m * 36), borderRadius: 130, left: 150 - Math.min(260, target.error_radius_95_m * 36) / 2 + target.x_m * scale, top: 150 - Math.min(260, target.error_radius_95_m * 36) / 2 - target.y_m * scale }]} /><View style={[s.target, { left: 144 + target.x_m * scale, top: 144 - target.y_m * scale }]} /></>}
+            {target && scanning && <><View style={[s.targetRing, { width: Math.min(260, target.error_radius_95_m * 36), height: Math.min(260, target.error_radius_95_m * 36), borderRadius: 130, left: 150 - Math.min(260, target.error_radius_95_m * 36) / 2 + target.x_m * scale, top: 150 - Math.min(260, target.error_radius_95_m * 36) / 2 - target.y_m * scale }]} /><View style={[s.target, { left: 144 + target.x_m * scale, top: 144 - target.y_m * scale }]} /></>}
           </View>
-          {target ? <View style={s.card}><Text style={s.h2}>{target.state.replace('_', ' ')}</Text><Text style={s.big}>{target.range_m.toFixed(1)} m · {target.bearing_deg.toFixed(0)}°</Text>
+          {target && scanning ? <View style={s.card}><Text style={s.h2}>{target.state.replace('_', ' ')}</Text><Text style={s.big}>{target.range_m.toFixed(1)} m · {target.bearing_deg.toFixed(0)}°</Text>
             <Text style={s.text}>x {target.x_m.toFixed(2)} m · y {target.y_m.toFixed(2)} m</Text><Text style={s.text}>{tx.confidence}: {(target.human_confidence * 100).toFixed(0)}%</Text>
             <Text style={s.text}>{tx.uncertainty}: {target.uncertainty_percent.toFixed(0)}% · ±{target.error_radius_95_m.toFixed(1)} m (95%)</Text><Text style={s.muted}>{tx.evidence}</Text></View>
             : <View style={s.card}><Text style={s.text}>{tx.noTarget}</Text></View>}
           <View style={s.card}><Text style={s.h2}>Validation run</Text><Text style={s.text}>run: {validationRun?.run_id ?? '—'} · active: {String(Boolean(validationRun?.active))}</Text>
             <Text style={s.text}>elapsed: {validationRun?.elapsed_ms ?? 0} ms · peer expiry Δ: {validationRun?.peer_expire_delta ?? 0} · rebind Δ: {validationRun?.address_rebind_delta ?? 0}</Text>
-            <Text style={s.text}>peer uptime: {formatPct(validationRun?.all_peer_uptime_percent)} · metric uptime: {formatPct(validationRun?.metric_range_uptime_percent)} · 2D uptime: {formatPct(validationRun?.geometry_2d_uptime_percent)}</Text></View>
+            <Text style={s.text}>peer: {formatPct(validationRun?.all_peer_uptime_percent)} · fresh metric: {formatPct(validationRun?.fresh_metric_range_uptime_percent)} · usable metric: {formatPct(validationRun?.usable_metric_range_uptime_percent)}</Text>
+            <Text style={s.text}>holdover share: {formatPct(validationRun?.holdover_metric_uptime_percent)} · 2D: {formatPct(validationRun?.geometry_2d_uptime_percent)}</Text></View>
           <Pressable style={s.btnTest} onPress={toggleValidationRun}><Text style={s.btnText}>{validationRun?.active ? tx.endRun : tx.startRun}</Text></Pressable>
           <Text style={s.muted}>{tx.empty}</Text>
           <Pressable disabled={calibrating} style={s.btn} onPress={calibrate}><Text style={s.btnText}>{calibrating ? 'CALIBRATING…' : tx.calibrate}</Text></Pressable>
-          <Pressable disabled={baseline == null || physicalConfidence === 'NONE'} style={[s.btn, (baseline == null || physicalConfidence === 'NONE') && s.disabled]} onPress={() => setScanning(value => !value)}><Text style={s.btnText}>{scanning ? tx.stop : tx.scanning}</Text></Pressable>
+          <Pressable disabled={!HUMAN_SCANNING_ENABLED || baseline == null || physicalConfidence === 'NONE'} style={[s.btn, (!HUMAN_SCANNING_ENABLED || baseline == null || physicalConfidence === 'NONE') && s.disabled]} onPress={() => setScanning(value => !value)}><Text style={s.btnText}>{scanning ? tx.stop : tx.scanning}</Text></Pressable>
           <Pressable style={s.btnAlt} onPress={share}><Text style={s.btnText}>{tx.share}</Text></Pressable>{error && <Text style={s.err}>{error}</Text>}
         </ScrollView>
       ) : (
         <ScrollView contentContainerStyle={s.body}>
           <View style={s.card}><Text style={s.h2}>Truth / source classification</Text><Text style={s.text}>Build: {BUILD} · protocol 2</Text>
             <Text style={s.text}>Node geometry: AUTO ONLY — manual override disabled</Text><Text style={s.text}>Geometry authority: {geometrySelection.source}</Text>
-            <Text style={s.text}>BLE RSSI: validated COARSE metric profile android-ble-lab-v1 only inside 0.5–5.0 m. Outside that domain it remains non-metric. Advertised TxPower is diagnostic only.</Text>
-            <Text style={s.text}>Reciprocal A↔B BLE observations are inverse-variance fused before the solver; large disagreement is degraded or rejected.</Text>
-            <Text style={s.text}>Metric geometry: only observations with a defensible numeric distance enter the solver.</Text><Text style={s.text}>Graph condition is not physical accuracy.</Text>
-            <Text style={s.text}>CSI: UNSUPPORTED unless a future verified adapter is loaded</Text></View>
+            <Text style={s.text}>BLE RSSI: validated COARSE profile android-ble-lab-v1 only inside 0.5–5.0 m. Profile parameters are frozen from dev-6.</Text>
+            <Text style={s.text}>Continuity: fresh metric estimates may enter a bounded 10 s HOLDOVER when samples briefly disappear; sigma increases with age and hard expiry removes the edge.</Text>
+            <Text style={s.text}>RSSI 127 and other invalid values are filtered before the valid queue and are counted separately for diagnostics.</Text>
+            <Text style={s.text}>Reciprocal A↔B BLE observations are inverse-variance fused before the solver; REJECT never enters geometry.</Text>
+            <Text style={s.text}>Human scanning: BLOCKED until the experimental.7 continuity gate is reviewed.</Text>
+            <Text style={s.text}>Graph condition is not physical accuracy. CSI remains unsupported unless a verified adapter is loaded.</Text></View>
           <Pressable style={s.btnTest} onPress={toggleValidationRun}><Text style={s.btnText}>{validationRun?.active ? tx.endRun : tx.startRun}</Text></Pressable>
           {[
-            ['Measurement health', { measurement_health: graphDiagnostics.measurement_health, physical_confidence: physicalConfidence, metric_edge_pairs: graphDiagnostics.metric_edge_pairs, proximity_only_sample_count: proximityCount, saturated_sample_count: graphDiagnostics.saturated_sample_count, out_of_domain_sample_count: graphDiagnostics.out_of_domain_sample_count, invalid_rssi_sample_count: graphDiagnostics.invalid_rssi_sample_count, reciprocal_disagreement_count: graphDiagnostics.reciprocal_disagreement_count }],
+            ['Measurement health', { measurement_health: graphDiagnostics.measurement_health, physical_confidence: physicalConfidence, geometry_temporal_quality: graphDiagnostics.geometry_temporal_quality, fresh_metric_edge_count: graphDiagnostics.fresh_metric_edge_count, holdover_metric_edge_count: graphDiagnostics.holdover_metric_edge_count, oldest_metric_edge_age_ms: graphDiagnostics.oldest_metric_edge_age_ms, metric_edge_pairs: graphDiagnostics.metric_edge_pairs, proximity_only_sample_count: proximityCount, out_of_domain_sample_count: graphDiagnostics.out_of_domain_sample_count, native_invalid_rssi_total_count: diagnostics?.ble_diagnostics?.invalid_rssi_total_count ?? 0, reciprocal_disagreement_count: graphDiagnostics.reciprocal_disagreement_count }],
             ['Reciprocal fusion', fused.diagnostics],
             ['Validation run', diagnostics?.validation_run ?? null], ['Lifecycle / power diagnostics', diagnostics?.lifecycle_diagnostics ?? null],
             ['BLE / ranging diagnostics', diagnostics?.ble_diagnostics ?? null], ['Fabric diagnostics', diagnostics?.fabric_diagnostics ?? null],
-            ['Geometry solution', geometry], ['Locally computed geometry', computedGeometry], ['Graph diagnostics / sample age', graphDiagnostics],
+            ['Geometry solution', geometry], ['Locally computed geometry', computedGeometry], ['Graph diagnostics / temporal quality', graphDiagnostics],
             ['Raw range / proximity observations', nodes.flatMap(node => node.ranges ?? [])], ['Fused geometry observations', geometryNodes.flatMap(node => node.ranges ?? [])], ['Capabilities', caps], ['Local node', local], ['Peers', peers],
             ['Array-frame estimate', arrayTarget], ['Relative estimate', target],
           ].map(([name, value]) => <View style={s.card} key={String(name)}><Text style={s.h2}>{String(name)}</Text><Text selectable style={s.code}>{JSON.stringify(value, null, 2)}</Text></View>)}

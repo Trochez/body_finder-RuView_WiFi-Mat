@@ -42,11 +42,13 @@ private const val RANGE_FRESHNESS_MS = 5_000L
 private const val WINDOW_RETENTION_MS = 8_000L
 private const val MIN_SAMPLES_FOR_RANGE = 3
 private const val MAX_RSSI_SAMPLES = 21
+private const val MAX_INVALID_RSSI_EVENTS = 21
 private const val SCAN_STALL_RESTART_MS = 12_000L
 private const val SCAN_RESTART_COOLDOWN_MS = 10_000L
 private const val MAX_REBIND_EVENTS = 64
 
 private data class RssiSample(val rssi: Int, val txPower: Int, val ms: Long)
+private data class InvalidRssiEvent(val rssi: Int, val ms: Long)
 private data class RebindEvent(
   val identity: String,
   val previousFingerprint: String,
@@ -64,7 +66,9 @@ private object ValidationRuntime {
   @Volatile private var lastObserveWallMs: Long? = null
   @Volatile private var peerFullUptimeMs: Long = 0
   @Volatile private var rangeEvidenceUptimeMs: Long = 0
-  @Volatile private var metricRangeUptimeMs: Long = 0
+  @Volatile private var freshMetricRangeUptimeMs: Long = 0
+  @Volatile private var usableMetricRangeUptimeMs: Long = 0
+  @Volatile private var holdoverMetricUptimeMs: Long = 0
   @Volatile private var geometry2dUptimeMs: Long = 0
   @Volatile private var baselinePeerExpire: Long = 0
   @Volatile private var baselineRebind: Long = 0
@@ -81,7 +85,9 @@ private object ValidationRuntime {
     lastObserveWallMs = now
     peerFullUptimeMs = 0
     rangeEvidenceUptimeMs = 0
-    metricRangeUptimeMs = 0
+    freshMetricRangeUptimeMs = 0
+    usableMetricRangeUptimeMs = 0
+    holdoverMetricUptimeMs = 0
     geometry2dUptimeMs = 0
     baselinePeerExpire = peerExpire
     baselineRebind = rebind
@@ -92,20 +98,31 @@ private object ValidationRuntime {
   }
 
   @Synchronized
-  fun observe(now: Long, activePeerCount: Int, evidenceReadyPeerCount: Int, metricReadyPeerCount: Int) {
+  fun observe(
+    now: Long,
+    activePeerCount: Int,
+    evidenceReadyPeerCount: Int,
+    freshMetricReadyPeerCount: Int,
+    usableMetricReadyPeerCount: Int,
+  ) {
     if (runId == null || endedWallMs != null) return
     val previous = lastObserveWallMs ?: now
     val dt = (now - previous).coerceIn(0L, 5_000L)
     if (activePeerCount >= 2) peerFullUptimeMs += dt
     if (evidenceReadyPeerCount >= 2) rangeEvidenceUptimeMs += dt
-    if (metricReadyPeerCount >= 2) metricRangeUptimeMs += dt
+    if (freshMetricReadyPeerCount >= 2) freshMetricRangeUptimeMs += dt
+    if (usableMetricReadyPeerCount >= 2) usableMetricRangeUptimeMs += dt
+    if (usableMetricReadyPeerCount >= 2 && freshMetricReadyPeerCount < 2) holdoverMetricUptimeMs += dt
     if (geometryState == "GEOMETRY_2D") geometry2dUptimeMs += dt
     lastObserveWallMs = now
   }
 
   @Synchronized
   fun end(now: Long) {
-    if (runId != null && endedWallMs == null) endedWallMs = now
+    if (runId != null && endedWallMs == null) {
+      endedWallMs = now
+      lastObserveWallMs = now
+    }
   }
 
   @Synchronized
@@ -131,6 +148,8 @@ private object ValidationRuntime {
       .put("run_id", runId ?: JSONObject.NULL)
       .put("started_wall_ms", start ?: JSONObject.NULL)
       .put("ended_wall_ms", endedWallMs ?: JSONObject.NULL)
+      .put("snapshot_wall_ms", now)
+      .put("snapshot_elapsed_ms", elapsed)
       .put("elapsed_ms", elapsed)
       .put("app_visibility", appVisibility)
       .put("current_geometry_state", geometryState)
@@ -141,7 +160,10 @@ private object ValidationRuntime {
       .put("rx_packets_delta", (rx - baselineRx).coerceAtLeast(0))
       .put("all_peer_uptime_percent", pct(peerFullUptimeMs))
       .put("ble_evidence_uptime_percent", pct(rangeEvidenceUptimeMs))
-      .put("metric_range_uptime_percent", pct(metricRangeUptimeMs))
+      .put("fresh_metric_range_uptime_percent", pct(freshMetricRangeUptimeMs))
+      .put("usable_metric_range_uptime_percent", pct(usableMetricRangeUptimeMs))
+      .put("holdover_metric_uptime_percent", pct(holdoverMetricUptimeMs))
+      .put("metric_range_uptime_percent", pct(usableMetricRangeUptimeMs))
       .put("geometry_2d_uptime_percent", pct(geometry2dUptimeMs))
   }
 }
@@ -163,6 +185,7 @@ private object FabricRuntime {
   @Volatile var bleScanFailureCode: Int? = null
   @Volatile var bleAdvertiseFailureCode: Int? = null
   @Volatile var bleAdvertiseStartedWallMs: Long? = null
+  @Volatile var bleScanStartedWallMs: Long? = null
   @Volatile var socketState = "IDLE"
   @Volatile var multicastJoinState = "IDLE"
   @Volatile var publishedGeometryJson: String? = null
@@ -178,6 +201,12 @@ private object FabricRuntime {
   val peerPacketCounts = ConcurrentHashMap<String, AtomicLong>()
   val peerLastSeenWallMs = ConcurrentHashMap<String, Long>()
   val rssiWindows = ConcurrentHashMap<String, ConcurrentLinkedDeque<RssiSample>>()
+  val invalidRssiEventsByIdentity = ConcurrentHashMap<String, ConcurrentLinkedDeque<InvalidRssiEvent>>()
+  val invalidRssiCountByIdentity = ConcurrentHashMap<String, AtomicLong>()
+  val lastValidRssiWallMsByIdentity = ConcurrentHashMap<String, Long>()
+  val lastInvalidRssiWallMsByIdentity = ConcurrentHashMap<String, Long>()
+  val lastInvalidRssiValueByIdentity = ConcurrentHashMap<String, Int>()
+  val lastValidRangeByPeer = ConcurrentHashMap<String, LastValidRangeState>()
   val bleAddressByIdentity = ConcurrentHashMap<String, String>()
   val bleLastSeenWallMsByIdentity = ConcurrentHashMap<String, Long>()
   val bleSeenCountByIdentity = ConcurrentHashMap<String, AtomicLong>()
@@ -189,6 +218,7 @@ private object FabricRuntime {
   val bodyFinderScanResults = AtomicLong(0)
   val malformedBodyFinderPayloads = AtomicLong(0)
   val selfScanResultsIgnored = AtomicLong(0)
+  val invalidRssiTotalCount = AtomicLong(0)
   val advertiseRestartCount = AtomicLong(0)
   val scanRestartCount = AtomicLong(0)
   val txPackets = AtomicLong(0)
@@ -198,6 +228,7 @@ private object FabricRuntime {
   val peerExpireCount = AtomicLong(0)
   @Volatile var lastAnyScanResultWallMs: Long? = null
   @Volatile var lastBodyFinderScanResultWallMs: Long? = null
+  @Volatile var lastValidBodyFinderRssiWallMs: Long? = null
 
   fun totalRebinds(): Long = addressRebindCountByIdentity.values.sumOf { it.get() }
 
@@ -209,12 +240,14 @@ private object FabricRuntime {
     bleScanFailureCode = null
     bleAdvertiseFailureCode = null
     bleAdvertiseStartedWallMs = null
+    bleScanStartedWallMs = null
     socketState = "IDLE"
     multicastJoinState = "IDLE"
     totalScanResults.set(0)
     bodyFinderScanResults.set(0)
     malformedBodyFinderPayloads.set(0)
     selfScanResultsIgnored.set(0)
+    invalidRssiTotalCount.set(0)
     advertiseRestartCount.set(0)
     scanRestartCount.set(0)
     txPackets.set(0)
@@ -224,11 +257,18 @@ private object FabricRuntime {
     peerExpireCount.set(0)
     lastAnyScanResultWallMs = null
     lastBodyFinderScanResultWallMs = null
+    lastValidBodyFinderRssiWallMs = null
     lastScanRestartWallMs = 0
     peerPacketCounts.clear()
     peerLastSeenWallMs.clear()
     bleLastSeenWallMsByIdentity.clear()
     bleSeenCountByIdentity.clear()
+    invalidRssiEventsByIdentity.clear()
+    invalidRssiCountByIdentity.clear()
+    lastValidRssiWallMsByIdentity.clear()
+    lastInvalidRssiWallMsByIdentity.clear()
+    lastInvalidRssiValueByIdentity.clear()
+    lastValidRangeByPeer.clear()
     addressRebindCountByIdentity.clear()
     lastRebindWallMsByIdentity.clear()
     rebindEvents.clear()
@@ -249,6 +289,8 @@ private object FabricRuntime {
     bleScanState = "IDLE"
     bleAdvertiseState = "IDLE"
     rssiWindows.clear()
+    invalidRssiEventsByIdentity.clear()
+    lastValidRangeByPeer.clear()
     bleAddressByIdentity.clear()
   }
 
@@ -399,15 +441,38 @@ class BodyFinderNativeModule : Module() {
     put("capabilities", capabilityMap(ctx))
   }
 
+  private fun validSamples(identity: String, now: Long, windowMs: Long): List<RssiSample> =
+    FabricRuntime.rssiWindows[identity]?.filter { now - it.ms <= windowMs } ?: emptyList()
+
+  private fun invalidEvents(identity: String, now: Long, windowMs: Long): List<InvalidRssiEvent> =
+    FabricRuntime.invalidRssiEventsByIdentity[identity]?.filter { now - it.ms <= windowMs } ?: emptyList()
+
   private fun fallbackEvidenceReadyCount(now: Long = System.currentTimeMillis()): Int {
     return FabricRuntime.peers.values.count { pair ->
       try {
         val peer = JSONObject(pair.first)
         val identity = peer.optString("ble_identity").takeIf { it.isNotBlank() && it != "null" } ?: return@count false
-        val samples = FabricRuntime.rssiWindows[identity]?.count { now - it.ms <= RANGE_FRESHNESS_MS } ?: 0
-        samples >= MIN_SAMPLES_FOR_RANGE
+        validSamples(identity, now, RANGE_FRESHNESS_MS).size >= MIN_SAMPLES_FOR_RANGE
       } catch (_: Throwable) { false }
     }
+  }
+
+  private fun freshMetricReadyCount(now: Long = System.currentTimeMillis()): Int {
+    var count = 0
+    FabricRuntime.peers.values.forEach { pair ->
+      try {
+        val peer = JSONObject(pair.first)
+        val peerId = peer.optString("node_id")
+        val system = if (Build.VERSION.SDK_INT >= 36) SystemRangingApi36.measurements[peerId] else null
+        if (system != null && system.distanceM != null && now - system.receivedWallMs <= RANGE_FRESHNESS_MS) {
+          count++
+          return@forEach
+        }
+        val estimate = fallbackEstimate(peer, now)
+        if (estimate?.metricValid == true) count++
+      } catch (_: Throwable) {}
+    }
+    return count
   }
 
   private fun metricReadyCount(now: Long = System.currentTimeMillis()): Int {
@@ -419,16 +484,16 @@ class BodyFinderNativeModule : Module() {
         val system = if (Build.VERSION.SDK_INT >= 36) SystemRangingApi36.measurements[peerId] else null
         if (system != null && system.distanceM != null && now - system.receivedWallMs <= RANGE_FRESHNESS_MS) {
           count++
-        } else {
-          val identity = peer.optString("ble_identity").takeIf { it.isNotBlank() && it != "null" } ?: return@forEach
-          val fresh = FabricRuntime.rssiWindows[identity]?.filter { now - it.ms <= RANGE_FRESHNESS_MS } ?: emptyList()
-          val estimate = BleRangeEstimator.estimate(
-            fresh.map { it.rssi.toDouble() },
-            fresh.map { it.txPower.toDouble() },
-            MIN_SAMPLES_FOR_RANGE,
-          )
-          if (estimate.metricValid) count++
+          return@forEach
         }
+        val estimate = fallbackEstimate(peer, now)
+        if (estimate?.metricValid == true) {
+          count++
+          return@forEach
+        }
+        if (estimate?.status == BleRangeStatus.OUT_OF_DOMAIN_LOW || estimate?.status == BleRangeStatus.OUT_OF_DOMAIN_HIGH) return@forEach
+        val cached = FabricRuntime.lastValidRangeByPeer[peerId]
+        if (cached != null && BleContinuityPolicy.holdoverEligible(now - cached.estimateWallMs)) count++
       } catch (_: Throwable) {}
     }
     return count
@@ -458,16 +523,16 @@ class BodyFinderNativeModule : Module() {
       put("ble_peer_ranging", when {
         !bleFeature -> probe("UNSUPPORTED", "BLE feature absent")
         !blePerm -> probe("PERMISSION_REQUIRED", "Bluetooth permissions required")
-        metricCount > 0 -> probe("WORKING_DEGRADED", "LIVE_METRIC_RANGE: $metricCount peer(s) have a fresh metric range; source-specific provenance is exported")
-        evidenceCount > 0 -> probe("WORKING_DEGRADED", "PROXIMITY_ONLY: $evidenceCount peer(s) have fresh Body Finder BLE RSSI evidence, but profile ${BleRangeEstimator.profile.profileId} is not validated for metric geometry")
+        metricCount > 0 -> probe("WORKING_DEGRADED", "LIVE_METRIC_RANGE: $metricCount peer(s) have a fresh or bounded-holdover metric range; temporal provenance is exported")
+        evidenceCount > 0 -> probe("WORKING_DEGRADED", "PROXIMITY_ONLY: fresh Body Finder BLE RSSI evidence exists but no usable metric range is currently available")
         Build.VERSION.SDK_INT >= 36 && SystemRangingApi36.hasFreshResult() -> probe("WORKING_DEGRADED", SystemRangingApi36.detail + "; fresh Android system ranging result available")
-        bodyFinderSeen -> probe("WORKING_DEGRADED", "ACQUIRING: Body Finder BLE advertisement seen; waiting for enough fresh per-peer RSSI samples")
+        bodyFinderSeen -> probe("WORKING_DEGRADED", "ACQUIRING: Body Finder BLE advertisement seen; waiting for enough fresh valid per-peer RSSI samples")
         FabricRuntime.bleScanning -> probe("SUPPORTED_UNVERIFIED", "ACQUIRING: BLE scan active but no Body Finder peer advertisement has been recognized yet")
         else -> probe("SUPPORTED_UNVERIFIED", FabricRuntime.bleDetail)
       })
       put("ble_range_calibration", probe(
         if (BleRangeEstimator.profile.validated) "WORKING_DEGRADED" else "SUPPORTED_UNVERIFIED",
-        "profile=${BleRangeEstimator.profile.profileId}; validated=${BleRangeEstimator.profile.validated}; silent metric clamp disabled"
+        "profile=${BleRangeEstimator.profile.profileId}; validated=${BleRangeEstimator.profile.validated}; silent metric clamp disabled; bounded holdover=${BleContinuityPolicy.HOLDOVER_MAX_MS}ms"
       ))
       put("field_session_service", probe(
         if (FieldServiceState.state == "RUNNING") "WORKING" else "SUPPORTED_UNVERIFIED",
@@ -555,13 +620,20 @@ class BodyFinderNativeModule : Module() {
       FabricRuntime.bleScanMode = "LOW_LATENCY_UNFILTERED_FALLBACK"
       FabricRuntime.bleDetail = "Filtered BLE scan unavailable (${filteredError.javaClass.simpleName}); unfiltered fallback active"
     }
+    val now = System.currentTimeMillis()
+    FabricRuntime.bleScanStartedWallMs = now
     FabricRuntime.bleScanning = true
     FabricRuntime.bleScanState = if (FabricRuntime.bodyFinderScanResults.get() > 0) "ACTIVE_PEER_SEEN" else "ACTIVE_NO_BODY_FINDER_PEER"
   }
 
+  private fun scanCallbackHealth(now: Long): String {
+    if (!FabricRuntime.bleScanning) return "SCANNER_STOPPED"
+    val anchor = FabricRuntime.lastAnyScanResultWallMs ?: FabricRuntime.bleScanStartedWallMs ?: return "SCANNER_STARTING"
+    return if (now - anchor >= SCAN_STALL_RESTART_MS) "SCANNER_CALLBACK_STALLED" else "SCANNER_HEALTHY"
+  }
+
   private fun restartScannerIfStalled(ctx: Context, now: Long) {
-    val last = FabricRuntime.lastAnyScanResultWallMs ?: return
-    if (!FabricRuntime.bleScanning || now - last < SCAN_STALL_RESTART_MS) return
+    if (!FabricRuntime.bleScanning || scanCallbackHealth(now) != "SCANNER_CALLBACK_STALLED") return
     if (now - FabricRuntime.lastScanRestartWallMs < SCAN_RESTART_COOLDOWN_MS) return
     val scanner = FabricRuntime.scanner ?: return
     val callback = FabricRuntime.scanCallback ?: return
@@ -570,7 +642,7 @@ class BodyFinderNativeModule : Module() {
       startScanner(scanner, callback)
       FabricRuntime.scanRestartCount.incrementAndGet()
       FabricRuntime.lastScanRestartWallMs = now
-      FabricRuntime.bleDetail = "BLE scanner restarted after callback silence; field service remains active"
+      FabricRuntime.bleDetail = "BLE scanner restarted after GLOBAL callback silence; isolated peer gaps never trigger scanner restart"
     } catch (e: Throwable) {
       FabricRuntime.bleDetail = "BLE scanner recovery failed: ${e.javaClass.simpleName}: ${e.message}"
     }
@@ -591,6 +663,7 @@ class BodyFinderNativeModule : Module() {
       if (!adapter.isEnabled) {
         FabricRuntime.bleDetail = "Bluetooth disabled"
         FabricRuntime.bleScanState = "DISABLED"
+        FabricRuntime.lastValidRangeByPeer.clear()
         return
       }
       if (!bluetoothPermissionsGranted(ctx)) {
@@ -667,6 +740,22 @@ class BodyFinderNativeModule : Module() {
     }
   }
 
+  private fun trimValidQueue(queue: ConcurrentLinkedDeque<RssiSample>, now: Long) {
+    while (queue.size > MAX_RSSI_SAMPLES) queue.pollFirst()
+    while (true) {
+      val first = queue.peekFirst() ?: break
+      if (now - first.ms <= WINDOW_RETENTION_MS) break else queue.pollFirst()
+    }
+  }
+
+  private fun trimInvalidQueue(queue: ConcurrentLinkedDeque<InvalidRssiEvent>, now: Long) {
+    while (queue.size > MAX_INVALID_RSSI_EVENTS) queue.pollFirst()
+    while (true) {
+      val first = queue.peekFirst() ?: break
+      if (now - first.ms <= WINDOW_RETENTION_MS) break else queue.pollFirst()
+    }
+  }
+
   private fun recordScan(result: ScanResult) {
     val now = System.currentTimeMillis()
     FabricRuntime.totalScanResults.incrementAndGet()
@@ -688,8 +777,22 @@ class BodyFinderNativeModule : Module() {
     FabricRuntime.bleScanState = "ACTIVE_PEER_SEEN"
 
     val advertisedTx = result.scanRecord?.txPowerLevel?.takeIf { it in -100..20 } ?: Int.MIN_VALUE
-    val queue = FabricRuntime.rssiWindows.computeIfAbsent(id) { ConcurrentLinkedDeque() }
-    queue.addLast(RssiSample(result.rssi, advertisedTx, now))
+    if (BleRangeEstimator.isValidBleRssi(result.rssi.toDouble())) {
+      val queue = FabricRuntime.rssiWindows.computeIfAbsent(id) { ConcurrentLinkedDeque() }
+      queue.addLast(RssiSample(result.rssi, advertisedTx, now))
+      FabricRuntime.lastValidRssiWallMsByIdentity[id] = now
+      FabricRuntime.lastValidBodyFinderRssiWallMs = now
+      trimValidQueue(queue, now)
+    } else {
+      FabricRuntime.invalidRssiTotalCount.incrementAndGet()
+      FabricRuntime.invalidRssiCountByIdentity.computeIfAbsent(id) { AtomicLong(0) }.incrementAndGet()
+      FabricRuntime.lastInvalidRssiWallMsByIdentity[id] = now
+      FabricRuntime.lastInvalidRssiValueByIdentity[id] = result.rssi
+      val invalidQueue = FabricRuntime.invalidRssiEventsByIdentity.computeIfAbsent(id) { ConcurrentLinkedDeque() }
+      invalidQueue.addLast(InvalidRssiEvent(result.rssi, now))
+      trimInvalidQueue(invalidQueue, now)
+    }
+
     try {
       val address = result.device.address?.uppercase()
       if (!address.isNullOrBlank()) {
@@ -713,11 +816,6 @@ class BodyFinderNativeModule : Module() {
         }
       }
     } catch (_: SecurityException) {}
-    while (queue.size > MAX_RSSI_SAMPLES) queue.pollFirst()
-    while (true) {
-      val first = queue.peekFirst() ?: break
-      if (now - first.ms <= WINDOW_RETENTION_MS) break else queue.pollFirst()
-    }
   }
 
   private fun desiredSystemRangingPeers(): List<SystemRangingApi36.Peer> {
@@ -735,7 +833,7 @@ class BodyFinderNativeModule : Module() {
 
   private fun fallbackEstimate(peer: JSONObject, now: Long): BleRangeEstimate? {
     val identity = peer.optString("ble_identity").takeIf { it.isNotBlank() && it != "null" } ?: return null
-    val samples = FabricRuntime.rssiWindows[identity]?.filter { now - it.ms <= RANGE_FRESHNESS_MS } ?: emptyList()
+    val samples = validSamples(identity, now, RANGE_FRESHNESS_MS)
     val txValues = samples.mapNotNull { sample -> sample.txPower.takeIf { it != Int.MIN_VALUE }?.toDouble() }
     return BleRangeEstimator.estimate(
       samples.map { it.rssi.toDouble() },
@@ -744,31 +842,119 @@ class BodyFinderNativeModule : Module() {
     )
   }
 
+  private fun buildBleObservation(
+    peerId: String,
+    distanceM: Double?,
+    sigmaM: Double?,
+    rawDistanceM: Double?,
+    rssiDbm: Double?,
+    metricValid: Boolean,
+    rangeStatus: String,
+    calibrationState: String,
+    proximityBand: String?,
+    detail: String,
+    observationMonotonicNs: Long,
+    temporalState: BleRangeTemporalState,
+    rangeAgeMs: Long,
+  ): JSONObject = JSONObject()
+    .put("session_id", FabricRuntime.sessionId)
+    .put("observer_node_id", FabricRuntime.nodeId)
+    .put("peer_node_id", peerId)
+    .put("technology", "BLE_RSSI")
+    .put("monotonic_ns", observationMonotonicNs)
+    .put("source_observation_monotonic_ns", observationMonotonicNs)
+    .put("range_age_ms", rangeAgeMs)
+    .put("range_temporal_state", temporalState.name)
+    .put("distance_m", distanceM ?: JSONObject.NULL)
+    .put("distance_sigma_m", sigmaM ?: JSONObject.NULL)
+    .put("raw_distance_m", rawDistanceM ?: JSONObject.NULL)
+    .put("azimuth_deg", JSONObject.NULL)
+    .put("azimuth_sigma_deg", JSONObject.NULL)
+    .put("elevation_deg", JSONObject.NULL)
+    .put("elevation_sigma_deg", JSONObject.NULL)
+    .put("rssi_dbm", rssiDbm ?: JSONObject.NULL)
+    .put("quality", "LOW")
+    .put("metric_valid", metricValid)
+    .put("range_status", rangeStatus)
+    .put("calibration_profile_id", BleRangeEstimator.profile.profileId)
+    .put("calibration_state", calibrationState)
+    .put("proximity_band", proximityBand ?: JSONObject.NULL)
+    .put("source_detail", detail)
+
   private fun fallbackObservation(peer: JSONObject, now: Long, mono: Long): JSONObject? {
     val peerId = peer.optString("node_id").takeIf { it.isNotBlank() } ?: return null
+    val identity = peer.optString("ble_identity").takeIf { it.isNotBlank() && it != "null" } ?: return null
     val estimate = fallbackEstimate(peer, now) ?: return null
+
+    if (estimate.metricValid && estimate.distanceM != null && estimate.sigmaM != null) {
+      FabricRuntime.lastValidRangeByPeer[peerId] = LastValidRangeState(
+        peerNodeId = peerId,
+        bleIdentity = identity,
+        distanceM = estimate.distanceM,
+        sigmaM = estimate.sigmaM,
+        rawDistanceM = estimate.rawDistanceM,
+        medianRssiDbm = estimate.medianRssiDbm,
+        profileId = estimate.profileId,
+        calibrationState = estimate.calibrationState,
+        observationMonotonicNs = mono,
+        estimateWallMs = now,
+        sourceDetail = estimate.detail,
+      )
+      return buildBleObservation(
+        peerId, estimate.distanceM, estimate.sigmaM, estimate.rawDistanceM, estimate.medianRssiDbm,
+        true, estimate.status.name, estimate.calibrationState, estimate.proximityBand, estimate.detail,
+        mono, BleRangeTemporalState.FRESH, 0L,
+      )
+    }
+
+    if (estimate.status == BleRangeStatus.OUT_OF_DOMAIN_LOW || estimate.status == BleRangeStatus.OUT_OF_DOMAIN_HIGH) {
+      FabricRuntime.lastValidRangeByPeer.remove(peerId)
+      return buildBleObservation(
+        peerId, null, null, estimate.rawDistanceM, estimate.medianRssiDbm,
+        false, estimate.status.name, estimate.calibrationState, estimate.proximityBand, estimate.detail,
+        mono, BleRangeTemporalState.OUT_OF_DOMAIN, 0L,
+      )
+    }
+
+    if (estimate.status == BleRangeStatus.NONFINITE || estimate.status == BleRangeStatus.INVALID_RSSI) {
+      FabricRuntime.lastValidRangeByPeer.remove(peerId)
+      return buildBleObservation(
+        peerId, null, null, estimate.rawDistanceM, estimate.medianRssiDbm,
+        false, estimate.status.name, estimate.calibrationState, estimate.proximityBand, estimate.detail,
+        mono, BleRangeTemporalState.INVALID, 0L,
+      )
+    }
+
+    val cached = FabricRuntime.lastValidRangeByPeer[peerId]
+    if (cached != null) {
+      val age = max(0L, now - cached.estimateWallMs)
+      if (BleContinuityPolicy.holdoverEligible(age)) {
+        val agedSigma = BleContinuityPolicy.agedSigma(cached.sigmaM, age)
+        return buildBleObservation(
+          peerId,
+          cached.distanceM,
+          agedSigma,
+          cached.rawDistanceM,
+          cached.medianRssiDbm,
+          true,
+          BleRangeStatus.VALID_METRIC.name,
+          cached.calibrationState,
+          cached.medianRssiDbm?.let { if (it >= -60) "NEAR" else if (it >= -72) "MID" else if (it >= -84) "FAR" else "VERY_FAR" },
+          "bounded BLE metric HOLDOVER; last_valid_age_ms=$age; sigma inflated ${"%.3f".format(cached.sigmaM)} -> ${"%.3f".format(agedSigma)}; original=${cached.sourceDetail}",
+          cached.observationMonotonicNs,
+          BleRangeTemporalState.HOLDOVER,
+          age,
+        )
+      }
+      FabricRuntime.lastValidRangeByPeer.remove(peerId)
+    }
+
     if (estimate.status == BleRangeStatus.INSUFFICIENT_SAMPLES) return null
-    return JSONObject()
-      .put("session_id", FabricRuntime.sessionId)
-      .put("observer_node_id", FabricRuntime.nodeId)
-      .put("peer_node_id", peerId)
-      .put("technology", "BLE_RSSI")
-      .put("monotonic_ns", mono)
-      .put("distance_m", estimate.distanceM ?: JSONObject.NULL)
-      .put("distance_sigma_m", estimate.sigmaM ?: JSONObject.NULL)
-      .put("raw_distance_m", estimate.rawDistanceM ?: JSONObject.NULL)
-      .put("azimuth_deg", JSONObject.NULL)
-      .put("azimuth_sigma_deg", JSONObject.NULL)
-      .put("elevation_deg", JSONObject.NULL)
-      .put("elevation_sigma_deg", JSONObject.NULL)
-      .put("rssi_dbm", estimate.medianRssiDbm ?: JSONObject.NULL)
-      .put("quality", "LOW")
-      .put("metric_valid", estimate.metricValid)
-      .put("range_status", estimate.status.name)
-      .put("calibration_profile_id", estimate.profileId)
-      .put("calibration_state", estimate.calibrationState)
-      .put("proximity_band", estimate.proximityBand ?: JSONObject.NULL)
-      .put("source_detail", estimate.detail)
+    return buildBleObservation(
+      peerId, null, null, estimate.rawDistanceM, estimate.medianRssiDbm,
+      false, estimate.status.name, estimate.calibrationState, estimate.proximityBand, estimate.detail,
+      mono, BleRangeTemporalState.ACQUIRING, 0L,
+    )
   }
 
   private fun rangeObservations(): JSONArray {
@@ -789,6 +975,9 @@ class BodyFinderNativeModule : Module() {
                 .put("peer_node_id", peerId)
                 .put("technology", system.technology)
                 .put("monotonic_ns", system.monotonicNs)
+                .put("source_observation_monotonic_ns", system.monotonicNs)
+                .put("range_age_ms", max(0L, now - system.receivedWallMs))
+                .put("range_temporal_state", BleRangeTemporalState.FRESH.name)
                 .put("distance_m", system.distanceM)
                 .put("distance_sigma_m", system.distanceSigmaM ?: max(1.5, system.distanceM * 0.75))
                 .put("raw_distance_m", system.distanceM)
@@ -814,6 +1003,17 @@ class BodyFinderNativeModule : Module() {
     return arr
   }
 
+  private fun temporalStateForPeer(peerId: String, estimate: BleRangeEstimate?, now: Long): BleRangeTemporalState {
+    val cached = FabricRuntime.lastValidRangeByPeer[peerId]
+    val age = cached?.let { max(0L, now - it.estimateWallMs) }
+    return BleContinuityPolicy.temporalState(
+      currentMetricValid = estimate?.metricValid == true,
+      explicitOutOfDomain = estimate?.status == BleRangeStatus.OUT_OF_DOMAIN_LOW || estimate?.status == BleRangeStatus.OUT_OF_DOMAIN_HIGH,
+      explicitInvalid = estimate?.status == BleRangeStatus.NONFINITE || estimate?.status == BleRangeStatus.INVALID_RSSI,
+      lastValidAgeMs = age,
+    )
+  }
+
   private fun peerBleDiagnostics(now: Long): JSONArray {
     val arr = JSONArray()
     FabricRuntime.peers.values.forEach { pair ->
@@ -821,43 +1021,78 @@ class BodyFinderNativeModule : Module() {
         val peer = JSONObject(pair.first)
         val peerId = peer.optString("node_id")
         val identity = peer.optString("ble_identity").takeIf { it.isNotBlank() && it != "null" }
-        val queue = identity?.let { FabricRuntime.rssiWindows[it] }
-        val fresh = queue?.filter { now - it.ms <= RANGE_FRESHNESS_MS } ?: emptyList()
-        val retained = queue?.filter { now - it.ms <= WINDOW_RETENTION_MS } ?: emptyList()
-        val last = retained.maxByOrNull { it.ms }
+        val validFresh = identity?.let { validSamples(it, now, RANGE_FRESHNESS_MS) } ?: emptyList()
+        val validRetained = identity?.let { validSamples(it, now, WINDOW_RETENTION_MS) } ?: emptyList()
+        val invalidFresh = identity?.let { invalidEvents(it, now, RANGE_FRESHNESS_MS) } ?: emptyList()
+        val invalidRetained = identity?.let { invalidEvents(it, now, WINDOW_RETENTION_MS) } ?: emptyList()
+        val lastValidSample = validRetained.maxByOrNull { it.ms }
+        val lastInvalidSample = invalidRetained.maxByOrNull { it.ms }
         val seenAt = identity?.let { FabricRuntime.bleLastSeenWallMsByIdentity[it] }
         val address = identity?.let { FabricRuntime.bleAddressByIdentity[it] }
-        val estimate = if (identity != null && fresh.isNotEmpty()) fallbackEstimate(peer, now) else null
+        val estimate = if (identity != null) fallbackEstimate(peer, now) else null
+        val temporalState = temporalStateForPeer(peerId, estimate, now)
+        val cached = FabricRuntime.lastValidRangeByPeer[peerId]
+        val cachedAge = cached?.let { max(0L, now - it.estimateWallMs) }
+        val metricReady = temporalState == BleRangeTemporalState.FRESH || temporalState == BleRangeTemporalState.HOLDOVER
         val bindingState = when {
           identity == null -> "UDP_ONLY"
           seenAt == null -> "BLE_IDENTITY_KNOWN"
-          fresh.isEmpty() -> "BLE_IDENTITY_SEEN"
-          fresh.size < MIN_SAMPLES_FOR_RANGE -> "SAMPLES_ACQUIRING"
-          estimate?.metricValid == true -> "RANGE_READY"
+          metricReady -> "RANGE_READY"
+          validFresh.isEmpty() -> "BLE_IDENTITY_SEEN"
+          validFresh.size < MIN_SAMPLES_FOR_RANGE -> "SAMPLES_ACQUIRING"
           else -> "PROXIMITY_READY"
         }
-        val blocker = when (bindingState) {
-          "UDP_ONLY" -> "NO_BLE_IDENTITY"
-          "BLE_IDENTITY_KNOWN" -> "ADVERTISEMENT_NOT_SEEN"
-          "BLE_IDENTITY_SEEN" -> "STALE_SAMPLES"
-          "SAMPLES_ACQUIRING" -> "INSUFFICIENT_SAMPLES"
-          "PROXIMITY_READY" -> "UNCALIBRATED_METRIC_RANGE"
+        val blocker = when {
+          temporalState == BleRangeTemporalState.HOLDOVER -> null
+          temporalState == BleRangeTemporalState.EXPIRED || temporalState == BleRangeTemporalState.STALE -> "LAST_VALID_RANGE_EXPIRED"
+          bindingState == "UDP_ONLY" -> "NO_BLE_IDENTITY"
+          bindingState == "BLE_IDENTITY_KNOWN" -> "ADVERTISEMENT_NOT_SEEN"
+          bindingState == "BLE_IDENTITY_SEEN" -> "STALE_SAMPLES"
+          bindingState == "SAMPLES_ACQUIRING" -> "INSUFFICIENT_VALID_SAMPLES"
+          bindingState == "PROXIMITY_READY" -> "NO_CURRENT_METRIC_RANGE"
           else -> null
+        }
+        val medianValid = validFresh.takeIf { it.isNotEmpty() }?.map { it.rssi.toDouble() }?.let { BleRangeEstimator.median(it) }
+        val peerGapState = when {
+          identity == null -> "NO_IDENTITY"
+          lastValidSample == null -> "NO_VALID_RSSI_YET"
+          now - lastValidSample.ms <= RANGE_FRESHNESS_MS -> "PEER_SAMPLE_HEALTHY"
+          else -> "PEER_TEMPORARILY_NOT_OBSERVED"
         }
         arr.put(JSONObject().apply {
           put("node_id", peerId)
           put("ble_identity", identity ?: JSONObject.NULL)
           put("address_fingerprint", address?.let { addressFingerprint(it) } ?: JSONObject.NULL)
           put("binding_state", bindingState)
+          put("peer_gap_state", peerGapState)
           put("body_finder_scan_results_for_identity", identity?.let { FabricRuntime.bleSeenCountByIdentity[it]?.get() } ?: 0)
-          put("sample_count_5s", fresh.size)
-          put("sample_count_8s", retained.size)
-          put("last_sample_age_ms", if (last == null) JSONObject.NULL else max(0L, now - last.ms))
-          put("latest_rssi_dbm", last?.rssi ?: JSONObject.NULL)
-          put("median_rssi_dbm", if (fresh.isEmpty()) JSONObject.NULL else BleRangeEstimator.median(fresh.map { it.rssi.toDouble() }))
-          put("median_advertised_tx_power_dbm", fresh.mapNotNull { sample -> sample.txPower.takeIf { it != Int.MIN_VALUE }?.toDouble() }.takeIf { it.isNotEmpty() }?.let { BleRangeEstimator.median(it) } ?: JSONObject.NULL)
-          put("fallback_evidence_ready", fresh.size >= MIN_SAMPLES_FOR_RANGE)
-          put("metric_range_ready", estimate?.metricValid ?: false)
+          put("raw_sample_count_5s", validFresh.size + invalidFresh.size)
+          put("valid_rssi_sample_count_5s", validFresh.size)
+          put("invalid_rssi_sample_count_5s", invalidFresh.size)
+          put("raw_sample_count_8s", validRetained.size + invalidRetained.size)
+          put("valid_rssi_sample_count_8s", validRetained.size)
+          put("invalid_rssi_sample_count_8s", invalidRetained.size)
+          put("sample_count_5s", validFresh.size)
+          put("sample_count_8s", validRetained.size)
+          put("last_sample_age_ms", if (lastValidSample == null) JSONObject.NULL else max(0L, now - lastValidSample.ms))
+          put("latest_rssi_dbm", lastValidSample?.rssi ?: JSONObject.NULL)
+          put("latest_valid_rssi_dbm", lastValidSample?.rssi ?: JSONObject.NULL)
+          put("latest_invalid_rssi_dbm", lastInvalidSample?.rssi ?: JSONObject.NULL)
+          put("median_rssi_dbm", medianValid ?: JSONObject.NULL)
+          put("median_valid_rssi_dbm", medianValid ?: JSONObject.NULL)
+          put("median_advertised_tx_power_dbm", validFresh.mapNotNull { sample -> sample.txPower.takeIf { it != Int.MIN_VALUE }?.toDouble() }.takeIf { it.isNotEmpty() }?.let { BleRangeEstimator.median(it) } ?: JSONObject.NULL)
+          put("invalid_rssi_total_count", identity?.let { FabricRuntime.invalidRssiCountByIdentity[it]?.get() } ?: 0)
+          put("fallback_evidence_ready", validFresh.size >= MIN_SAMPLES_FOR_RANGE)
+          put("metric_range_ready", metricReady)
+          put("metric_range_source", when (temporalState) {
+            BleRangeTemporalState.FRESH -> "FRESH_ESTIMATE"
+            BleRangeTemporalState.HOLDOVER -> "LAST_VALID_HOLDOVER"
+            else -> JSONObject.NULL
+          })
+          put("range_temporal_state", temporalState.name)
+          put("last_valid_range_age_ms", cachedAge ?: JSONObject.NULL)
+          put("last_valid_distance_m", cached?.distanceM ?: JSONObject.NULL)
+          put("last_valid_sigma_m", cached?.sigmaM ?: JSONObject.NULL)
           put("range_estimate", estimate?.toJson() ?: JSONObject.NULL)
           put("address_rebind_count", identity?.let { FabricRuntime.addressRebindCountByIdentity[it]?.get() } ?: 0)
           put("blocking_reason", blocker ?: JSONObject.NULL)
@@ -891,12 +1126,15 @@ class BodyFinderNativeModule : Module() {
     put("scan_state", FabricRuntime.bleScanState)
     put("advertise_state", FabricRuntime.bleAdvertiseState)
     put("scan_mode", FabricRuntime.bleScanMode)
+    put("scan_callback_health", scanCallbackHealth(now))
     put("total_scan_results", FabricRuntime.totalScanResults.get())
     put("body_finder_scan_results", FabricRuntime.bodyFinderScanResults.get())
     put("malformed_body_finder_payloads", FabricRuntime.malformedBodyFinderPayloads.get())
     put("self_scan_results_ignored", FabricRuntime.selfScanResultsIgnored.get())
+    put("invalid_rssi_total_count", FabricRuntime.invalidRssiTotalCount.get())
     put("last_any_scan_result_age_ms", ageMs(now, FabricRuntime.lastAnyScanResultWallMs))
     put("last_body_finder_scan_result_age_ms", ageMs(now, FabricRuntime.lastBodyFinderScanResultWallMs))
+    put("last_valid_body_finder_rssi_age_ms", ageMs(now, FabricRuntime.lastValidBodyFinderRssiWallMs))
     put("scan_failure_code", FabricRuntime.bleScanFailureCode ?: JSONObject.NULL)
     put("scan_restart_count", FabricRuntime.scanRestartCount.get())
     put("advertise_failure_code", FabricRuntime.bleAdvertiseFailureCode ?: JSONObject.NULL)
@@ -904,6 +1142,12 @@ class BodyFinderNativeModule : Module() {
     put("advertise_restart_count", FabricRuntime.advertiseRestartCount.get())
     put("active_identity", bleIdentity())
     put("calibration_profile", BleRangeEstimator.profile.toJson())
+    put("continuity_policy", JSONObject()
+      .put("fresh_ms", BleContinuityPolicy.FRESH_MS)
+      .put("holdover_max_ms", BleContinuityPolicy.HOLDOVER_MAX_MS)
+      .put("hard_expiry_ms", BleContinuityPolicy.HARD_EXPIRY_MS)
+      .put("sigma_aging_m_per_s", BleContinuityPolicy.SIGMA_AGING_M_PER_S)
+      .put("holdover_sigma_cap_m", BleContinuityPolicy.HOLDOVER_SIGMA_CAP_M))
     put("advertised_tx_power_semantics", "diagnostic transmitter metadata only; never used as RSSI@1m")
     put("peers", peerBleDiagnostics(now))
     put("rebind_events", rebindDiagnostics())
@@ -947,8 +1191,9 @@ class BodyFinderNativeModule : Module() {
   private fun diagnostics(ctx: Context): JSONObject {
     val now = System.currentTimeMillis()
     val evidenceReady = fallbackEvidenceReadyCount(now)
-    val metricReady = metricReadyCount(now)
-    ValidationRuntime.observe(now, FabricRuntime.peers.size, evidenceReady, metricReady)
+    val freshMetricReady = freshMetricReadyCount(now)
+    val usableMetricReady = metricReadyCount(now)
+    ValidationRuntime.observe(now, FabricRuntime.peers.size, evidenceReady, freshMetricReady, usableMetricReady)
     return JSONObject()
       .put("ble_diagnostics", bleDiagnostics(ctx, now))
       .put("fabric_diagnostics", fabricDiagnostics(now))
@@ -962,7 +1207,8 @@ class BodyFinderNativeModule : Module() {
       try {
         val peer = JSONObject(pair.first)
         val identity = peer.optString("ble_identity").takeIf { it.isNotBlank() && it != "null" } ?: return@forEach
-        val fresh = FabricRuntime.rssiWindows[identity]?.filter { now - it.ms <= WINDOW_RETENTION_MS } ?: emptyList()
+        val fresh = validSamples(identity, now, WINDOW_RETENTION_MS)
+        val invalid = invalidEvents(identity, now, WINDOW_RETENTION_MS)
         val tx = fresh.mapNotNull { sample -> sample.txPower.takeIf { it != Int.MIN_VALUE }?.toDouble() }
         val estimate = BleRangeEstimator.estimate(
           fresh.map { it.rssi.toDouble() },
@@ -976,6 +1222,8 @@ class BodyFinderNativeModule : Module() {
             .put("peer_display_name", peer.optString("display_name"))
             .put("ble_identity", identity)
             .put("sample_count", fresh.size)
+            .put("valid_rssi_sample_count", fresh.size)
+            .put("invalid_rssi_sample_count", invalid.size)
             .put("rssi_samples_dbm", JSONArray(fresh.map { it.rssi }))
             .put("advertised_tx_power_samples_dbm", JSONArray(tx))
             .put("estimate", estimate.toJson())
@@ -983,13 +1231,14 @@ class BodyFinderNativeModule : Module() {
       } catch (_: Throwable) {}
     }
     return JSONObject()
-      .put("schema_version", 1)
+      .put("schema_version", 2)
       .put("captured_wall_ms", now)
       .put("session_id", FabricRuntime.sessionId)
       .put("observer_node_id", FabricRuntime.nodeId)
       .put("observer_display_name", FabricRuntime.displayName)
       .put("calibration_profile", BleRangeEstimator.profile.toJson())
       .put("peers", peers)
+      .put("invalid_rssi_values_exported", false)
       .put("ground_truth_in_runtime", false)
   }
 
@@ -1031,7 +1280,10 @@ class BodyFinderNativeModule : Module() {
       .filter { now - it.value.second > PEER_EXPIRY_MS }
       .map { it.key }
     for (nodeId in expired) {
-      if (FabricRuntime.peers.remove(nodeId) != null) FabricRuntime.peerExpireCount.incrementAndGet()
+      if (FabricRuntime.peers.remove(nodeId) != null) {
+        FabricRuntime.peerExpireCount.incrementAndGet()
+        FabricRuntime.lastValidRangeByPeer.remove(nodeId)
+      }
     }
   }
 
