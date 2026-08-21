@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """Static acceptance checks for Android BLE/ranging plumbing.
 
-Experimental.7 preserves the experimental.6 acquisition/binding/lifecycle and
-validated COARSE ranging guarantees while adding bounded BLE metric continuity.
+Experimental.8 preserves the validated COARSE ranging and bounded continuity
+contracts while changing Android BLE callback acquisition strategy.
 """
 from pathlib import Path
 import json
@@ -11,6 +11,7 @@ import re
 ROOT = Path(__file__).resolve().parents[2]
 APP_JSON = ROOT / "apps/mobile/app.json"
 NATIVE = ROOT / "apps/mobile/modules/body-finder-native/android/src/main/java/com/trochez/bodyfindernative/BodyFinderNativeModule.kt"
+ACQUISITION = ROOT / "apps/mobile/modules/body-finder-native/android/src/main/java/com/trochez/bodyfindernative/BleAcquisitionPolicy.kt"
 SYSTEM = ROOT / "apps/mobile/modules/body-finder-native/android/src/main/java/com/trochez/bodyfindernative/SystemRangingApi36.kt"
 APP = ROOT / "apps/mobile/App.tsx"
 
@@ -34,13 +35,13 @@ for permission in [
     require(permission in permissions, f"missing {permission} in Expo Android permissions")
 
 native = NATIVE.read_text(encoding="utf-8")
+acquisition = ACQUISITION.read_text(encoding="utf-8")
 system = SYSTEM.read_text(encoding="utf-8")
 app = APP.read_text(encoding="utf-8")
 
 for token in [
     "ScanSettings.SCAN_MODE_LOW_LATENCY",
-    "setReportDelay(0L)",
-    "setManufacturerData(MANUFACTURER_ID, prefix, mask)",
+    "setReportDelay(REPORT_DELAY_MS)",
     "bodyFinderScanResults",
     "binding_state",
     "sample_count_5s",
@@ -57,8 +58,10 @@ for token in [
     "peer_expire_count",
     "manual_geometry_override",
 ]:
-    require(token in native or token in app, f"missing diagnostic/behavior token {token}")
+    require(token in native or token in acquisition or token in app, f"missing diagnostic/behavior token {token}")
 
+require("scanner.startScan(null, scanSettings(), callback)" in acquisition, "experimental.8 primary scan must be software filtered")
+require("setManufacturerData(MANUFACTURER_ID, prefix, mask)" in native, "hardware-filter fallback missing")
 require(
     'FabricRuntime.bleScanning -> probe("SUPPORTED_UNVERIFIED"' in native,
     "scanner-only BLE state must be SUPPORTED_UNVERIFIED rather than live ranging",
@@ -82,6 +85,7 @@ require("hasFreshResult" in system, "fresh system-result predicate missing")
 require("last_close_reason" in system, "system close reason diagnostics missing")
 require("result_count" in system, "system result count diagnostics missing")
 require("CIRCUIT_BREAKER_FAILURES" in system, "bounded failure circuit breaker missing")
+require("BLE_ACQUISITION_YIELD" in system, "API36 BLE-acquisition yield missing")
 
 for token in [
     "getDiagnosticsJson",
@@ -89,7 +93,7 @@ for token in [
     "Fabric diagnostics",
     "ble_diagnostics",
     "fabric_diagnostics",
-    "0.2.0-experimental.7",
+    "0.2.0-experimental.8",
     "report_version: REPORT_VERSION",
 ]:
     require(token in app or token in native, f"mobile report/Expert token missing: {token}")

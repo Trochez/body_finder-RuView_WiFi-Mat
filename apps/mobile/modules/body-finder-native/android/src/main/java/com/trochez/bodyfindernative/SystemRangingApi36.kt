@@ -22,10 +22,11 @@ import kotlin.math.min
 /**
  * Android API-36+ precise/system ranging adapter.
  *
- * This path is preferred only after a fresh real distance is produced. Failure,
- * backoff, or circuit-breaker state here never clears Body Finder BLE scan RSSI
- * evidence. Commodity RSSI remains independently observable (metric only after a
- * validated calibration profile exists).
+ * A real fresh platform range is preferred. Session-open events alone are NOT
+ * success: only a real distance resets the failure/circuit state. Repeated
+ * close/open churn with no result activates a bounded BLE-yield window so the
+ * validated Body Finder BLE scanner/advertiser can use controller resources
+ * without continuous RangingManager session recreation.
  */
 @RequiresApi(36)
 internal object SystemRangingApi36 {
@@ -62,7 +63,10 @@ internal object SystemRangingApi36 {
   @Volatile private var lastError: String? = null
   @Volatile private var nextRetryWallMs: Long = 0
   @Volatile private var circuitOpenUntilWallMs: Long = 0
+  @Volatile private var bleYieldUntilWallMs: Long = 0
+  @Volatile private var bleYieldReason: String? = null
   @Volatile private var consecutiveFailures: Int = 0
+  @Volatile private var closesSinceRealResult: Long = 0
 
   private var session: RangingSession? = null
   private var fingerprint: String = ""
@@ -71,10 +75,13 @@ internal object SystemRangingApi36 {
   private val openFailureCount = AtomicLong(0)
   private val closeFailureCount = AtomicLong(0)
   private val unexpectedFailureCount = AtomicLong(0)
+  private val bleYieldCount = AtomicLong(0)
   val measurements = ConcurrentHashMap<String, Measurement>()
 
   fun hasFreshResult(now: Long = System.currentTimeMillis()): Boolean =
     measurements.values.any { it.distanceM != null && now - it.receivedWallMs <= RESULT_FRESHNESS_MS }
+
+  fun isBleYieldActive(now: Long = System.currentTimeMillis()): Boolean = now < bleYieldUntilWallMs
 
   fun diagnostics(now: Long = System.currentTimeMillis()): JSONObject = JSONObject().apply {
     put("state", state)
@@ -91,9 +98,15 @@ internal object SystemRangingApi36 {
     put("open_failure_count", openFailureCount.get())
     put("close_failure_count", closeFailureCount.get())
     put("unexpected_failure_count", unexpectedFailureCount.get())
+    put("closes_since_real_result", closesSinceRealResult)
     put("retry_in_ms", max(0L, nextRetryWallMs - now))
     put("circuit_open_in_ms", max(0L, circuitOpenUntilWallMs - now))
     put("fresh_result_available", hasFreshResult(now))
+    put("ble_yield_active", isBleYieldActive(now))
+    put("ble_yield_in_ms", max(0L, bleYieldUntilWallMs - now))
+    put("ble_yield_count", bleYieldCount.get())
+    put("ble_yield_reason", bleYieldReason ?: JSONObject.NULL)
+    put("ble_yield_duration_ms", BleAcquisitionPolicy.SYSTEM_RANGING_BLE_YIELD_MS)
   }
 
   @SuppressLint("MissingPermission")
@@ -104,6 +117,7 @@ internal object SystemRangingApi36 {
     openFailureCount.set(0)
     closeFailureCount.set(0)
     unexpectedFailureCount.set(0)
+    bleYieldCount.set(0)
     requestedPeerCount = 0
     activePeerCount = 0
     lastResultWallMs = null
@@ -112,9 +126,20 @@ internal object SystemRangingApi36 {
     lastError = null
     nextRetryWallMs = 0
     circuitOpenUntilWallMs = 0
+    bleYieldUntilWallMs = 0
+    bleYieldReason = null
     consecutiveFailures = 0
+    closesSinceRealResult = 0
     state = "IDLE"
     detail = "API36 RangingManager idle"
+  }
+
+  private fun activateBleYield(now: Long, reason: String) {
+    if (now >= bleYieldUntilWallMs) bleYieldCount.incrementAndGet()
+    bleYieldUntilWallMs = max(bleYieldUntilWallMs, now + BleAcquisitionPolicy.SYSTEM_RANGING_BLE_YIELD_MS)
+    bleYieldReason = reason
+    state = "BLE_ACQUISITION_YIELD"
+    detail = "API36 RangingManager yielding for validated BLE acquisition: $reason; real fresh system ranges remain preferred when available"
   }
 
   private fun registerFailure(now: Long, kind: String) {
@@ -129,10 +154,14 @@ internal object SystemRangingApi36 {
     }
   }
 
-  private fun registerSuccess() {
+  /** Only a real platform distance is a success. */
+  private fun registerRealRangeSuccess() {
     consecutiveFailures = 0
     nextRetryWallMs = 0
     circuitOpenUntilWallMs = 0
+    bleYieldUntilWallMs = 0
+    bleYieldReason = null
+    closesSinceRealResult = 0
     lastError = null
   }
 
@@ -152,7 +181,16 @@ internal object SystemRangingApi36 {
       detail = "API36 RangingManager ready; awaiting a Body Finder BLE peer/address binding"
       return
     }
+    if (hasFreshResult(now)) {
+      // Do not tear down a valid live session; fresh system range remains preferred.
+      if (nextFingerprint == fingerprint && session != null) return
+    }
     if (nextFingerprint == fingerprint && session != null) return
+    if (isBleYieldActive(now)) {
+      state = "BLE_ACQUISITION_YIELD"
+      detail = "API36 RangingManager BLE acquisition yield active; independent validated BLE scanning remains available"
+      return
+    }
     if (now < circuitOpenUntilWallMs) {
       state = "CIRCUIT_OPEN"
       detail = "API36 RangingManager circuit breaker active; independent BLE evidence remains available"
@@ -198,8 +236,7 @@ internal object SystemRangingApi36 {
           sessionActive = true
           activePeerCount = normalized.size
           state = "ACTIVE_NO_RESULT"
-          registerSuccess()
-          detail = "API36 RangingManager raw BLE-RSSI session opened for ${normalized.size} peer(s)"
+          detail = "API36 RangingManager raw BLE-RSSI session opened for ${normalized.size} peer(s); awaiting a real distance before declaring success"
         }
 
         override fun onOpenFailed(reason: Int) {
@@ -222,12 +259,16 @@ internal object SystemRangingApi36 {
           activePeerCount = 0
           lastCloseReason = reason
           closeFailureCount.incrementAndGet()
+          closesSinceRealResult++
           state = "CLOSED"
           detail = "API36 RangingManager session closed reason=$reason; independent BLE evidence remains active"
           session = null
           fingerprint = ""
           peerByUuid.clear()
           registerFailure(failureNow, "closed reason=$reason")
+          if (!hasFreshResult(failureNow) && closesSinceRealResult >= BleAcquisitionPolicy.SYSTEM_RANGING_CLOSES_BEFORE_YIELD) {
+            activateBleYield(failureNow, "${closesSinceRealResult} closes without a real platform distance")
+          }
         }
 
         override fun onStarted(peer: RangingDevice, technology: Int) {
@@ -275,7 +316,7 @@ internal object SystemRangingApi36 {
           )
           lastResultWallMs = received
           resultCount.incrementAndGet()
-          if (distanceM != null) registerSuccess()
+          if (distanceM != null) registerRealRangeSuccess()
           state = if (distanceM != null) "ACTIVE_RESULT" else "ACTIVE_NO_DISTANCE"
           detail = "API36 RangingManager live result peer=$peerNodeId technology=$technology distance=${distanceM ?: "null"}"
         }

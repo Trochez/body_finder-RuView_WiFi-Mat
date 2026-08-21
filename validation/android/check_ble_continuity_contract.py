@@ -112,10 +112,10 @@ def main() -> None:
     require("export_auto_finalized_validation_run" in app, "share export does not report auto-finalization")
     require("BodyFinderNative.endValidationRun()" in app, "share does not auto-finalize active run")
 
-    require("0.2.0-experimental.7" in app, "mobile build is not experimental.7")
-    require(app_json["expo"]["android"]["versionCode"] == 7, "Android versionCode must be 7")
-    require(app_json["expo"]["extra"]["releaseIteration"] == "experimental.7", "releaseIteration must be experimental.7")
-    require("HUMAN_SCANNING_ENABLED = false" in app, "human scanning must remain blocked until continuity gate passes")
+    require("0.2.0-experimental.8" in app, "mobile build is not experimental.8")
+    require(app_json["expo"]["android"]["versionCode"] == 8, "Android versionCode must be 8")
+    require(app_json["expo"]["extra"]["releaseIteration"] == "experimental.8", "releaseIteration must be experimental.8")
+    require("HUMAN_SCANNING_ENABLED = false" in app, "human scanning must remain blocked until acquisition-continuity gate passes")
 
     fresh_ms = 5_000
     holdover_max = 10_000
@@ -146,7 +146,7 @@ def main() -> None:
     require(sigmas[-1] > base_sigma, "holdover sigma does not increase")
 
     print(json.dumps({
-        "contract": "experimental.7 bounded BLE metric continuity",
+        "contract": "experimental.8 preserves bounded BLE metric continuity",
         "profile_id": active["profile_id"],
         "profile_frozen": True,
         "fresh_ms": fresh_ms,

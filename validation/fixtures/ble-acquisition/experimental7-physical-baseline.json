@@ -1,0 +1,64 @@
+{
+  "schema_version": 1,
+  "source": "experimental.7 three-Android physical continuity retest",
+  "purpose": "Regression baseline for BLE acquisition-continuity diagnostics; not runtime ground truth and not a calibration input.",
+  "devices": {
+    "lenovo_tb_j606l": {
+      "all_peer_uptime_percent": 99.91036726241529,
+      "fresh_metric_range_uptime_percent": 99.91036726241529,
+      "usable_metric_range_uptime_percent": 99.91036726241529,
+      "holdover_metric_uptime_percent": 0.0,
+      "geometry_2d_uptime_percent": 60.70937357534172,
+      "sample_snapshot": {
+        "pixel10_valid_5s": 13,
+        "pixel10_valid_8s": 21,
+        "pixel7_valid_5s": 14,
+        "pixel7_valid_8s": 21
+      }
+    },
+    "pixel7_pro": {
+      "all_peer_uptime_percent": 99.86731826805313,
+      "fresh_metric_range_uptime_percent": 47.757618693114956,
+      "usable_metric_range_uptime_percent": 85.07100373830279,
+      "holdover_metric_uptime_percent": 37.313385045187836,
+      "geometry_2d_uptime_percent": 59.982949496890086,
+      "invalid_rssi_total_count": 41,
+      "sample_snapshot": {
+        "pixel10_valid_5s": 1,
+        "pixel10_valid_8s": 1,
+        "lenovo_valid_5s": 4,
+        "lenovo_valid_8s": 5
+      }
+    },
+    "pixel10_pro": {
+      "all_peer_uptime_percent": 99.90967285865766,
+      "fresh_metric_range_uptime_percent": 16.785513247045667,
+      "usable_metric_range_uptime_percent": 32.14355844053837,
+      "holdover_metric_uptime_percent": 15.358045193492705,
+      "geometry_2d_uptime_percent": 60.26110715267531,
+      "system_ranging_close_failure_count_observed": 350,
+      "system_ranging_result_count_observed": 0,
+      "sample_snapshot": {
+        "lenovo_valid_5s": 2,
+        "lenovo_valid_8s": 2,
+        "pixel7_valid_5s": 1,
+        "pixel7_valid_8s": 1
+      }
+    }
+  },
+  "frozen_invariants": {
+    "profile_id": "android-ble-lab-v1",
+    "rssi_at_1m_dbm": -69.19,
+    "path_loss_exponent": 3.62,
+    "valid_distance_min_m": 0.5,
+    "valid_distance_max_m": 5.0,
+    "min_samples_for_range": 3,
+    "fresh_ms": 5000,
+    "holdover_max_ms": 10000
+  },
+  "experimental8_target": {
+    "usable_metric_range_uptime_percent_min_each_device": 90.0,
+    "geometry_2d_uptime_percent_min_each_device": 90.0,
+    "all_peer_uptime_percent_preferred_min": 99.0
+  }
+}

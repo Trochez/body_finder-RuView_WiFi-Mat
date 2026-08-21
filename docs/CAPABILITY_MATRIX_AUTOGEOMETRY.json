@@ -1,8 +1,8 @@
 {
-  "schema_version": 6,
-  "release_family": "0.2.0-experimental.7",
+  "schema_version": 7,
+  "release_family": "0.2.0-experimental.8",
   "protocol_version": 2,
-  "truth_policy": "android-ble-lab-v1 remains the validated COARSE BLE_RSSI metric profile only inside 0.5-5.0 m. experimental.7 adds bounded temporal continuity without changing calibration physics: invalid RSSI is rejected before the valid queue, a last-valid range may enter HOLDOVER for at most 10 s with sigma aging, and expired/out-of-domain/rejected evidence is excluded from metric geometry. Human/rescue performance remains unvalidated.",
+  "truth_policy": "android-ble-lab-v1 remains the validated COARSE BLE_RSSI metric profile only inside 0.5-5.0 m. experimental.8 changes Android BLE acquisition continuity without changing calibration physics, minSamples, freshness, holdover or solver rules. Primary scanning is low-latency ALL_MATCHES with Body Finder manufacturer/payload filtering in software; API36+ RangingManager yields after repeated close/no-result churn. Human/rescue performance remains unvalidated.",
   "distributed_geometry": {
     "pairwise_observation_contract": "IMPLEMENTED_PROTOCOL_V2_WITH_ADDITIVE_TEMPORAL_PROVENANCE",
     "session_isolation": "IMPLEMENTED",
@@ -22,19 +22,21 @@
       "automatic_geometry_compute": "IMPLEMENTED",
       "geometry_publication_and_consumption": "IMPLEMENTED_OVER_BODY_FINDER_UDP_FABRIC",
       "manual_coordinates_normal_flow": false,
-      "human_scanning": "BLOCKED_PENDING_EXPERIMENTAL_7_CONTINUITY_ACCEPTANCE",
+      "human_scanning": "BLOCKED_PENDING_EXPERIMENTAL_8_ACQUISITION_CONTINUITY_ACCEPTANCE",
       "legacy_api30_bluetooth_permissions": "IMPLEMENTED_BLUETOOTH_BLUETOOTH_ADMIN_FINE_LOCATION",
       "modern_api31_bluetooth_permissions": "IMPLEMENTED_SCAN_CONNECT_ADVERTISE",
-      "ble_scan": "LOW_LATENCY_MANUFACTURER_FILTER_WITH_UNFILTERED_FALLBACK_AND_GLOBAL_CALLBACK_STALL_WATCHDOG",
+      "ble_scan": "LOW_LATENCY_SOFTWARE_FILTERED_ALL_MATCHES_PRIMARY; HARDWARE_MANUFACTURER_FILTER_ONLY_AS_START_FAILURE_FALLBACK; GLOBAL_CALLBACK_STALL_WATCHDOG",
+      "ble_scan_match_policy": "API23_PLUS_AGGRESSIVE_MAX_ADVERTISEMENT_REPORT_DELAY_0",
       "ble_peer_gap_policy": "ISOLATED_PEER_GAPS_DO_NOT_TRIGGER_GLOBAL_SCANNER_RESTART",
-      "ble_identity_binding": "PROTOCOL_NODE_ID_TO_BLE_IDENTITY_TO_TRANSIENT_ADDRESS_BY_EXACT_MANUFACTURER_PAYLOAD_MATCH",
+      "ble_acquisition_diagnostics": "PER_DIRECTION_CALLBACK_RATE_VALID_RATE_MEAN_MAX_P50_P95_INTERARRIVAL_GAPS_GT_1S_2S_5S_10S_AND_RUN_DELTAS",
+      "ble_identity_binding": "PROTOCOL_NODE_ID_TO_BLE_IDENTITY_TO_TRANSIENT_ADDRESS_BY_EXACT_SOFTWARE_MANUFACTURER_PAYLOAD_MATCH",
       "ble_address_export": "HASHED_SESSION_FINGERPRINT_ONLY",
       "ble_peer_rssi_metric_range": "VALIDATED_ANDROID_BLE_LAB_V1_ONLY_WHEN_RAW_ESTIMATE_IS_WITHIN_0.5_TO_5.0_METERS",
       "ble_range_silent_clamp": false,
       "ble_out_of_domain_policy": "DISTANCE_NULL_EXCLUDED_FROM_METRIC_GEOMETRY_AND_INVALIDATES_LAST_VALID_HOLDOVER",
       "ble_invalid_rssi_policy": "ANDROID_SENTINEL_127_AND_VALUES_OUTSIDE_VALID_DOMAIN_FILTERED_BEFORE_VALID_RSSI_QUEUE; DIAGNOSTIC_COUNTERS_SEPARATE",
       "ble_sample_accounting": "RAW_VALID_INVALID_COUNTS_SEPARATED_FOR_5S_AND_8S_WINDOWS",
-      "ble_advertised_tx_power_semantics": "DIAGNOSTIC_ONLY_NOT_RSSI_AT_ONE_METER",
+      "ble_advertised_tx_power_semantics": "DIAGNOSTIC_ONLY_NOT_RSSI_AT_ONE_METER; ADVERTISE_TX_POWER_MEDIUM_FROZEN_TO_PRESERVE_CALIBRATION_COMPARABILITY",
       "ble_range_calibration_profile": "ANDROID_BLE_LAB_V1_VALIDATED_COARSE_RSSI1M_-69.19_DBM_N_3.62_DOMAIN_0.5_5.0M",
       "ble_profile_validation_metrics": {
         "leave_one_distance_out_mae_m": 0.85,
@@ -54,14 +56,14 @@
         "hard_expiry": "IMPLEMENTED"
       },
       "ble_reciprocal_fusion": "RECIPROCAL_INVERSE_VARIANCE_PREFERRED; FRESH_OR_BOUNDED_HOLDOVER_SOURCE_STATES_EXPORTED; REJECT_EXCLUDED",
-      "ble_peer_diagnostics": "IMPLEMENTED_VALID_INVALID_SAMPLE_COUNTS_VALID_MEDIAN_INVALID_SENTINEL_LAST_VALID_RANGE_AGE_TEMPORAL_STATE_PEER_GAP_SCANNER_HEALTH",
-      "android_api36_ranging_manager": "IMPLEMENTED_WITH_EXPONENTIAL_BOUNDED_BACKOFF_AND_CIRCUIT_BREAKER; PREFERRED_WHEN_LIVE_SYSTEM_DISTANCE_EXISTS",
+      "ble_peer_diagnostics": "IMPLEMENTED_VALID_INVALID_SAMPLE_COUNTS_VALID_MEDIAN_INVALID_SENTINEL_LAST_VALID_RANGE_AGE_TEMPORAL_STATE_ACQUISITION_RATE_INTERARRIVAL_GAPS_PEER_GAP_SCANNER_HEALTH",
+      "android_api36_ranging_manager": "IMPLEMENTED_WITH_BOUNDED_BACKOFF_AND_CIRCUIT_BREAKER; ONLY_REAL_DISTANCE_RESETS_FAILURE; REPEATED_CLOSE_NO_RESULT_ENTERS_120S_BLE_ACQUISITION_YIELD; PREFERRED_WHEN_LIVE_SYSTEM_DISTANCE_EXISTS",
       "android_field_session_service": "IMPLEMENTED_FOREGROUND_CONNECTED_DEVICE_SERVICE_WITH_PARTIAL_WAKE_WIFI_AND_MULTICAST_LOCKS",
       "android_lifecycle_diagnostics": "IMPLEMENTED_SCREEN_POWER_IDLE_SERVICE_LOCK_VISIBILITY",
-      "validation_run_metrics": "IMPLEMENTED_PEER_EVIDENCE_FRESH_METRIC_USABLE_METRIC_HOLDOVER_AND_2D_UPTIME",
+      "validation_run_metrics": "IMPLEMENTED_PEER_EVIDENCE_FRESH_METRIC_USABLE_METRIC_HOLDOVER_AND_2D_UPTIME_PLUS_PER_DIRECTION_ACQUISITION_DELTAS",
       "validation_export": "AUTO_FINALIZES_ACTIVE_RUN_BEFORE_COMPLETE_TEST_JSON_EXPORT",
       "udp_fabric_diagnostics": "IMPLEMENTED_TX_RX_PROTOCOL_SESSION_PEER_PACKET_LAST_SEEN_EXPIRY",
-      "report_version": 9,
+      "report_version": 10,
       "physical_confidence_ceiling_for_ble_only_geometry": "COARSE",
       "csi": "UNSUPPORTED_UNLESS_FUTURE_VERIFIED_ADAPTER"
     },
@@ -69,7 +71,7 @@
       "artifact": "body-finder-ruview-legacy-minsdk21.apk",
       "min_sdk": 21,
       "manual_coordinates_normal_flow": false,
-      "role": "fallback sensor/fabric node; experimental.7 continuity acceptance targets universal Android app"
+      "role": "fallback sensor/fabric node; experimental.8 acquisition-continuity acceptance targets universal Android app"
     },
     "ubuntu_x86_64": {
       "artifacts": ["body-finder-node-linux-x86_64.tar.gz", "body-finder-node-linux-x86_64.deb"],
@@ -95,20 +97,33 @@
       "automatic_geometry_compute": "IMPLEMENTED_IN_SHARED_APP_LAYER",
       "manual_coordinates_normal_flow": false,
       "rf": "UNSUPPORTED_IN_SIMULATOR",
-      "cross_platform_field_fabric": "NOT_IMPLEMENTED_FOR_PHYSICAL_IOS_IN_EXPERIMENTAL_7",
+      "cross_platform_field_fabric": "NOT_IMPLEMENTED_FOR_PHYSICAL_IOS_IN_EXPERIMENTAL_8",
       "physical_device_install": "NOT_PROVIDED_WITHOUT_APPLE_SIGNING_CREDENTIALS"
     }
   },
   "physical_acceptance": {
     "ble_multi_distance_calibration": "PASSED_ANDROID_BLE_LAB_V1_COARSE_0.5_TO_5.0M",
     "android_three_node_metric_geometry": "PASSED_DEV6_PAIRWISE_MAE_0.322M_MAX_0.496M",
-    "android_awake_5min_continuity_retest": "REQUIRED_FOR_EXPERIMENTAL_7_ACCEPTANCE",
-    "continuity_targets": {
+    "experimental7_bounded_holdover_semantics": "PASSED_FUNCTIONAL_BEHAVIOR_BUT_PHYSICAL_UPTIME_GATE_FAILED",
+    "experimental7_observed_usable_metric_uptime_percent": {
+      "lenovo": 99.91,
+      "pixel7": 85.07,
+      "pixel10": 32.14
+    },
+    "experimental7_observed_geometry_2d_uptime_percent": {
+      "lenovo": 60.71,
+      "pixel7": 59.98,
+      "pixel10": 60.26
+    },
+    "android_awake_5min_acquisition_retest": "REQUIRED_FOR_EXPERIMENTAL_8_ACCEPTANCE",
+    "acquisition_continuity_targets": {
       "peer_uptime_percent_preferred_gte": 99.0,
       "usable_metric_range_uptime_percent_gte": 90.0,
-      "geometry_2d_uptime_percent_gte": 90.0
+      "geometry_2d_uptime_percent_gte": 90.0,
+      "valid_callback_rate_hz_preferred_gte": 0.6,
+      "p95_interarrival_ms_preferred_lte": 5000
     },
-    "human_presence_tests": "BLOCKED_UNTIL_EXPERIMENTAL_7_CONTINUITY_RETEST_PASSES",
+    "human_presence_tests": "BLOCKED_UNTIL_EXPERIMENTAL_8_ACQUISITION_CONTINUITY_RETEST_PASSES",
     "through_wall": "NOT_AUTHORIZED"
   },
   "safety": {

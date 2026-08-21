@@ -13,7 +13,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - name: Enforce experimental.7 release contracts
+      - name: Enforce experimental.8 release contracts
         shell: bash
         run: |
           set -euo pipefail
@@ -21,29 +21,34 @@ jobs:
           if [ -n "$BAD" ]; then echo "$BAD"; exit 1; fi
           grep -q 'pub const PROTOCOL_VERSION: u16 = 2;' crates/body-finder-core/src/lib.rs
           grep -q 'manual_geometry_override.*false' apps/mobile/App.tsx
-          grep -q '0.2.0-experimental.7' apps/mobile/App.tsx
+          grep -q '0.2.0-experimental.8' apps/mobile/App.tsx
           grep -q 'HUMAN_SCANNING_ENABLED = false' apps/mobile/App.tsx
           grep -q 'android-ble-lab-v1' apps/mobile/modules/body-finder-native/android/src/main/java/com/trochez/bodyfindernative/BleRangeEstimator.kt
           grep -q 'BleRangeTemporalState.HOLDOVER' apps/mobile/modules/body-finder-native/android/src/main/java/com/trochez/bodyfindernative/BleContinuityPolicy.kt
+          grep -q 'LOW_LATENCY_SOFTWARE_FILTERED_ALL_MATCHES' apps/mobile/modules/body-finder-native/android/src/main/java/com/trochez/bodyfindernative/BleAcquisitionPolicy.kt
+          grep -q 'MATCH_MODE_AGGRESSIVE' apps/mobile/modules/body-finder-native/android/src/main/java/com/trochez/bodyfindernative/BleAcquisitionPolicy.kt
+          grep -q 'BLE_ACQUISITION_YIELD' apps/mobile/modules/body-finder-native/android/src/main/java/com/trochez/bodyfindernative/SystemRangingApi36.kt
           grep -q 'OUT_OF_DOMAIN_HIGH' apps/mobile/modules/body-finder-native/android/src/main/java/com/trochez/bodyfindernative/BleRangeEstimator.kt
           grep -q 'RECIPROCAL_INVERSE_VARIANCE' apps/mobile/src/rangeFusion.ts
           grep -q 'geometry_temporal_quality' apps/mobile/src/geometryDiagnostics.ts
           grep -q 'FOREGROUND_SERVICE_CONNECTED_DEVICE' apps/mobile/app.json
-          grep -q 'CIRCUIT_BREAKER_FAILURES' apps/mobile/modules/body-finder-native/android/src/main/java/com/trochez/bodyfindernative/SystemRangingApi36.kt
           python3 validation/android/check_android_ranging_contract.py
           python3 validation/android/check_ble_range_accuracy_contract.py
           python3 validation/android/check_ble_continuity_contract.py
+          python3 validation/android/check_ble_acquisition_contract.py
           test -s IMPLEMENTATION_PLAN_AUTOGEOMETRY_RELEASE.md
           test -s IMPLEMENTATION_PLAN_ANDROID_RANGING_STABILIZATION.md
           test -s IMPLEMENTATION_PLAN_BLE_RANGE_ACCURACY_AND_ANDROID_LIFECYCLE.md
           test -s IMPLEMENTATION_PLAN_ANDROID_BLE_LAB_V1_METRIC.md
           test -s IMPLEMENTATION_PLAN_BLE_METRIC_CONTINUITY_STABILIZATION.md
+          test -s IMPLEMENTATION_PLAN_BLE_ACQUISITION_CONTINUITY.md
           test -s docs/TESTING_AUTOGEOMETRY_RELEASE.md
           test -s docs/ANDROID_RANGING_RETEST.md
           test -s docs/ANDROID_RANGE_PRECISION_RETEST.md
           test -s docs/ANDROID_POWER_LIFECYCLE_RETEST.md
           test -s docs/ANDROID_BLE_METRIC_GEOMETRY_RETEST.md
           test -s docs/ANDROID_BLE_METRIC_CONTINUITY_RETEST.md
+          test -s docs/ANDROID_BLE_ACQUISITION_CONTINUITY_RETEST.md
           python3 -m json.tool docs/CAPABILITY_MATRIX_AUTOGEOMETRY.json >/dev/null
           python3 -m json.tool protocol/schemas/autogeometry-v2.json >/dev/null
           python3 -m json.tool calibration/ble-range-calibration-schema.json >/dev/null
@@ -51,7 +56,8 @@ jobs:
           python3 -m json.tool validation/fixtures/ble-range/t2-t4b-screening.json >/dev/null
           python3 -m json.tool validation/fixtures/ble-range/p0c-calibration-summary.json >/dev/null
           python3 -m json.tool validation/fixtures/ble-continuity/dev6-continuity-baseline.json >/dev/null
-          python3 -m py_compile validation/analysis/validate_autogeometry.py validation/analysis/fit_ble_range_profile.py validation/android/check_android_ranging_contract.py validation/android/check_ble_range_accuracy_contract.py validation/android/check_ble_continuity_contract.py
+          python3 -m json.tool validation/fixtures/ble-acquisition/experimental7-physical-baseline.json >/dev/null
+          python3 -m py_compile validation/analysis/validate_autogeometry.py validation/analysis/fit_ble_range_profile.py validation/android/check_android_ranging_contract.py validation/android/check_ble_range_accuracy_contract.py validation/android/check_ble_continuity_contract.py validation/android/check_ble_acquisition_contract.py
 
   linux-x86_64:
     needs: requirements
@@ -72,7 +78,7 @@ jobs:
           tar -C dist/tar -czf dist/body-finder-node-linux-x86_64.tar.gz body-finder-node
           cat > dist/deb/DEBIAN/control <<'EOF'
           Package: body-finder-node
-          Version: 0.2.0~experimental7
+          Version: 0.2.0~experimental8
           Section: science
           Priority: optional
           Architecture: amd64
@@ -239,7 +245,7 @@ jobs:
           path: dist
           merge-multiple: true
 
-      - name: Add validation kit, continuity fixtures and manifests
+      - name: Add validation kit, acquisition fixtures and manifests
         shell: bash
         run: |
           set -euxo pipefail
@@ -249,12 +255,14 @@ jobs:
           cp docs/ANDROID_POWER_LIFECYCLE_RETEST.md dist/ANDROID_POWER_LIFECYCLE_RETEST.md
           cp docs/ANDROID_BLE_METRIC_GEOMETRY_RETEST.md dist/ANDROID_BLE_METRIC_GEOMETRY_RETEST.md
           cp docs/ANDROID_BLE_METRIC_CONTINUITY_RETEST.md dist/ANDROID_BLE_METRIC_CONTINUITY_RETEST.md
+          cp docs/ANDROID_BLE_ACQUISITION_CONTINUITY_RETEST.md dist/ANDROID_BLE_ACQUISITION_CONTINUITY_RETEST.md
           cp docs/CAPABILITY_MATRIX_AUTOGEOMETRY.json dist/capability-matrix.json
           cp IMPLEMENTATION_PLAN_AUTOGEOMETRY_RELEASE.md dist/IMPLEMENTATION_PLAN_AUTOGEOMETRY_RELEASE.md
           cp IMPLEMENTATION_PLAN_ANDROID_RANGING_STABILIZATION.md dist/IMPLEMENTATION_PLAN_ANDROID_RANGING_STABILIZATION.md
           cp IMPLEMENTATION_PLAN_BLE_RANGE_ACCURACY_AND_ANDROID_LIFECYCLE.md dist/IMPLEMENTATION_PLAN_BLE_RANGE_ACCURACY_AND_ANDROID_LIFECYCLE.md
           cp IMPLEMENTATION_PLAN_ANDROID_BLE_LAB_V1_METRIC.md dist/IMPLEMENTATION_PLAN_ANDROID_BLE_LAB_V1_METRIC.md
           cp IMPLEMENTATION_PLAN_BLE_METRIC_CONTINUITY_STABILIZATION.md dist/IMPLEMENTATION_PLAN_BLE_METRIC_CONTINUITY_STABILIZATION.md
+          cp IMPLEMENTATION_PLAN_BLE_ACQUISITION_CONTINUITY.md dist/IMPLEMENTATION_PLAN_BLE_ACQUISITION_CONTINUITY.md
           cp calibration/ble-range-calibration-profiles.json dist/ble-range-calibration-profiles.json
           cp calibration/ble-range-calibration-schema.json dist/ble-range-calibration-schema.json
           cp upstream/ruvieW.lock.json dist/ruview-upstream-lock.json
@@ -263,9 +271,9 @@ jobs:
           cat > dist/model-manifest.json <<'EOF'
           {
             "schema_version": 1,
-            "release_family": "0.2.0-experimental.7",
+            "release_family": "0.2.0-experimental.8",
             "models": [],
-            "note": "No pretrained human-localization model is bundled. android-ble-lab-v1 remains a physically calibrated COARSE BLE RSSI metric profile valid only for 0.5-5.0 m. experimental.7 validates bounded temporal continuity only; human/rescue performance remains unvalidated."
+            "note": "No pretrained human-localization model is bundled. android-ble-lab-v1 remains frozen at physically calibrated COARSE BLE RSSI parameters valid only for 0.5-5.0 m. experimental.8 changes Android BLE acquisition continuity only; human/rescue performance remains unvalidated."
           }
           EOF
 
@@ -277,6 +285,8 @@ jobs:
           cp calibration/ble-range-calibration-schema.json dist/validation-kit/
           cp calibration/ble-range-calibration-profiles.json dist/validation-kit/
           cp validation/android/check_ble_continuity_contract.py dist/validation-kit/
+          cp validation/android/check_ble_acquisition_contract.py dist/validation-kit/
+          cp docs/ANDROID_BLE_ACQUISITION_CONTINUITY_RETEST.md dist/validation-kit/
           cp docs/ANDROID_BLE_METRIC_CONTINUITY_RETEST.md dist/validation-kit/
           cp docs/ANDROID_BLE_METRIC_GEOMETRY_RETEST.md dist/validation-kit/
           cp docs/ANDROID_POWER_LIFECYCLE_RETEST.md dist/validation-kit/
@@ -295,6 +305,12 @@ jobs:
           (cd dist/continuity-fixtures && zip -r ../ble-continuity-regression-fixtures.zip .)
           rm -rf dist/continuity-fixtures
 
+          mkdir -p dist/acquisition-fixtures
+          cp validation/fixtures/ble-acquisition/*.json dist/acquisition-fixtures/
+          cp validation/android/check_ble_acquisition_contract.py dist/acquisition-fixtures/
+          (cd dist/acquisition-fixtures && zip -r ../ble-acquisition-regression-fixtures.zip .)
+          rm -rf dist/acquisition-fixtures
+
           mkdir -p dist/android-ranging-fixtures
           cp validation/fixtures/android-ranging/*.json dist/android-ranging-fixtures/
           cp validation/android/check_android_ranging_contract.py dist/android-ranging-fixtures/
@@ -302,17 +318,17 @@ jobs:
           rm -rf dist/android-ranging-fixtures
 
           cat > dist/IOS_PHYSICAL_DEVICE_SIGNING_REQUIRED.txt <<'EOF'
-          This prerelease contains an unsigned iOS Simulator build only. Physical iOS RF/fabric participation is not validated by experimental.7 and requires Apple signing plus physical adapter implementation/validation.
+          This prerelease contains an unsigned iOS Simulator build only. Physical iOS RF/fabric participation is not validated by experimental.8 and requires Apple signing plus physical adapter implementation/validation.
           EOF
 
           cat > dist/release-manifest.json <<EOF
           {
-            "schema_version": 6,
+            "schema_version": 7,
             "release": "dev-${GITHUB_RUN_NUMBER}",
             "commit": "${GITHUB_SHA}",
-            "version": "0.2.0-experimental.7",
+            "version": "0.2.0-experimental.8",
             "protocol_version": 2,
-            "classification": "EXPERIMENTAL_VALIDATED_COARSE_BLE_METRIC_WITH_BOUNDED_CONTINUITY",
+            "classification": "EXPERIMENTAL_VALIDATED_COARSE_BLE_METRIC_WITH_ACQUISITION_CONTINUITY",
             "automatic_geometry": true,
             "manual_node_coordinates_required": false,
             "ble_metric_profile": "android-ble-lab-v1",
@@ -322,6 +338,7 @@ jobs:
             "ble_metric_path_loss_exponent": 3.62,
             "ble_metric_valid_distance_min_m": 0.5,
             "ble_metric_valid_distance_max_m": 5.0,
+            "ble_metric_min_samples": 3,
             "ble_metric_calibration_mae_m": 0.85,
             "ble_metric_calibration_max_error_m": 2.58,
             "dev6_three_node_pairwise_mae_m": 0.322,
@@ -339,8 +356,18 @@ jobs:
             "ble_holdover_sigma_aging": true,
             "ble_holdover_sigma_aging_m_per_s": 0.15,
             "ble_holdover_sigma_cap_m": 5.0,
+            "ble_scan_strategy": "LOW_LATENCY_SOFTWARE_FILTERED_ALL_MATCHES",
+            "ble_primary_hardware_filter_count": 0,
+            "ble_scan_match_mode_api23_plus": "AGGRESSIVE",
+            "ble_scan_num_matches_api23_plus": "MAX_ADVERTISEMENT",
+            "ble_scan_report_delay_ms": 0,
+            "ble_interarrival_diagnostics": true,
+            "ble_gap_thresholds_ms": [1000, 2000, 5000, 10000],
             "ble_scan_gap_classification": true,
             "ble_global_scanner_stall_only_restart": true,
+            "android_api36_ranging_real_distance_only_resets_failure": true,
+            "android_api36_ranging_ble_acquisition_yield": true,
+            "android_api36_ranging_ble_yield_ms": 120000,
             "ble_metric_distance_silent_clamp_removed": true,
             "ble_out_of_domain_metric_policy": "DISTANCE_NULL_EXCLUDED_FROM_METRIC_GEOMETRY_AND_INVALIDATES_HOLDOVER",
             "validation_run_metrics": true,
@@ -359,6 +386,7 @@ jobs:
               "body-finder-node-linux-x86_64.deb",
               "body-finder-node-windows-x86_64.zip",
               "body-finder-ruview-ios-simulator.zip",
+              "ANDROID_BLE_ACQUISITION_CONTINUITY_RETEST.md",
               "ANDROID_BLE_METRIC_CONTINUITY_RETEST.md",
               "ANDROID_BLE_METRIC_GEOMETRY_RETEST.md",
               "ANDROID_RANGE_PRECISION_RETEST.md",
@@ -370,10 +398,12 @@ jobs:
               "IMPLEMENTATION_PLAN_BLE_RANGE_ACCURACY_AND_ANDROID_LIFECYCLE.md",
               "IMPLEMENTATION_PLAN_ANDROID_BLE_LAB_V1_METRIC.md",
               "IMPLEMENTATION_PLAN_BLE_METRIC_CONTINUITY_STABILIZATION.md",
+              "IMPLEMENTATION_PLAN_BLE_ACQUISITION_CONTINUITY.md",
               "ble-range-calibration-profiles.json",
               "ble-range-calibration-schema.json",
               "ble-range-calibration-fixtures.zip",
               "ble-continuity-regression-fixtures.zip",
+              "ble-acquisition-regression-fixtures.zip",
               "body-finder-validation-tools.zip",
               "android-ranging-diagnostics-fixtures.zip",
               "capability-matrix.json",
@@ -409,10 +439,11 @@ jobs:
             body-finder-node-linux-x86_64.deb
             body-finder-node-windows-x86_64.zip
             body-finder-ruview-ios-simulator.zip
-            ANDROID_BLE_METRIC_CONTINUITY_RETEST.md
-            IMPLEMENTATION_PLAN_BLE_METRIC_CONTINUITY_STABILIZATION.md
+            ANDROID_BLE_ACQUISITION_CONTINUITY_RETEST.md
+            IMPLEMENTATION_PLAN_BLE_ACQUISITION_CONTINUITY.md
             ble-range-calibration-profiles.json
             ble-range-calibration-schema.json
+            ble-acquisition-regression-fixtures.zip
             ble-continuity-regression-fixtures.zip
             body-finder-validation-tools.zip
             capability-matrix.json
@@ -425,7 +456,7 @@ jobs:
           import json
           from pathlib import Path
           m=json.loads(Path('dist/release-manifest.json').read_text())
-          assert m['version']=='0.2.0-experimental.7'
+          assert m['version']=='0.2.0-experimental.8'
           assert m['protocol_version']==2
           assert m['manual_node_coordinates_required'] is False
           assert m['ble_metric_profile']=='android-ble-lab-v1'
@@ -435,13 +466,19 @@ jobs:
           assert m['ble_metric_path_loss_exponent']==3.62
           assert m['ble_metric_valid_distance_min_m']==0.5
           assert m['ble_metric_valid_distance_max_m']==5.0
+          assert m['ble_metric_min_samples']==3
           assert m['ble_valid_rssi_prequeue_filter'] is True
           assert m['ble_last_valid_range_holdover'] is True
-          assert m['ble_holdover_bounded'] is True
           assert m['ble_holdover_max_ms']==10000
-          assert m['ble_holdover_sigma_aging'] is True
-          assert m['ble_raw_valid_invalid_sample_counters'] is True
-          assert m['ble_scan_gap_classification'] is True
+          assert m['ble_scan_strategy']=='LOW_LATENCY_SOFTWARE_FILTERED_ALL_MATCHES'
+          assert m['ble_primary_hardware_filter_count']==0
+          assert m['ble_scan_match_mode_api23_plus']=='AGGRESSIVE'
+          assert m['ble_scan_num_matches_api23_plus']=='MAX_ADVERTISEMENT'
+          assert m['ble_scan_report_delay_ms']==0
+          assert m['ble_interarrival_diagnostics'] is True
+          assert m['android_api36_ranging_real_distance_only_resets_failure'] is True
+          assert m['android_api36_ranging_ble_acquisition_yield'] is True
+          assert m['android_api36_ranging_ble_yield_ms']==120000
           assert m['ble_metric_distance_silent_clamp_removed'] is True
           assert m['human_scanning_enabled'] is False
           assert m['human_localization_validated'] is False
@@ -459,8 +496,8 @@ jobs:
           (cd dist && find . -maxdepth 1 -type f ! -name SHA256SUMS -printf '%f\0' | sort -z | xargs -0 sha256sum > SHA256SUMS)
           (cd dist && sha256sum --check SHA256SUMS)
           grep -q 'body-finder-ruview-universal.apk' dist/SHA256SUMS
-          grep -q 'ANDROID_BLE_METRIC_CONTINUITY_RETEST.md' dist/SHA256SUMS
-          grep -q 'ble-continuity-regression-fixtures.zip' dist/SHA256SUMS
+          grep -q 'ANDROID_BLE_ACQUISITION_CONTINUITY_RETEST.md' dist/SHA256SUMS
+          grep -q 'ble-acquisition-regression-fixtures.zip' dist/SHA256SUMS
           grep -q 'SBOM.spdx.json' dist/SHA256SUMS
 
       - name: Publish prerelease
@@ -471,15 +508,15 @@ jobs:
           set -euxo pipefail
           TAG="dev-${GITHUB_RUN_NUMBER}"
           cat > /tmp/release-notes.md <<'EOF'
-          Experimental Android BLE metric continuity release.
+          Experimental Android BLE acquisition-continuity release.
 
-          `android-ble-lab-v1` remains frozen at RSSI@1m=-69.19 dBm, n=3.62, validated COARSE, and 0.5–5.0 m. The dev-6 physical-accuracy gate remains protected; experimental.7 does not recalibrate or broaden the model.
+          `android-ble-lab-v1` remains frozen at RSSI@1m=-69.19 dBm, n=3.62, validated COARSE, 0.5–5.0 m, with 3-sample fresh ranging and the existing bounded 10-second holdover. This release does not recalibrate or relax metric/solver rules.
 
-          This release filters invalid RSSI before the valid queue, separates raw/valid/invalid sample counts, retains a last-valid in-domain metric range only through a bounded 10-second HOLDOVER, inflates sigma with age, hard-expires old evidence, distinguishes global scanner stalls from isolated peer gaps, and exports fresh/usable/holdover metric uptime separately.
+          experimental.8 changes Android acquisition: primary BLE scanning is LOW_LATENCY + ALL_MATCHES with Body Finder manufacturer/payload validation in software, API23+ requests AGGRESSIVE/MAX_ADVERTISEMENT matching, and per-direction callback rate/inter-arrival/gap telemetry is exported. On API36+, RangingManager session-open is no longer treated as success; repeated closes without a real distance enter a bounded 120-second BLE-acquisition yield while independent BLE scanning remains active.
 
-          **Start with `ANDROID_BLE_METRIC_CONTINUITY_RETEST.md`.** Run the three Android devices for five minutes with screens on and Body Finder in foreground, then return the three complete JSON exports and Radar/Expert screenshots.
+          **Start with `ANDROID_BLE_ACQUISITION_CONTINUITY_RETEST.md`.** Run Pixel 10 Pro, Pixel 7 Pro and Lenovo for five minutes with screens on and Body Finder foreground, then return the three full exports and screenshots.
 
-          Primary gates: usable metric range uptime >=90% and geometry 2D uptime >=90%. Human scanning remains intentionally blocked until this continuity gate is reviewed. This software is not validated for rescue use.
+          Hard gates: usable metric range uptime >=90% and Geometry 2D uptime >=90% on all three devices. Human scanning remains intentionally blocked. This software is not validated for rescue use.
           EOF
-          gh release create "$TAG" --target "$GITHUB_SHA" --prerelease --title "Body Finder – RuView ${TAG} — BLE metric continuity stabilization" --notes-file /tmp/release-notes.md
+          gh release create "$TAG" --target "$GITHUB_SHA" --prerelease --title "Body Finder – RuView ${TAG} — BLE acquisition continuity" --notes-file /tmp/release-notes.md
           gh release upload "$TAG" dist/* --clobber

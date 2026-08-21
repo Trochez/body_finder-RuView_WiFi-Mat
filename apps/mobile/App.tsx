@@ -25,8 +25,8 @@ import {
 import { diagnoseGeometryGraph } from './src/geometryDiagnostics';
 import { applyReciprocalFusion } from './src/rangeFusion';
 
-const BUILD = '0.2.0-experimental.7';
-const REPORT_VERSION = 9;
+const BUILD = '0.2.0-experimental.8';
+const REPORT_VERSION = 10;
 const HUMAN_SCANNING_ENABLED = false;
 
 const T = {
@@ -37,7 +37,7 @@ const T = {
     peers: 'nodes', share: 'Share complete test JSON', empty: 'Keep the target area empty while calibrating.',
     network: 'OPEN / UNTRUSTED FIELD NETWORK', relative: 'POSITION RELATIVE TO THIS DEVICE', geometry: 'SENSOR GEOMETRY',
     estimating: 'Estimating automatically…', positioned: 'nodes positioned', residual: 'solver residual', condition: 'graph condition',
-    noTarget: 'Human scanning remains intentionally blocked until the experimental.7 BLE metric continuity gate is reviewed. This build validates sensor geometry continuity only.',
+    noTarget: 'Human scanning remains intentionally blocked until the experimental.8 BLE acquisition-continuity gate is reviewed. This build validates sensor geometry acquisition continuity only.',
     confidence: 'human confidence', uncertainty: 'position uncertainty',
     evidence: 'Evidence: connected-Wi-Fi RSSI disturbance (not CSI). Sensor metric coordinates require validated pairwise ranging.',
     unresolved: 'unresolved nodes are intentionally not placed on the radar', startRun: 'Start validation run', endRun: 'End validation run',
@@ -49,7 +49,7 @@ const T = {
     peers: 'nodos', share: 'Compartir JSON completo de prueba', empty: 'Mantén vacía el área objetivo durante la calibración.',
     network: 'RED DE CAMPO ABIERTA / NO CONFIABLE', relative: 'POSICIÓN RELATIVA A ESTE DISPOSITIVO', geometry: 'GEOMETRÍA DE SENSORES',
     estimating: 'Estimando automáticamente…', positioned: 'nodos posicionados', residual: 'residual del solver', condition: 'condición del grafo',
-    noTarget: 'El escaneo humano permanece bloqueado intencionalmente hasta revisar el gate de continuidad BLE métrica de experimental.7. Esta build valida únicamente continuidad de geometría de sensores.',
+    noTarget: 'El escaneo humano permanece bloqueado intencionalmente hasta revisar el gate de continuidad de adquisición BLE de experimental.8. Esta build valida únicamente la continuidad de adquisición de la geometría de sensores.',
     confidence: 'confianza humana', uncertainty: 'incertidumbre de posición',
     evidence: 'Evidencia: perturbación RSSI de Wi‑Fi conectado (no CSI). Las coordenadas métricas requieren ranging entre nodos validado.',
     unresolved: 'los nodos no resueltos no se colocan artificialmente en el radar', startRun: 'Iniciar corrida de validación', endRun: 'Finalizar corrida de validación',
@@ -230,7 +230,7 @@ export default function App() {
     const payload = {
       report_version: REPORT_VERSION,
       generated_at: new Date().toISOString(), app: 'Body Finder – RuView', build: BUILD, protocol_version: 2,
-      truth: 'LIVE_DEVICE_CAPABILITIES__VALIDATED_COARSE_BLE_METRIC_0P5_TO_5M__BOUNDED_FRESH_HOLDOVER_EXPIRY__RECIPROCAL_FUSION__AUTOGEOMETRY_EXPERIMENTAL_NOT_RESCUE_VALIDATED',
+      truth: 'LIVE_DEVICE_CAPABILITIES__VALIDATED_COARSE_BLE_METRIC_0P5_TO_5M__BOUNDED_HOLDOVER__SOFTWARE_FILTERED_ALL_MATCHES_ACQUISITION__RANGING_MANAGER_BLE_YIELD__RECIPROCAL_FUSION__AUTOGEOMETRY_EXPERIMENTAL_NOT_RESCUE_VALIDATED',
       manual_geometry_override: false, human_scanning_enabled: HUMAN_SCANNING_ENABLED,
       export_auto_finalized_validation_run: autoFinalizedValidationRun,
       node_id: local?.node_id ?? null, capabilities: caps,
@@ -260,9 +260,9 @@ export default function App() {
       },
       range_observations: nodes.flatMap(node => node.ranges ?? []), estimate_array_frame: arrayTarget,
       estimate_relative_to_this_device: target,
-      instructions: 'Return this JSON and screenshots from the 5-minute continuity run. BLE holdover is bounded to 10 s with sigma aging; expired/out-of-domain/rejected ranges must not enter geometry. Human scanning remains blocked until continuity is accepted.',
+      instructions: 'Return this JSON and screenshots from the 5-minute experimental.8 BLE acquisition-continuity run. Do not change calibration, minSamples, freshness, holdover or solver settings. Human scanning remains blocked until acquisition continuity is accepted.',
     };
-    await Share.share({ message: JSON.stringify(payload, null, 2), title: 'Body Finder experimental.7 continuity validation result' });
+    await Share.share({ message: JSON.stringify(payload, null, 2), title: 'Body Finder experimental.8 BLE acquisition continuity result' });
   }
 
   const scale = 18;
@@ -326,9 +326,11 @@ export default function App() {
             <Text style={s.text}>Node geometry: AUTO ONLY — manual override disabled</Text><Text style={s.text}>Geometry authority: {geometrySelection.source}</Text>
             <Text style={s.text}>BLE RSSI: validated COARSE profile android-ble-lab-v1 only inside 0.5–5.0 m. Profile parameters are frozen from dev-6.</Text>
             <Text style={s.text}>Continuity: fresh metric estimates may enter a bounded 10 s HOLDOVER when samples briefly disappear; sigma increases with age and hard expiry removes the edge.</Text>
+            <Text style={s.text}>Acquisition: experimental.8 uses low-latency ALL_MATCHES scanning with Body Finder manufacturer/payload validation in software; API 23+ requests aggressive/max-advertisement matching.</Text>
+            <Text style={s.text}>API36+: repeated RangingManager close/no-result churn enters a bounded BLE-acquisition yield; only a real platform distance resets system-ranging failures.</Text>
             <Text style={s.text}>RSSI 127 and other invalid values are filtered before the valid queue and are counted separately for diagnostics.</Text>
             <Text style={s.text}>Reciprocal A↔B BLE observations are inverse-variance fused before the solver; REJECT never enters geometry.</Text>
-            <Text style={s.text}>Human scanning: BLOCKED until the experimental.7 continuity gate is reviewed.</Text>
+            <Text style={s.text}>Human scanning: BLOCKED until the experimental.8 BLE acquisition-continuity gate is reviewed.</Text>
             <Text style={s.text}>Graph condition is not physical accuracy. CSI remains unsupported unless a verified adapter is loaded.</Text></View>
           <Pressable style={s.btnTest} onPress={toggleValidationRun}><Text style={s.btnText}>{validationRun?.active ? tx.endRun : tx.startRun}</Text></Pressable>
           {[

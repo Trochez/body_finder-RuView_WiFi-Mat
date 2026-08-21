@@ -42,7 +42,7 @@ jobs:
           python3 validation/android/check_android_ranging_contract.py
           grep -q 'android.permission.BLUETOOTH"' apps/mobile/app.json
           grep -q 'android.permission.BLUETOOTH_ADMIN' apps/mobile/app.json
-          grep -q 'SCAN_MODE_LOW_LATENCY' apps/mobile/modules/body-finder-native/android/src/main/java/com/trochez/bodyfindernative/BodyFinderNativeModule.kt
+          grep -q 'SCAN_MODE_LOW_LATENCY' apps/mobile/modules/body-finder-native/android/src/main/java/com/trochez/bodyfindernative/BleAcquisitionPolicy.kt
           grep -q 'body_finder_scan_results' apps/mobile/modules/body-finder-native/android/src/main/java/com/trochez/bodyfindernative/BodyFinderNativeModule.kt
           grep -q 'last_close_reason' apps/mobile/modules/body-finder-native/android/src/main/java/com/trochez/bodyfindernative/SystemRangingApi36.kt
       - name: Enforce validated BLE metric accuracy contract
@@ -55,12 +55,12 @@ jobs:
           grep -q 'RECIPROCAL_INVERSE_VARIANCE' apps/mobile/src/rangeFusion.ts
           grep -q 'FOREGROUND_SERVICE_CONNECTED_DEVICE' apps/mobile/app.json
           grep -q 'CIRCUIT_BREAKER_FAILURES' apps/mobile/modules/body-finder-native/android/src/main/java/com/trochez/bodyfindernative/SystemRangingApi36.kt
-      - name: Enforce experimental.7 BLE metric continuity contract
+      - name: Enforce bounded BLE metric continuity contract
         shell: bash
         run: |
           set -euo pipefail
           python3 validation/android/check_ble_continuity_contract.py
-          grep -q '0.2.0-experimental.7' apps/mobile/App.tsx
+          grep -q '0.2.0-experimental.8' apps/mobile/App.tsx
           grep -q 'HUMAN_SCANNING_ENABLED = false' apps/mobile/App.tsx
           grep -q 'BleRangeTemporalState.HOLDOVER' apps/mobile/modules/body-finder-native/android/src/main/java/com/trochez/bodyfindernative/BleContinuityPolicy.kt
           grep -q 'valid_rssi_sample_count_5s' apps/mobile/modules/body-finder-native/android/src/main/java/com/trochez/bodyfindernative/BodyFinderNativeModule.kt
@@ -68,6 +68,18 @@ jobs:
           test -s IMPLEMENTATION_PLAN_BLE_METRIC_CONTINUITY_STABILIZATION.md
           test -s docs/ANDROID_BLE_METRIC_CONTINUITY_RETEST.md
           test -s validation/fixtures/ble-continuity/dev6-continuity-baseline.json
+      - name: Enforce experimental.8 BLE acquisition continuity contract
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 validation/android/check_ble_acquisition_contract.py
+          grep -q 'LOW_LATENCY_SOFTWARE_FILTERED_ALL_MATCHES' apps/mobile/modules/body-finder-native/android/src/main/java/com/trochez/bodyfindernative/BleAcquisitionPolicy.kt
+          grep -q 'MATCH_MODE_AGGRESSIVE' apps/mobile/modules/body-finder-native/android/src/main/java/com/trochez/bodyfindernative/BleAcquisitionPolicy.kt
+          grep -q 'MATCH_NUM_MAX_ADVERTISEMENT' apps/mobile/modules/body-finder-native/android/src/main/java/com/trochez/bodyfindernative/BleAcquisitionPolicy.kt
+          grep -q 'BLE_ACQUISITION_YIELD' apps/mobile/modules/body-finder-native/android/src/main/java/com/trochez/bodyfindernative/SystemRangingApi36.kt
+          grep -q 'p95_interarrival_ms' apps/mobile/modules/body-finder-native/android/src/main/java/com/trochez/bodyfindernative/BleAcquisitionPolicy.kt
+          test -s IMPLEMENTATION_PLAN_BLE_ACQUISITION_CONTINUITY.md
+          test -s docs/ANDROID_BLE_ACQUISITION_CONTINUITY_RETEST.md
       - name: Validate JSON and Python tooling
         run: |
           set -euo pipefail
@@ -86,6 +98,7 @@ jobs:
           python3 -m py_compile validation/android/check_android_ranging_contract.py
           python3 -m py_compile validation/android/check_ble_range_accuracy_contract.py
           python3 -m py_compile validation/android/check_ble_continuity_contract.py
+          python3 -m py_compile validation/android/check_ble_acquisition_contract.py
       - name: Validate schemas
         run: |
           set -euo pipefail

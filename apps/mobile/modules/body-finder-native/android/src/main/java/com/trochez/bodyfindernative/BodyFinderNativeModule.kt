@@ -210,6 +210,8 @@ private object FabricRuntime {
   val bleAddressByIdentity = ConcurrentHashMap<String, String>()
   val bleLastSeenWallMsByIdentity = ConcurrentHashMap<String, Long>()
   val bleSeenCountByIdentity = ConcurrentHashMap<String, AtomicLong>()
+  val acquisitionStatsByIdentity = ConcurrentHashMap<String, BleAcquisitionStats>()
+  val validationAcquisitionBaselineByIdentity = ConcurrentHashMap<String, BleAcquisitionCounterSnapshot>()
   val addressRebindCountByIdentity = ConcurrentHashMap<String, AtomicLong>()
   val lastRebindWallMsByIdentity = ConcurrentHashMap<String, Long>()
   val rebindEvents = ConcurrentLinkedDeque<RebindEvent>()
@@ -263,6 +265,8 @@ private object FabricRuntime {
     peerLastSeenWallMs.clear()
     bleLastSeenWallMsByIdentity.clear()
     bleSeenCountByIdentity.clear()
+    acquisitionStatsByIdentity.clear()
+    validationAcquisitionBaselineByIdentity.clear()
     invalidRssiEventsByIdentity.clear()
     invalidRssiCountByIdentity.clear()
     lastValidRssiWallMsByIdentity.clear()
@@ -272,6 +276,13 @@ private object FabricRuntime {
     addressRebindCountByIdentity.clear()
     lastRebindWallMsByIdentity.clear()
     rebindEvents.clear()
+  }
+
+  fun snapshotAcquisitionForValidation() {
+    validationAcquisitionBaselineByIdentity.clear()
+    acquisitionStatsByIdentity.forEach { (identity, stats) ->
+      validationAcquisitionBaselineByIdentity[identity] = stats.snapshot()
+    }
   }
 
   fun stopBle() {
@@ -343,6 +354,7 @@ class BodyFinderNativeModule : Module() {
     }
     Function("startValidationRun") {
       val now = System.currentTimeMillis()
+      FabricRuntime.snapshotAcquisitionForValidation()
       ValidationRuntime.start(
         now,
         FabricRuntime.peerExpireCount.get(),
@@ -599,11 +611,7 @@ class BodyFinderNativeModule : Module() {
     return data.copyOfRange(2, 10).joinToString("") { "%02x".format(it.toInt() and 0xff) }
   }
 
-  private fun scanSettings(): ScanSettings = ScanSettings.Builder()
-    .setScanMode(ScanSettings.SCAN_MODE_LOW_LATENCY)
-    .setReportDelay(0L)
-    .setCallbackType(ScanSettings.CALLBACK_TYPE_ALL_MATCHES)
-    .build()
+  private fun scanSettings(): ScanSettings = BleAcquisitionPolicy.scanSettings()
 
   private fun scanFilter(): ScanFilter {
     val prefix = byteArrayOf(0x42, 0x46)
@@ -613,12 +621,13 @@ class BodyFinderNativeModule : Module() {
 
   private fun startScanner(scanner: android.bluetooth.le.BluetoothLeScanner, callback: ScanCallback) {
     try {
+      BleAcquisitionPolicy.startSoftwareFilteredScan(scanner, callback)
+      FabricRuntime.bleScanMode = BleAcquisitionPolicy.SCAN_STRATEGY
+      FabricRuntime.bleDetail = "Low-latency all-matches BLE scan active; Body Finder manufacturer/payload filtering is performed in software"
+    } catch (unfilteredError: Throwable) {
       scanner.startScan(listOf(scanFilter()), scanSettings(), callback)
-      FabricRuntime.bleScanMode = "LOW_LATENCY_FILTERED"
-    } catch (filteredError: Throwable) {
-      scanner.startScan(null, scanSettings(), callback)
-      FabricRuntime.bleScanMode = "LOW_LATENCY_UNFILTERED_FALLBACK"
-      FabricRuntime.bleDetail = "Filtered BLE scan unavailable (${filteredError.javaClass.simpleName}); unfiltered fallback active"
+      FabricRuntime.bleScanMode = "LOW_LATENCY_HARDWARE_FILTER_FALLBACK"
+      FabricRuntime.bleDetail = "Software-filtered scan unavailable (${unfilteredError.javaClass.simpleName}); hardware-filter fallback active"
     }
     val now = System.currentTimeMillis()
     FabricRuntime.bleScanStartedWallMs = now
@@ -776,8 +785,11 @@ class BodyFinderNativeModule : Module() {
     FabricRuntime.bleSeenCountByIdentity.computeIfAbsent(id) { AtomicLong(0) }.incrementAndGet()
     FabricRuntime.bleScanState = "ACTIVE_PEER_SEEN"
 
+    val validRssi = BleRangeEstimator.isValidBleRssi(result.rssi.toDouble())
+    FabricRuntime.acquisitionStatsByIdentity.computeIfAbsent(id) { BleAcquisitionStats() }.record(now, validRssi)
+
     val advertisedTx = result.scanRecord?.txPowerLevel?.takeIf { it in -100..20 } ?: Int.MIN_VALUE
-    if (BleRangeEstimator.isValidBleRssi(result.rssi.toDouble())) {
+    if (validRssi) {
       val queue = FabricRuntime.rssiWindows.computeIfAbsent(id) { ConcurrentLinkedDeque() }
       queue.addLast(RssiSample(result.rssi, advertisedTx, now))
       FabricRuntime.lastValidRssiWallMsByIdentity[id] = now
@@ -1059,6 +1071,11 @@ class BodyFinderNativeModule : Module() {
           now - lastValidSample.ms <= RANGE_FRESHNESS_MS -> "PEER_SAMPLE_HEALTHY"
           else -> "PEER_TEMPORARILY_NOT_OBSERVED"
         }
+        val acquisitionStats = identity?.let { FabricRuntime.acquisitionStatsByIdentity[it] }
+        val acquisitionBaseline = identity?.let { FabricRuntime.validationAcquisitionBaselineByIdentity[it] }
+        val effectiveBaseline = if (ValidationRuntime.startedWallMs != null && acquisitionBaseline == null) {
+          BleAcquisitionCounterSnapshot(0, 0, 0, 0, 0, 0, 0)
+        } else acquisitionBaseline
         arr.put(JSONObject().apply {
           put("node_id", peerId)
           put("ble_identity", identity ?: JSONObject.NULL)
@@ -1094,6 +1111,7 @@ class BodyFinderNativeModule : Module() {
           put("last_valid_distance_m", cached?.distanceM ?: JSONObject.NULL)
           put("last_valid_sigma_m", cached?.sigmaM ?: JSONObject.NULL)
           put("range_estimate", estimate?.toJson() ?: JSONObject.NULL)
+          put("acquisition", acquisitionStats?.diagnostics(now, validFresh.size, validRetained.size, effectiveBaseline) ?: JSONObject.NULL)
           put("address_rebind_count", identity?.let { FabricRuntime.addressRebindCountByIdentity[it]?.get() } ?: 0)
           put("blocking_reason", blocker ?: JSONObject.NULL)
         })
@@ -1126,6 +1144,12 @@ class BodyFinderNativeModule : Module() {
     put("scan_state", FabricRuntime.bleScanState)
     put("advertise_state", FabricRuntime.bleAdvertiseState)
     put("scan_mode", FabricRuntime.bleScanMode)
+    put("scan_strategy", BleAcquisitionPolicy.SCAN_STRATEGY)
+    put("hardware_filter_count", if (FabricRuntime.bleScanMode == BleAcquisitionPolicy.SCAN_STRATEGY) 0 else 1)
+    put("match_mode", BleAcquisitionPolicy.matchModeLabel())
+    put("num_matches", BleAcquisitionPolicy.numMatchesLabel())
+    put("report_delay_ms", BleAcquisitionPolicy.REPORT_DELAY_MS)
+    put("software_body_finder_filter", true)
     put("scan_callback_health", scanCallbackHealth(now))
     put("total_scan_results", FabricRuntime.totalScanResults.get())
     put("body_finder_scan_results", FabricRuntime.bodyFinderScanResults.get())
@@ -1140,6 +1164,8 @@ class BodyFinderNativeModule : Module() {
     put("advertise_failure_code", FabricRuntime.bleAdvertiseFailureCode ?: JSONObject.NULL)
     put("advertise_age_ms", ageMs(now, FabricRuntime.bleAdvertiseStartedWallMs))
     put("advertise_restart_count", FabricRuntime.advertiseRestartCount.get())
+    put("advertise_mode", "LOW_LATENCY")
+    put("advertise_tx_power", "MEDIUM_FROZEN_FOR_CALIBRATION")
     put("active_identity", bleIdentity())
     put("calibration_profile", BleRangeEstimator.profile.toJson())
     put("continuity_policy", JSONObject()
@@ -1148,6 +1174,17 @@ class BodyFinderNativeModule : Module() {
       .put("hard_expiry_ms", BleContinuityPolicy.HARD_EXPIRY_MS)
       .put("sigma_aging_m_per_s", BleContinuityPolicy.SIGMA_AGING_M_PER_S)
       .put("holdover_sigma_cap_m", BleContinuityPolicy.HOLDOVER_SIGMA_CAP_M))
+    put("acquisition_policy", JSONObject()
+      .put("strategy", BleAcquisitionPolicy.SCAN_STRATEGY)
+      .put("primary_hardware_filter_count", 0)
+      .put("match_mode", BleAcquisitionPolicy.matchModeLabel())
+      .put("num_matches", BleAcquisitionPolicy.numMatchesLabel())
+      .put("report_delay_ms", BleAcquisitionPolicy.REPORT_DELAY_MS)
+      .put("gap_1s_ms", BleAcquisitionPolicy.GAP_1S_MS)
+      .put("gap_2s_ms", BleAcquisitionPolicy.GAP_2S_MS)
+      .put("gap_5s_ms", BleAcquisitionPolicy.GAP_5S_MS)
+      .put("gap_10s_ms", BleAcquisitionPolicy.GAP_10S_MS)
+      .put("system_ranging_ble_yield_ms", BleAcquisitionPolicy.SYSTEM_RANGING_BLE_YIELD_MS))
     put("advertised_tx_power_semantics", "diagnostic transmitter metadata only; never used as RSSI@1m")
     put("peers", peerBleDiagnostics(now))
     put("rebind_events", rebindDiagnostics())
