@@ -1,0 +1,44 @@
+{
+  "schema_version": 1,
+  "source_release": "dev-6",
+  "source_build": "0.2.0-experimental.6",
+  "runtime_input": false,
+  "purpose": "Regression evidence for experimental.7 continuity stabilization. Physical calibration remains frozen; this fixture records the dev-6 precision pass and temporal-availability deficit.",
+  "physical_profile": {
+    "profile_id": "android-ble-lab-v1",
+    "rssi_at_1m_dbm": -69.19,
+    "path_loss_exponent": 3.62,
+    "validated": true,
+    "valid_distance_min_m": 0.5,
+    "valid_distance_max_m": 5.0,
+    "physical_confidence": "COARSE"
+  },
+  "precision_gate": {
+    "pairwise_mae_m": 0.322,
+    "maximum_pair_error_m": 0.496,
+    "required_mae_lte_m": 2.0,
+    "required_max_error_lte_m": 3.0,
+    "passed": true
+  },
+  "continuity_baseline": {
+    "pixel10_metric_range_uptime_percent": 39.05,
+    "pixel7_metric_range_uptime_percent": 40.14,
+    "lenovo_metric_range_uptime_percent": 99.23,
+    "pixel10_geometry_2d_uptime_percent": 60.46,
+    "pixel7_geometry_2d_uptime_percent": 57.83,
+    "lenovo_geometry_2d_uptime_percent": 59.60,
+    "peer_uptime_percent_min": 98.93,
+    "peer_expire_delta": 0
+  },
+  "experimental7_targets": {
+    "usable_metric_range_uptime_percent_gte": 90.0,
+    "geometry_2d_uptime_percent_gte": 90.0,
+    "peer_uptime_percent_preferred_gte": 99.0
+  },
+  "truth": {
+    "ground_truth_used_at_runtime": false,
+    "profile_recalibration_required": false,
+    "human_localization_validated": false,
+    "rescue_use_validated": false
+  }
+}
