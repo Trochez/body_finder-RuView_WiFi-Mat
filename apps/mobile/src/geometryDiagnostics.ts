@@ -15,6 +15,9 @@ export type RangeDiagnostic = {
   calibration_profile_id: string | null;
   calibration_state: string | null;
   proximity_band: string | null;
+  fusion_mode: string | null;
+  reciprocal_delta_m: number | null;
+  reciprocal_state: string | null;
   source_detail: string;
 };
 
@@ -29,9 +32,12 @@ export type GeometryGraphDiagnostics = {
   cross_session_sample_count: number;
   proximity_only_sample_count: number;
   saturated_sample_count: number;
+  out_of_domain_sample_count: number;
+  invalid_rssi_sample_count: number;
+  reciprocal_disagreement_count: number;
   uncalibrated_sample_count: number;
   metric_sample_count: number;
-  measurement_health: 'NO_METRIC_RANGE' | 'DEGRADED' | 'COARSE' | 'GOOD';
+  measurement_health: 'NO_METRIC_RANGE' | 'DEGRADED' | 'COARSE_METRIC_RANGE' | 'GOOD';
   physical_confidence: 'NONE' | 'LOW' | 'COARSE';
 };
 
@@ -61,6 +67,9 @@ export function diagnoseGeometryGraph(nodes: Advertisement[]): GeometryGraphDiag
   let crossSession = 0;
   let proximityOnly = 0;
   let saturated = 0;
+  let outOfDomain = 0;
+  let invalidRssi = 0;
+  let reciprocalDisagreement = 0;
   let uncalibrated = 0;
   let metricSamples = 0;
 
@@ -84,10 +93,14 @@ export function diagnoseGeometryGraph(nodes: Advertisement[]): GeometryGraphDiag
         && Number.isFinite(observation.distance_m);
       const status = typeof ext.range_status === 'string' ? ext.range_status : null;
       const calibrationState = typeof ext.calibration_state === 'string' ? ext.calibration_state : null;
+      const reciprocalState = typeof ext.reciprocal_state === 'string' ? ext.reciprocal_state : null;
       if (!sameSession) crossSession++;
       if (isStale) stale++;
       if (status === 'PROXIMITY_ONLY') proximityOnly++;
       if (status === 'SATURATED_HIGH' || status === 'SATURATED_LOW') saturated++;
+      if (status === 'OUT_OF_DOMAIN_HIGH' || status === 'OUT_OF_DOMAIN_LOW') outOfDomain++;
+      if (status === 'INVALID_RSSI') invalidRssi++;
+      if (reciprocalState === 'DEGRADED' || reciprocalState === 'REJECT') reciprocalDisagreement++;
       if (calibrationState?.includes('UNVALIDATED') || status === 'UNCALIBRATED') uncalibrated++;
       if (metricValid) metricSamples++;
       samples.push({
@@ -105,6 +118,9 @@ export function diagnoseGeometryGraph(nodes: Advertisement[]): GeometryGraphDiag
         calibration_profile_id: typeof ext.calibration_profile_id === 'string' ? ext.calibration_profile_id : null,
         calibration_state: calibrationState,
         proximity_band: typeof ext.proximity_band === 'string' ? ext.proximity_band : null,
+        fusion_mode: typeof ext.fusion_mode === 'string' ? ext.fusion_mode : null,
+        reciprocal_delta_m: typeof ext.reciprocal_delta_m === 'number' ? ext.reciprocal_delta_m : null,
+        reciprocal_state: reciprocalState,
         source_detail: observation.source_detail,
       });
 
@@ -118,6 +134,9 @@ export function diagnoseGeometryGraph(nodes: Advertisement[]): GeometryGraphDiag
 
       const metricValidForGraph = structurallyValid
         && metricValid
+        && status !== 'OUT_OF_DOMAIN_HIGH'
+        && status !== 'OUT_OF_DOMAIN_LOW'
+        && reciprocalState !== 'REJECT'
         && observation.distance_m != null
         && observation.distance_m >= 0.05
         && observation.distance_m <= 100;
@@ -153,16 +172,16 @@ export function diagnoseGeometryGraph(nodes: Advertisement[]): GeometryGraphDiag
 
   const health: GeometryGraphDiagnostics['measurement_health'] = metricSamples === 0
     ? 'NO_METRIC_RANGE'
-    : saturated > 0 || uncalibrated > 0
+    : outOfDomain > 0 || invalidRssi > 0 || reciprocalDisagreement > 0 || uncalibrated > 0
       ? 'DEGRADED'
       : metricPairs.size >= 3
-        ? 'GOOD'
-        : 'COARSE';
+        ? 'COARSE_METRIC_RANGE'
+        : 'GOOD';
   const confidence: GeometryGraphDiagnostics['physical_confidence'] = metricSamples === 0
     ? 'NONE'
-    : health === 'GOOD'
-      ? 'COARSE'
-      : 'LOW';
+    : health === 'DEGRADED'
+      ? 'LOW'
+      : 'COARSE';
 
   return {
     protocol_version: 2,
@@ -175,6 +194,9 @@ export function diagnoseGeometryGraph(nodes: Advertisement[]): GeometryGraphDiag
     cross_session_sample_count: crossSession,
     proximity_only_sample_count: proximityOnly,
     saturated_sample_count: saturated,
+    out_of_domain_sample_count: outOfDomain,
+    invalid_rssi_sample_count: invalidRssi,
+    reciprocal_disagreement_count: reciprocalDisagreement,
     uncalibrated_sample_count: uncalibrated,
     metric_sample_count: metricSamples,
     measurement_health: health,

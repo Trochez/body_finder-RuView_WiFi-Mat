@@ -23,9 +23,10 @@ import {
   solveGeometry,
 } from './src/autogeometry';
 import { diagnoseGeometryGraph } from './src/geometryDiagnostics';
+import { applyReciprocalFusion } from './src/rangeFusion';
 
-const BUILD = '0.2.0-experimental.5';
-const REPORT_VERSION = 7;
+const BUILD = '0.2.0-experimental.6';
+const REPORT_VERSION = 8;
 
 const T = {
   en: {
@@ -141,13 +142,15 @@ export default function App() {
   useEffect(() => { try { BodyFinderNative.updateLocalState(baseline, sigma, scanning); } catch {} }, [baseline, sigma, scanning]);
 
   const nodes = useMemo(() => (local ? [local, ...peers] : peers), [local, peers]);
+  const fused = useMemo(() => applyReciprocalFusion(nodes), [nodes]);
+  const geometryNodes = fused.nodes;
   const coordinator = useMemo(() => nodes.filter(node => node.protocol_version === 2).slice()
     .sort((a, b) => b.coordinator_score - a.coordinator_score || a.node_id.localeCompare(b.node_id))[0]?.node_id ?? null, [nodes]);
-  const computedGeometry = useMemo(() => solveGeometry(nodes), [nodes]);
+  const computedGeometry = useMemo(() => solveGeometry(geometryNodes), [geometryNodes]);
   const geometrySelection = useMemo(() => chooseCoordinatorGeometry(nodes, coordinator, local?.node_id ?? null, computedGeometry),
     [nodes, coordinator, local?.node_id, computedGeometry]);
   const geometry = geometrySelection.solution;
-  const graphDiagnostics = useMemo(() => diagnoseGeometryGraph(nodes), [nodes]);
+  const graphDiagnostics = useMemo(() => diagnoseGeometryGraph(geometryNodes), [geometryNodes]);
   const geometryState = geometry?.state ?? 'GEOMETRY_INSUFFICIENT';
 
   useEffect(() => { try { BodyFinderNative.updateGeometryState(geometryState); } catch {} }, [geometryState]);
@@ -173,7 +176,7 @@ export default function App() {
     visualFrame.current = geometry.frame_id;
   }, [geometry]);
 
-  const arrayTarget = useMemo(() => estimateHuman(nodes, geometry), [nodes, geometry]);
+  const arrayTarget = useMemo(() => estimateHuman(geometryNodes, geometry), [geometryNodes, geometry]);
   const localGeometry = useMemo(() => geometry?.positions.find(position => position.node_id === local?.node_id), [geometry, local?.node_id]);
   const target = useMemo(() => relativeTarget(arrayTarget, localGeometry), [arrayTarget, localGeometry]);
   const evidenceCount = nodes.reduce((count, node) => count + (node.ranges?.length ?? 0), 0);
@@ -212,7 +215,7 @@ export default function App() {
     const payload = {
       report_version: REPORT_VERSION,
       generated_at: new Date().toISOString(), app: 'Body Finder – RuView', build: BUILD, protocol_version: 2,
-      truth: 'LIVE_DEVICE_CAPABILITIES__METRIC_GEOMETRY_ONLY_FROM_VALID_METRIC_RANGES__BLE_RSSI_PROXIMITY_ONLY_UNTIL_CALIBRATED__AUTOGEOMETRY_EXPERIMENTAL_NOT_RESCUE_VALIDATED',
+      truth: 'LIVE_DEVICE_CAPABILITIES__VALIDATED_COARSE_BLE_METRIC_ONLY_IN_0P5_TO_5M_DOMAIN__RECIPROCAL_FUSION_BEFORE_SOLVER__AUTOGEOMETRY_EXPERIMENTAL_NOT_RESCUE_VALIDATED',
       manual_geometry_override: false, node_id: local?.node_id ?? null, capabilities: caps,
       ble_diagnostics: freshDiagnostics?.ble_diagnostics ?? null,
       fabric_diagnostics: freshDiagnostics?.fabric_diagnostics ?? null,
@@ -221,13 +224,17 @@ export default function App() {
       calibration_snapshot: calibrationSnapshot,
       local, peers, coordinator_node_id: coordinator, geometry_source: geometrySelection.source, geometry,
       locally_computed_geometry: computedGeometry, graph_diagnostics: graphDiagnostics,
+      reciprocal_fusion: fused.diagnostics,
+      fused_range_observations: geometryNodes.flatMap(node => node.ranges ?? []),
       measurement_health: { health: graphDiagnostics.measurement_health, physical_confidence: physicalConfidence,
-        metric_sample_count: metricCount, proximity_only_sample_count: proximityCount, saturated_sample_count: graphDiagnostics.saturated_sample_count },
+        metric_sample_count: metricCount, proximity_only_sample_count: proximityCount, saturated_sample_count: graphDiagnostics.saturated_sample_count,
+        out_of_domain_sample_count: graphDiagnostics.out_of_domain_sample_count, invalid_rssi_sample_count: graphDiagnostics.invalid_rssi_sample_count,
+        reciprocal_disagreement_count: graphDiagnostics.reciprocal_disagreement_count },
       range_observations: nodes.flatMap(node => node.ranges ?? []), estimate_array_frame: arrayTarget,
       estimate_relative_to_this_device: target,
       instructions: 'Return this JSON, screenshots, validation-run data and external ground truth. Never feed ground-truth node coordinates/distances into the app during normal solving.',
     };
-    await Share.share({ message: JSON.stringify(payload, null, 2), title: 'Body Finder experimental.5 validation result' });
+    await Share.share({ message: JSON.stringify(payload, null, 2), title: 'Body Finder experimental.6 validation result' });
   }
 
   const scale = 18;
@@ -253,9 +260,9 @@ export default function App() {
             <Text style={s.text}>{geometry?.positions.length ?? 0}/{nodes.length} {tx.positioned} · {geometry?.dimension ?? 'UNKNOWN'} AUTO</Text>
             <Text style={s.text}>{tx.residual}: {geometry?.residual_rms_m != null ? `${geometry.residual_rms_m.toFixed(2)} m` : '—'} · {tx.condition}: {geometry?.condition_score != null ? `${(100 * geometry.condition_score).toFixed(0)}%` : '—'}</Text>
             <Text style={s.text}>measurement health: {graphDiagnostics.measurement_health} · physical confidence: {physicalConfidence}</Text>
-            <Text style={s.text}>metric edges: {graphDiagnostics.metric_edge_pairs.length} · proximity samples: {proximityCount} · saturated: {graphDiagnostics.saturated_sample_count}</Text>
+            <Text style={s.text}>metric edges: {graphDiagnostics.metric_edge_pairs.length} · proximity samples: {proximityCount} · out-of-domain: {graphDiagnostics.out_of_domain_sample_count}</Text>
             <Text style={s.text}>revision: {geometry?.revision ?? '—'} · source: {geometrySelection.source}</Text>
-            <Text style={s.muted}>{metricCount === 0 && evidenceCount > 0 ? 'BLE peers are visible, but experimental.5 refuses to convert the unvalidated RSSI profile into metric geometry.' : geometry?.reason ?? tx.estimating}</Text>
+            <Text style={s.muted}>{metricCount === 0 && evidenceCount > 0 ? 'BLE peers are visible, but no validated in-domain metric range is currently usable. Out-of-domain and rejected reciprocal observations remain non-metric.' : geometry?.reason ?? tx.estimating}</Text>
             {unresolved > 0 && <Text style={s.muted}>{unresolved} {tx.unresolved}</Text>}
           </View>
           <Text style={s.relative}>{tx.relative}</Text>
@@ -287,16 +294,18 @@ export default function App() {
         <ScrollView contentContainerStyle={s.body}>
           <View style={s.card}><Text style={s.h2}>Truth / source classification</Text><Text style={s.text}>Build: {BUILD} · protocol 2</Text>
             <Text style={s.text}>Node geometry: AUTO ONLY — manual override disabled</Text><Text style={s.text}>Geometry authority: {geometrySelection.source}</Text>
-            <Text style={s.text}>BLE RSSI: PROXIMITY ONLY until a versioned calibration profile passes physical accuracy gates. Advertised TxPower is diagnostic only.</Text>
+            <Text style={s.text}>BLE RSSI: validated COARSE metric profile android-ble-lab-v1 only inside 0.5–5.0 m. Outside that domain it remains non-metric. Advertised TxPower is diagnostic only.</Text>
+            <Text style={s.text}>Reciprocal A↔B BLE observations are inverse-variance fused before the solver; large disagreement is degraded or rejected.</Text>
             <Text style={s.text}>Metric geometry: only observations with a defensible numeric distance enter the solver.</Text><Text style={s.text}>Graph condition is not physical accuracy.</Text>
             <Text style={s.text}>CSI: UNSUPPORTED unless a future verified adapter is loaded</Text></View>
           <Pressable style={s.btnTest} onPress={toggleValidationRun}><Text style={s.btnText}>{validationRun?.active ? tx.endRun : tx.startRun}</Text></Pressable>
           {[
-            ['Measurement health', { measurement_health: graphDiagnostics.measurement_health, physical_confidence: physicalConfidence, metric_edge_pairs: graphDiagnostics.metric_edge_pairs, proximity_only_sample_count: proximityCount, saturated_sample_count: graphDiagnostics.saturated_sample_count }],
+            ['Measurement health', { measurement_health: graphDiagnostics.measurement_health, physical_confidence: physicalConfidence, metric_edge_pairs: graphDiagnostics.metric_edge_pairs, proximity_only_sample_count: proximityCount, saturated_sample_count: graphDiagnostics.saturated_sample_count, out_of_domain_sample_count: graphDiagnostics.out_of_domain_sample_count, invalid_rssi_sample_count: graphDiagnostics.invalid_rssi_sample_count, reciprocal_disagreement_count: graphDiagnostics.reciprocal_disagreement_count }],
+            ['Reciprocal fusion', fused.diagnostics],
             ['Validation run', diagnostics?.validation_run ?? null], ['Lifecycle / power diagnostics', diagnostics?.lifecycle_diagnostics ?? null],
             ['BLE / ranging diagnostics', diagnostics?.ble_diagnostics ?? null], ['Fabric diagnostics', diagnostics?.fabric_diagnostics ?? null],
             ['Geometry solution', geometry], ['Locally computed geometry', computedGeometry], ['Graph diagnostics / sample age', graphDiagnostics],
-            ['Range / proximity observations', nodes.flatMap(node => node.ranges ?? [])], ['Capabilities', caps], ['Local node', local], ['Peers', peers],
+            ['Raw range / proximity observations', nodes.flatMap(node => node.ranges ?? [])], ['Fused geometry observations', geometryNodes.flatMap(node => node.ranges ?? [])], ['Capabilities', caps], ['Local node', local], ['Peers', peers],
             ['Array-frame estimate', arrayTarget], ['Relative estimate', target],
           ].map(([name, value]) => <View style={s.card} key={String(name)}><Text style={s.h2}>{String(name)}</Text><Text selectable style={s.code}>{JSON.stringify(value, null, 2)}</Text></View>)}
           <Pressable style={s.btnAlt} onPress={share}><Text style={s.btnText}>{tx.share}</Text></Pressable>

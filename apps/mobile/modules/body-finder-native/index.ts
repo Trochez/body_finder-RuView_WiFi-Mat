@@ -18,4 +18,31 @@ export type NativeApi = {
   getLocalAdvertisementJson(): string;
 };
 
-export default requireNativeModule<NativeApi>('BodyFinderNative');
+const native = requireNativeModule<NativeApi>('BodyFinderNative');
+
+function sanitizeCalibrationSnapshotJson(raw: string): string {
+  try {
+    const value = JSON.parse(raw);
+    const walk = (node: any): any => {
+      if (Array.isArray(node)) return node.map(walk);
+      if (!node || typeof node !== 'object') return node;
+      const out: any = {};
+      for (const [key, child] of Object.entries(node)) {
+        if (key === 'rssi_samples_dbm' && Array.isArray(child)) {
+          out[key] = child.filter(sample => typeof sample === 'number' && Number.isFinite(sample) && sample !== 127 && sample >= -127 && sample <= 20);
+        } else out[key] = walk(child);
+      }
+      return out;
+    };
+    return JSON.stringify(walk(value));
+  } catch {
+    return raw;
+  }
+}
+
+const api: NativeApi = {
+  ...native,
+  getCalibrationSnapshotJson: () => sanitizeCalibrationSnapshotJson(native.getCalibrationSnapshotJson()),
+};
+
+export default api;

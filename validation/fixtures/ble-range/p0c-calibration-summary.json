@@ -1,0 +1,39 @@
+{
+  "fixture_version": 1,
+  "runtime_input": false,
+  "campaign": "P0c",
+  "devices": ["Pixel 10 Pro", "Pixel 7 Pro", "Lenovo TB-J606L"],
+  "pair_count": 3,
+  "directions_per_pair": 2,
+  "distances_m": [0.5, 1.0, 2.0, 3.0, 5.0],
+  "report_count": 30,
+  "valid_rssi_sample_count": 521,
+  "invalid_rssi_sentinel_127_count": 6,
+  "profile": {
+    "profile_id": "android-ble-lab-v1",
+    "rssi_at_1m_dbm": -69.19,
+    "path_loss_exponent": 3.62,
+    "valid_distance_min_m": 0.5,
+    "valid_distance_max_m": 5.0,
+    "validated": true,
+    "physical_confidence": "COARSE"
+  },
+  "leave_one_distance_out": {
+    "mae_m": 0.85,
+    "rmse_m": 1.11,
+    "max_error_m": 2.58,
+    "holdout_count": 30
+  },
+  "reciprocal_fusion": {
+    "method": "inverse_variance",
+    "mae_m": 0.83,
+    "rmse_m": 1.07,
+    "max_error_m": 2.30
+  },
+  "acceptance_gate": {
+    "mae_m_lte": 2.0,
+    "max_error_m_lte": 3.0,
+    "result": "PASS"
+  },
+  "truth_boundary": "Ground truth is validation-only. The profile is coarse, environment/orientation sensitive, and must not be extrapolated outside 0.5-5.0 m or presented as rescue-validated."
+}

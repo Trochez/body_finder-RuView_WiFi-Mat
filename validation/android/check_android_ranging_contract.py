@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """Static acceptance checks for Android BLE/ranging plumbing.
 
-Experimental.5 preserves the experimental.4 acquisition/binding guarantees while
-changing BLE RSSI from an unvalidated metric distance to proximity-only evidence.
+Experimental.6 preserves the experimental.5 acquisition/binding/lifecycle guarantees
+while enabling validated COARSE BLE RSSI metric ranging only inside the P0c domain.
 """
 from pathlib import Path
 import json
@@ -60,7 +60,7 @@ require(
     'FabricRuntime.bleScanning -> probe("SUPPORTED_UNVERIFIED"' in native,
     "scanner-only BLE state must be SUPPORTED_UNVERIFIED rather than live ranging",
 )
-require("PROXIMITY_ONLY" in native, "experimental.5 proximity-only BLE state missing")
+require("PROXIMITY_ONLY" in native, "proximity fallback state missing")
 require("MIN_SAMPLES_FOR_RANGE = 3" in native, "minimum 3-sample gate missing")
 require("RANGE_FRESHNESS_MS = 5_000L" in native, "5-second freshness gate missing")
 require("WINDOW_RETENTION_MS = 8_000L" in native, "8-second sample window missing")
@@ -85,7 +85,7 @@ for token in [
     "Fabric diagnostics",
     "ble_diagnostics",
     "fabric_diagnostics",
-    "0.2.0-experimental.5",
+    "0.2.0-experimental.6",
     "report_version: REPORT_VERSION",
 ]:
     require(token in app or token in native, f"mobile report/Expert token missing: {token}")
