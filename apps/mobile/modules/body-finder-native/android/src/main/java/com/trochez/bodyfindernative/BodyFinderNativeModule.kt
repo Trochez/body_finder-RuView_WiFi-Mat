@@ -83,6 +83,13 @@ private object ValidationRuntime {
   @Volatile private var baselineCohortStalls: Long = 0
   @Volatile private var baselineCohortRecoveries: Long = 0
   @Volatile private var baselineCohortRecoveryFailures: Long = 0
+  @Volatile private var environmentViolationCount: Long = 0
+  @Volatile private var firstEnvironmentViolationWallMs: Long? = null
+  @Volatile private var environmentViolationTypes: String = ""
+  @Volatile private var baselineStrategyTransitions: Long = 0
+  @Volatile private var baselineCohortStalls: Long = 0
+  @Volatile private var baselineCohortRecoveries: Long = 0
+  @Volatile private var baselineCohortRecoveryFailures: Long = 0
 
   @Synchronized
   fun start(now: Long, peerExpire: Long, rebind: Long, scanRestart: Long, tx: Long, rx: Long): String {
@@ -197,6 +204,14 @@ private object ValidationRuntime {
       .put("cohort_stall_delta", (BleAcquisitionPolicy.cohortStallCount() - baselineCohortStalls).coerceAtLeast(0))
       .put("cohort_recovery_delta", (BleAcquisitionPolicy.cohortRecoveryCount() - baselineCohortRecoveries).coerceAtLeast(0))
       .put("cohort_recovery_failure_delta", (BleAcquisitionPolicy.cohortRecoveryFailureCount() - baselineCohortRecoveryFailures).coerceAtLeast(0))
+      .put("environment_valid", environmentViolationCount == 0L)
+      .put("environment_violation_count", environmentViolationCount)
+      .put("first_environment_violation_wall_ms", firstEnvironmentViolationWallMs ?: JSONObject.NULL)
+      .put("environment_violation_types", if (environmentViolationTypes.isBlank()) JSONArray() else JSONArray(environmentViolationTypes.split(',')))
+      .put("strategy_transition_delta", (BleAcquisitionPolicy.transitionCount() - baselineStrategyTransitions).coerceAtLeast(0))
+      .put("cohort_stall_delta", (BleAcquisitionPolicy.cohortStallCount() - baselineCohortStalls).coerceAtLeast(0))
+      .put("cohort_recovery_delta", (BleAcquisitionPolicy.cohortRecoveryCount() - baselineCohortRecoveries).coerceAtLeast(0))
+      .put("cohort_recovery_failure_delta", (BleAcquisitionPolicy.cohortRecoveryFailureCount() - baselineCohortRecoveryFailures).coerceAtLeast(0))
   }
 }
 
@@ -293,6 +308,7 @@ private object FabricRuntime {
     lastBodyFinderScanResultWallMs = null
     lastValidBodyFinderRssiWallMs = null
     lastScanRestartWallMs = 0
+    BleAcquisitionPolicy.reset(System.currentTimeMillis())
     BleAcquisitionPolicy.reset(System.currentTimeMillis())
     peerPacketCounts.clear()
     peerLastSeenWallMs.clear()
