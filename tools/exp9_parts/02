@@ -1,0 +1,115 @@
+rateHz: Any = if (first == null) JSONObject.NULL else callbackCount.get().toDouble() * 1000.0 / durationMs.toDouble()
+    val validRateHz: Any = if (first == null) JSONObject.NULL else validCallbackCount.get().toDouble() * 1000.0 / durationMs.toDouble()
+    val snap = snapshot()
+    fun delta(current: Long, previous: Long?): Long = (current - (previous ?: current)).coerceAtLeast(0L)
+    return JSONObject()
+      .put("acquisition_health", BleAcquisitionPolicy.health(snap.callbackCount, currentGap, valid5s, valid8s))
+      .put("first_callback_wall_ms", first ?: JSONObject.NULL)
+      .put("last_callback_wall_ms", last ?: JSONObject.NULL)
+      .put("current_gap_ms", currentGap ?: JSONObject.NULL)
+      .put("callback_count", snap.callbackCount)
+      .put("valid_rssi_callback_count", snap.validCallbackCount)
+      .put("invalid_rssi_callback_count", snap.invalidCallbackCount)
+      .put("callback_rate_hz", rateHz)
+      .put("valid_callback_rate_hz", validRateHz)
+      .put("mean_interarrival_ms", mean)
+      .put("max_interarrival_ms", if (totalIntervals > 0L) maxIntervalMs.get() else JSONObject.NULL)
+      .put("p50_interarrival_ms", percentile(intervals, 0.50))
+      .put("p95_interarrival_ms", percentile(intervals, 0.95))
+      .put("gap_gt_1s_count", snap.gapGt1sCount)
+      .put("gap_gt_2s_count", snap.gapGt2sCount)
+      .put("gap_gt_5s_count", snap.gapGt5sCount)
+      .put("gap_gt_10s_count", snap.gapGt10sCount)
+      .put("last_callback_strategy", lastCallbackStrategy ?: JSONObject.NULL)
+      .put("last_valid_callback_strategy", lastValidCallbackStrategy ?: JSONObject.NULL)
+      .put("callbacks_filtered_mode", snap.filteredCallbackCount)
+      .put("callbacks_unfiltered_mode", snap.unfilteredCallbackCount)
+      .put("run_callback_delta", delta(snap.callbackCount, baseline?.callbackCount))
+      .put("run_valid_callback_delta", delta(snap.validCallbackCount, baseline?.validCallbackCount))
+      .put("run_invalid_callback_delta", delta(snap.invalidCallbackCount, baseline?.invalidCallbackCount))
+      .put("run_gap_gt_1s_delta", delta(snap.gapGt1sCount, baseline?.gapGt1sCount))
+      .put("run_gap_gt_2s_delta", delta(snap.gapGt2sCount, baseline?.gapGt2sCount))
+      .put("run_gap_gt_5s_delta", delta(snap.gapGt5sCount, baseline?.gapGt5sCount))
+      .put("run_gap_gt_10s_delta", delta(snap.gapGt10sCount, baseline?.gapGt10sCount))
+      .put("run_callbacks_filtered_delta", delta(snap.filteredCallbackCount, baseline?.filteredCallbackCount))
+      .put("run_callbacks_unfiltered_delta", delta(snap.unfilteredCallbackCount, baseline?.unfilteredCallbackCount))
+  }
+}
+'''
+(ROOT/'apps/mobile/modules/body-finder-native/android/src/main/java/com/trochez/bodyfindernative/BleAcquisitionPolicy.kt').write_text(policy)
+
+# ---- BodyFinderNativeModule patches ----
+mod = ROOT/'apps/mobile/modules/body-finder-native/android/src/main/java/com/trochez/bodyfindernative/BodyFinderNativeModule.kt'
+s=mod.read_text()
+if 'import android.os.PowerManager' not in s:
+    s=s.replace('import android.os.Build\n', 'import android.os.Build\nimport android.os.PowerManager\n')
+
+# Extend ValidationRuntime environment/strategy baselines.
+s=s.replace('''  @Volatile private var baselineRx: Long = 0\n''','''  @Volatile private var baselineRx: Long = 0
+  @Volatile private var environmentViolationCount: Long = 0
+  @Volatile private var firstEnvironmentViolationWallMs: Long? = null
+  @Volatile private var environmentViolationTypes: String = ""
+  @Volatile private var baselineStrategyTransitions: Long = 0
+  @Volatile private var baselineCohortStalls: Long = 0
+  @Volatile private var baselineCohortRecoveries: Long = 0
+  @Volatile private var baselineCohortRecoveryFailures: Long = 0
+''')
+s=s.replace('''    baselineRx = rx\n    return id\n''','''    baselineRx = rx
+    environmentViolationCount = 0
+    firstEnvironmentViolationWallMs = null
+    environmentViolationTypes = ""
+    baselineStrategyTransitions = BleAcquisitionPolicy.transitionCount()
+    baselineCohortStalls = BleAcquisitionPolicy.cohortStallCount()
+    baselineCohortRecoveries = BleAcquisitionPolicy.cohortRecoveryCount()
+    baselineCohortRecoveryFailures = BleAcquisitionPolicy.cohortRecoveryFailureCount()
+    return id
+''')
+insert='''\n  @Synchronized
+  fun recordEnvironmentViolation(now: Long, issues: List<String>) {
+    if (runId == null || endedWallMs != null || issues.isEmpty()) return
+    environmentViolationCount++
+    if (firstEnvironmentViolationWallMs == null) firstEnvironmentViolationWallMs = now
+    environmentViolationTypes = (environmentViolationTypes.split(',').filter { it.isNotBlank() } + issues).distinct().joinToString(",")
+  }
+'''
+if 'fun recordEnvironmentViolation' not in s:
+    s=s.replace('''  @Synchronized\n  fun diagnostics(\n''', insert + '''\n  @Synchronized\n  fun diagnostics(\n''')
+s=s.replace('''      .put("geometry_2d_uptime_percent", pct(geometry2dUptimeMs))\n''','''      .put("geometry_2d_uptime_percent", pct(geometry2dUptimeMs))
+      .put("environment_valid", environmentViolationCount == 0L)
+      .put("environment_violation_count", environmentViolationCount)
+      .put("first_environment_violation_wall_ms", firstEnvironmentViolationWallMs ?: JSONObject.NULL)
+      .put("environment_violation_types", if (environmentViolationTypes.isBlank()) JSONArray() else JSONArray(environmentViolationTypes.split(',')))
+      .put("strategy_transition_delta", (BleAcquisitionPolicy.transitionCount() - baselineStrategyTransitions).coerceAtLeast(0))
+      .put("cohort_stall_delta", (BleAcquisitionPolicy.cohortStallCount() - baselineCohortStalls).coerceAtLeast(0))
+      .put("cohort_recovery_delta", (BleAcquisitionPolicy.cohortRecoveryCount() - baselineCohortRecoveries).coerceAtLeast(0))
+      .put("cohort_recovery_failure_delta", (BleAcquisitionPolicy.cohortRecoveryFailureCount() - baselineCohortRecoveryFailures).coerceAtLeast(0))
+''')
+
+# Reset adaptive runtime whenever diagnostics reset.
+s=s.replace('''    lastScanRestartWallMs = 0\n''','''    lastScanRestartWallMs = 0
+    BleAcquisitionPolicy.reset(System.currentTimeMillis())
+''',1)
+
+# Validation run environment gate.
+old='''    Function("startValidationRun") {
+      val now = System.currentTimeMillis()
+      FabricRuntime.snapshotAcquisitionForValidation()
+      ValidationRuntime.start(
+        now,
+        FabricRuntime.peerExpireCount.get(),
+        FabricRuntime.totalRebinds(),
+        FabricRuntime.scanRestartCount.get(),
+        FabricRuntime.txPackets.get(),
+        FabricRuntime.rxPackets.get(),
+      )
+    }
+'''
+new='''    Function("startValidationRun") {
+      val ctx = appContext.reactContext ?: return@Function "VALIDATION_ENVIRONMENT_INVALID:NO_CONTEXT"
+      val issues = validationEnvironmentIssues(ctx)
+      if (issues.isNotEmpty()) return@Function "VALIDATION_ENVIRONMENT_INVALID:${issues.joinToString(",")}"
+      val now = System.currentTimeMillis()
+      FabricRuntime.snapshotAcquisitionForValidation()
+      ValidationRuntime.start(
+        now,
+        FabricRunti
