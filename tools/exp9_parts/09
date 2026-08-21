@@ -1,0 +1,9 @@
+y after a full Body Finder cohort stall')
+rp.write_text(r)
+
+# Update release plan/version strings in old docs only where appropriate.
+for path in ['docs/ANDROID_BLE_ACQUISITION_CONTINUITY_RETEST.md']:
+    p=ROOT/path
+    if p.exists(): p.write_text(p.read_text().replace('experimental.8','experimental.9'))
+
+print('experimental.9 plan transformations applied')
