@@ -1,0 +1,24 @@
+{
+  "schema_version": 1,
+  "source": "experimental.8 physical three-device retest",
+  "finding": "generic BLE scanner remains active while complete Body Finder cohort disappears on Pixel receivers",
+  "pixel7": {
+    "usable_metric_uptime_percent": 18.44,
+    "geometry_2d_uptime_percent": 17.06,
+    "scan_restart_total_approx": 130,
+    "power_save_mode": false
+  },
+  "pixel10": {
+    "usable_metric_uptime_percent": 7.21,
+    "geometry_2d_uptime_percent": 13.62,
+    "scan_restart_total_approx": 126,
+    "power_save_mode": true
+  },
+  "lenovo": {
+    "usable_metric_uptime_percent": 96.55,
+    "geometry_2d_uptime_percent": 14.96,
+    "scan_restart_total_approx": 0,
+    "power_save_mode": false
+  },
+  "required_behavior": "detect BF_COHORT_STALLED independently of global scanner health and execute bounded adaptive recovery"
+}

@@ -1,4 +1,4 @@
-# Android BLE Acquisition Continuity Retest — experimental.8
+# Android BLE Acquisition Continuity Retest — experimental.9
 
 ## Purpose
 
@@ -11,7 +11,7 @@ This test does **not** recalibrate BLE distance and does not validate human dete
 Before testing, Expert mode must show:
 
 ```text
-Build: 0.2.0-experimental.8
+Build: 0.2.0-experimental.9
 protocol: 2
 profile: android-ble-lab-v1
 validated: true
@@ -72,7 +72,7 @@ Use the same non-collinear triangular layout used for the prior metric-geometry 
    - `3 nodes`;
    - `2 BLE PEERS`;
    - no permission/service error.
-5. Open **Expert** and verify the experimental.8 acquisition strategy above.
+5. Open **Expert** and verify the experimental.9 acquisition strategy above.
 6. Start **Iniciar corrida de validación / Start validation run** on all three devices within a few seconds of each other.
 7. Leave the three devices stationary for **exactly 5 minutes**.
 8. Do not calibrate the empty scene and do not attempt human scanning.

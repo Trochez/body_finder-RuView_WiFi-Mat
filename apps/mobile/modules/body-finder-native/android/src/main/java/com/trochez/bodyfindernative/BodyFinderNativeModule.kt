@@ -15,6 +15,7 @@ import android.content.pm.PackageManager
 import android.location.LocationManager
 import android.net.wifi.WifiManager
 import android.os.Build
+import android.os.PowerManager
 import android.os.SystemClock
 import expo.modules.kotlin.modules.Module
 import expo.modules.kotlin.modules.ModuleDefinition
@@ -75,6 +76,13 @@ private object ValidationRuntime {
   @Volatile private var baselineScanRestart: Long = 0
   @Volatile private var baselineTx: Long = 0
   @Volatile private var baselineRx: Long = 0
+  @Volatile private var environmentViolationCount: Long = 0
+  @Volatile private var firstEnvironmentViolationWallMs: Long? = null
+  @Volatile private var environmentViolationTypes: String = ""
+  @Volatile private var baselineStrategyTransitions: Long = 0
+  @Volatile private var baselineCohortStalls: Long = 0
+  @Volatile private var baselineCohortRecoveries: Long = 0
+  @Volatile private var baselineCohortRecoveryFailures: Long = 0
 
   @Synchronized
   fun start(now: Long, peerExpire: Long, rebind: Long, scanRestart: Long, tx: Long, rx: Long): String {
@@ -94,6 +102,13 @@ private object ValidationRuntime {
     baselineScanRestart = scanRestart
     baselineTx = tx
     baselineRx = rx
+    environmentViolationCount = 0
+    firstEnvironmentViolationWallMs = null
+    environmentViolationTypes = ""
+    baselineStrategyTransitions = BleAcquisitionPolicy.transitionCount()
+    baselineCohortStalls = BleAcquisitionPolicy.cohortStallCount()
+    baselineCohortRecoveries = BleAcquisitionPolicy.cohortRecoveryCount()
+    baselineCohortRecoveryFailures = BleAcquisitionPolicy.cohortRecoveryFailureCount()
     return id
   }
 
@@ -128,6 +143,15 @@ private object ValidationRuntime {
   @Synchronized
   fun updateGeometry(state: String) {
     geometryState = state
+  }
+
+
+  @Synchronized
+  fun recordEnvironmentViolation(now: Long, issues: List<String>) {
+    if (runId == null || endedWallMs != null || issues.isEmpty()) return
+    environmentViolationCount++
+    if (firstEnvironmentViolationWallMs == null) firstEnvironmentViolationWallMs = now
+    environmentViolationTypes = (environmentViolationTypes.split(',').filter { it.isNotBlank() } + issues).distinct().joinToString(",")
   }
 
   @Synchronized
@@ -165,6 +189,14 @@ private object ValidationRuntime {
       .put("holdover_metric_uptime_percent", pct(holdoverMetricUptimeMs))
       .put("metric_range_uptime_percent", pct(usableMetricRangeUptimeMs))
       .put("geometry_2d_uptime_percent", pct(geometry2dUptimeMs))
+      .put("environment_valid", environmentViolationCount == 0L)
+      .put("environment_violation_count", environmentViolationCount)
+      .put("first_environment_violation_wall_ms", firstEnvironmentViolationWallMs ?: JSONObject.NULL)
+      .put("environment_violation_types", if (environmentViolationTypes.isBlank()) JSONArray() else JSONArray(environmentViolationTypes.split(',')))
+      .put("strategy_transition_delta", (BleAcquisitionPolicy.transitionCount() - baselineStrategyTransitions).coerceAtLeast(0))
+      .put("cohort_stall_delta", (BleAcquisitionPolicy.cohortStallCount() - baselineCohortStalls).coerceAtLeast(0))
+      .put("cohort_recovery_delta", (BleAcquisitionPolicy.cohortRecoveryCount() - baselineCohortRecoveries).coerceAtLeast(0))
+      .put("cohort_recovery_failure_delta", (BleAcquisitionPolicy.cohortRecoveryFailureCount() - baselineCohortRecoveryFailures).coerceAtLeast(0))
   }
 }
 
@@ -261,6 +293,7 @@ private object FabricRuntime {
     lastBodyFinderScanResultWallMs = null
     lastValidBodyFinderRssiWallMs = null
     lastScanRestartWallMs = 0
+    BleAcquisitionPolicy.reset(System.currentTimeMillis())
     peerPacketCounts.clear()
     peerLastSeenWallMs.clear()
     bleLastSeenWallMsByIdentity.clear()
@@ -353,6 +386,9 @@ class BodyFinderNativeModule : Module() {
       true
     }
     Function("startValidationRun") {
+      val ctx = appContext.reactContext ?: return@Function "VALIDATION_ENVIRONMENT_INVALID:NO_CONTEXT"
+      val issues = validationEnvironmentIssues(ctx)
+      if (issues.isNotEmpty()) return@Function "VALIDATION_ENVIRONMENT_INVALID:${issues.joinToString(",")}"
       val now = System.currentTimeMillis()
       FabricRuntime.snapshotAcquisitionForValidation()
       ValidationRuntime.start(
@@ -369,7 +405,8 @@ class BodyFinderNativeModule : Module() {
       true
     }
     Function("getValidationRunJson") {
-      validationRunDiagnostics().toString()
+      val ctx = appContext.reactContext ?: return@Function "{}"
+      validationRunDiagnostics(ctx).toString()
     }
     Function("getCalibrationSnapshotJson") {
       calibrationSnapshot().toString()
@@ -443,6 +480,18 @@ class BodyFinderNativeModule : Module() {
       val manager = ctx.getSystemService(Context.LOCATION_SERVICE) as? LocationManager ?: return false
       if (Build.VERSION.SDK_INT >= 28) manager.isLocationEnabled else true
     } catch (_: Throwable) { null }
+  }
+
+  private fun validationEnvironmentIssues(ctx: Context): List<String> {
+    val issues = mutableListOf<String>()
+    val power = ctx.getSystemService(Context.POWER_SERVICE) as? PowerManager
+    if (power?.isPowerSaveMode == true) issues += "BATTERY_SAVER_ON"
+    if (power != null && !power.isInteractive) issues += "SCREEN_OFF"
+    if (ValidationRuntime.appVisibility != "active") issues += "APP_NOT_FOREGROUND"
+    if (FieldServiceState.state != "RUNNING") issues += "FIELD_SERVICE_NOT_RUNNING"
+    val manager = ctx.getSystemService(Context.BLUETOOTH_SERVICE) as? BluetoothManager
+    if (manager?.adapter?.isEnabled != true) issues += "BLUETOOTH_OFF"
+    return issues
   }
 
   private fun deviceReport(ctx: Context) = JSONObject().apply {
@@ -613,47 +662,138 @@ class BodyFinderNativeModule : Module() {
 
   private fun scanSettings(): ScanSettings = BleAcquisitionPolicy.scanSettings()
 
-  private fun scanFilter(): ScanFilter {
-    val prefix = byteArrayOf(0x42, 0x46)
-    val mask = byteArrayOf(0xff.toByte(), 0xff.toByte())
-    return ScanFilter.Builder().setManufacturerData(MANUFACTURER_ID, prefix, mask).build()
-  }
+  private fun scanFilter(): ScanFilter = BleAcquisitionPolicy.manufacturerFilter(MANUFACTURER_ID)
 
-  private fun startScanner(scanner: android.bluetooth.le.BluetoothLeScanner, callback: ScanCallback) {
-    try {
-      BleAcquisitionPolicy.startSoftwareFilteredScan(scanner, callback)
-      FabricRuntime.bleScanMode = BleAcquisitionPolicy.SCAN_STRATEGY
-      FabricRuntime.bleDetail = "Low-latency all-matches BLE scan active; Body Finder manufacturer/payload filtering is performed in software"
-    } catch (unfilteredError: Throwable) {
-      scanner.startScan(listOf(scanFilter()), scanSettings(), callback)
-      FabricRuntime.bleScanMode = "LOW_LATENCY_HARDWARE_FILTER_FALLBACK"
-      FabricRuntime.bleDetail = "Software-filtered scan unavailable (${unfilteredError.javaClass.simpleName}); hardware-filter fallback active"
-    }
+  private fun startScanner(
+    scanner: android.bluetooth.le.BluetoothLeScanner,
+    callback: ScanCallback,
+    strategy: BleAcquisitionStrategy = BleAcquisitionStrategy.FILTERED_PRIMARY,
+    reason: String = "START",
+  ) {
     val now = System.currentTimeMillis()
+    when (strategy) {
+      BleAcquisitionStrategy.UNFILTERED_RECOVERY -> {
+        BleAcquisitionPolicy.startUnfilteredRecoveryScan(scanner, callback)
+        FabricRuntime.bleScanMode = "UNFILTERED_RECOVERY"
+        FabricRuntime.bleDetail = "Temporary ALL_MATCHES recovery scan; Body Finder payload validation remains in software"
+      }
+      else -> {
+        BleAcquisitionPolicy.startFilteredScan(scanner, callback, MANUFACTURER_ID)
+        FabricRuntime.bleScanMode = strategy.name
+        FabricRuntime.bleDetail = "Manufacturer-filtered low-latency Body Finder scan active; strategy=${strategy.name}"
+      }
+    }
+    BleAcquisitionPolicy.transition(strategy, now, reason)
     FabricRuntime.bleScanStartedWallMs = now
     FabricRuntime.bleScanning = true
     FabricRuntime.bleScanState = if (FabricRuntime.bodyFinderScanResults.get() > 0) "ACTIVE_PEER_SEEN" else "ACTIVE_NO_BODY_FINDER_PEER"
   }
 
-  private fun scanCallbackHealth(now: Long): String {
-    if (!FabricRuntime.bleScanning) return "SCANNER_STOPPED"
-    val anchor = FabricRuntime.lastAnyScanResultWallMs ?: FabricRuntime.bleScanStartedWallMs ?: return "SCANNER_STARTING"
-    return if (now - anchor >= SCAN_STALL_RESTART_MS) "SCANNER_CALLBACK_STALLED" else "SCANNER_HEALTHY"
+  private fun globalScannerHealth(now: Long): GlobalBleScannerHealth {
+    if (!FabricRuntime.bleScanning) return GlobalBleScannerHealth.GLOBAL_SCANNER_STOPPED
+    if (FabricRuntime.bleScanFailureCode != null) return GlobalBleScannerHealth.GLOBAL_SCANNER_ERROR
+    val anchor = FabricRuntime.lastAnyScanResultWallMs ?: FabricRuntime.bleScanStartedWallMs ?: return GlobalBleScannerHealth.GLOBAL_SCANNER_STARTING
+    return if (now - anchor >= SCAN_STALL_RESTART_MS) GlobalBleScannerHealth.GLOBAL_SCANNER_STALLED else GlobalBleScannerHealth.GLOBAL_SCANNER_HEALTHY
   }
 
-  private fun restartScannerIfStalled(ctx: Context, now: Long) {
-    if (!FabricRuntime.bleScanning || scanCallbackHealth(now) != "SCANNER_CALLBACK_STALLED") return
-    if (now - FabricRuntime.lastScanRestartWallMs < SCAN_RESTART_COOLDOWN_MS) return
-    val scanner = FabricRuntime.scanner ?: return
-    val callback = FabricRuntime.scanCallback ?: return
+  private fun expectedKnownPeerCount(): Int = FabricRuntime.peers.values.count { pair ->
     try {
+      val peer = JSONObject(pair.first)
+      peer.optString("ble_identity").let { it.isNotBlank() && it != "null" }
+    } catch (_: Throwable) { false }
+  }
+
+  private fun recentKnownPeerCount(now: Long): Int = FabricRuntime.peers.values.count { pair ->
+    try {
+      val peer = JSONObject(pair.first)
+      val identity = peer.optString("ble_identity").takeIf { it.isNotBlank() && it != "null" } ?: return@count false
+      val seen = FabricRuntime.bleLastSeenWallMsByIdentity[identity] ?: return@count false
+      now - seen <= BleAcquisitionPolicy.COHORT_STALL_THRESHOLD_MS
+    } catch (_: Throwable) { false }
+  }
+
+  private fun bodyFinderCohortHealth(now: Long): BodyFinderCohortHealth {
+    if (!FabricRuntime.bleScanning) return BodyFinderCohortHealth.BF_COHORT_UNAVAILABLE
+    val expected = expectedKnownPeerCount()
+    if (expected <= 0) return BodyFinderCohortHealth.BF_COHORT_UNAVAILABLE
+    val recent = recentKnownPeerCount(now)
+    if (recent >= expected) return BodyFinderCohortHealth.BF_COHORT_HEALTHY
+    if (recent > 0) return BodyFinderCohortHealth.BF_COHORT_SPARSE
+    if (BleAcquisitionPolicy.currentStrategy() == BleAcquisitionStrategy.UNFILTERED_RECOVERY) return BodyFinderCohortHealth.BF_COHORT_RECOVERING
+    val global = globalScannerHealth(now)
+    val lastBf = FabricRuntime.lastBodyFinderScanResultWallMs ?: FabricRuntime.bleScanStartedWallMs ?: now
+    return if (global == GlobalBleScannerHealth.GLOBAL_SCANNER_HEALTHY && now - lastBf > BleAcquisitionPolicy.COHORT_STALL_THRESHOLD_MS) {
+      BodyFinderCohortHealth.BF_COHORT_STALLED
+    } else BodyFinderCohortHealth.BF_COHORT_SPARSE
+  }
+
+  private fun restartScannerWithStrategy(now: Long, strategy: BleAcquisitionStrategy, reason: String): Boolean {
+    val scanner = FabricRuntime.scanner ?: return false
+    val callback = FabricRuntime.scanCallback ?: return false
+    return try {
       scanner.stopScan(callback)
-      startScanner(scanner, callback)
+      try { Thread.sleep(BleAcquisitionPolicy.RECOVERY_QUIET_MS) } catch (_: InterruptedException) {}
+      startScanner(scanner, callback, strategy, reason)
       FabricRuntime.scanRestartCount.incrementAndGet()
       FabricRuntime.lastScanRestartWallMs = now
-      FabricRuntime.bleDetail = "BLE scanner restarted after GLOBAL callback silence; isolated peer gaps never trigger scanner restart"
+      true
     } catch (e: Throwable) {
-      FabricRuntime.bleDetail = "BLE scanner recovery failed: ${e.javaClass.simpleName}: ${e.message}"
+      FabricRuntime.bleDetail = "BLE adaptive recovery failed: ${e.javaClass.simpleName}: ${e.message}"
+      false
+    }
+  }
+
+  private fun maintainAdaptiveScanner(ctx: Context, now: Long) {
+    val global = globalScannerHealth(now)
+    var cohort = bodyFinderCohortHealth(now)
+    BleAcquisitionPolicy.updateCohortHealth(cohort)
+
+    if (global == GlobalBleScannerHealth.GLOBAL_SCANNER_STALLED) {
+      if (now - FabricRuntime.lastScanRestartWallMs >= BleAcquisitionPolicy.MIN_RESTART_COOLDOWN_MS) {
+        restartScannerWithStrategy(now, BleAcquisitionStrategy.FILTERED_PRIMARY, "GLOBAL_SCANNER_STALLED")
+      }
+      return
+    }
+
+    when (BleAcquisitionPolicy.currentStrategy()) {
+      BleAcquisitionStrategy.FILTERED_PRIMARY -> {
+        if (cohort == BodyFinderCohortHealth.BF_COHORT_STALLED) {
+          if (BleAcquisitionPolicy.canStartRecovery(now)) {
+            BleAcquisitionPolicy.beginRecovery(now, "BF_COHORT_STALLED")
+            restartScannerWithStrategy(now, BleAcquisitionStrategy.UNFILTERED_RECOVERY, "BF_COHORT_STALLED")
+          }
+        }
+      }
+      BleAcquisitionStrategy.UNFILTERED_RECOVERY -> {
+        val started = BleAcquisitionPolicy.recoveryStartedMs() ?: now
+        val recovered = recentKnownPeerCount(now) > 0 && FabricRuntime.lastBodyFinderScanResultWallMs?.let { it >= started } == true
+        if (recovered) {
+          BleAcquisitionPolicy.noteRecoverySuccess(now)
+          restartScannerWithStrategy(now, BleAcquisitionStrategy.FILTERED_RECOVERY_PROBE, "BF_COHORT_RECOVERED")
+        } else if (now - started >= BleAcquisitionPolicy.RECOVERY_UNFILTERED_WINDOW_MS) {
+          BleAcquisitionPolicy.noteRecoveryFailure()
+          restartScannerWithStrategy(now, BleAcquisitionStrategy.FILTERED_RECOVERY_PROBE, "RECOVERY_WINDOW_EXPIRED")
+        }
+      }
+      BleAcquisitionStrategy.FILTERED_RECOVERY_PROBE -> {
+        cohort = bodyFinderCohortHealth(now)
+        if (cohort == BodyFinderCohortHealth.BF_COHORT_STALLED) {
+          if (BleAcquisitionPolicy.canStartRecovery(now)) {
+            BleAcquisitionPolicy.beginRecovery(now, "PROBE_STALLED")
+            restartScannerWithStrategy(now, BleAcquisitionStrategy.UNFILTERED_RECOVERY, "PROBE_STALLED")
+          } else {
+            BleAcquisitionPolicy.transition(BleAcquisitionStrategy.COOLDOWN, now, "RECOVERY_COOLDOWN")
+          }
+        } else if (now - BleAcquisitionPolicy.strategySinceMs() >= BleAcquisitionPolicy.FILTERED_PROBE_WINDOW_MS) {
+          BleAcquisitionPolicy.transition(BleAcquisitionStrategy.FILTERED_PRIMARY, now, "PROBE_STABLE")
+        }
+      }
+      BleAcquisitionStrategy.COOLDOWN -> {
+        if (now - BleAcquisitionPolicy.strategySinceMs() >= BleAcquisitionPolicy.MIN_RESTART_COOLDOWN_MS) {
+          BleAcquisitionPolicy.transition(BleAcquisitionStrategy.FILTERED_PRIMARY, now, "COOLDOWN_COMPLETE")
+        }
+      }
+      BleAcquisitionStrategy.FAILED_SAFE -> Unit
     }
   }
 
@@ -706,7 +846,8 @@ class BodyFinderNativeModule : Module() {
         }
       }
       FabricRuntime.scanCallback = scanCb
-      startScanner(scanner, scanCb)
+      BleAcquisitionPolicy.reset(System.currentTimeMillis())
+      startScanner(scanner, scanCb, BleAcquisitionStrategy.FILTERED_PRIMARY, "INITIAL_FILTERED_PRIMARY")
 
       if (advertiser != null) {
         FabricRuntime.bleAdvertiseState = "STARTING"
@@ -786,7 +927,7 @@ class BodyFinderNativeModule : Module() {
     FabricRuntime.bleScanState = "ACTIVE_PEER_SEEN"
 
     val validRssi = BleRangeEstimator.isValidBleRssi(result.rssi.toDouble())
-    FabricRuntime.acquisitionStatsByIdentity.computeIfAbsent(id) { BleAcquisitionStats() }.record(now, validRssi)
+    FabricRuntime.acquisitionStatsByIdentity.computeIfAbsent(id) { BleAcquisitionStats() }.record(now, validRssi, BleAcquisitionPolicy.currentStrategy())
 
     val advertisedTx = result.scanRecord?.txPowerLevel?.takeIf { it in -100..20 } ?: Int.MIN_VALUE
     if (validRssi) {
@@ -1144,13 +1285,18 @@ class BodyFinderNativeModule : Module() {
     put("scan_state", FabricRuntime.bleScanState)
     put("advertise_state", FabricRuntime.bleAdvertiseState)
     put("scan_mode", FabricRuntime.bleScanMode)
-    put("scan_strategy", BleAcquisitionPolicy.SCAN_STRATEGY)
-    put("hardware_filter_count", if (FabricRuntime.bleScanMode == BleAcquisitionPolicy.SCAN_STRATEGY) 0 else 1)
+    put("scan_strategy", BleAcquisitionPolicy.currentStrategy().name)
+    put("hardware_filter_count", if (BleAcquisitionPolicy.currentStrategy() == BleAcquisitionStrategy.UNFILTERED_RECOVERY) 0 else 1)
     put("match_mode", BleAcquisitionPolicy.matchModeLabel())
     put("num_matches", BleAcquisitionPolicy.numMatchesLabel())
     put("report_delay_ms", BleAcquisitionPolicy.REPORT_DELAY_MS)
     put("software_body_finder_filter", true)
-    put("scan_callback_health", scanCallbackHealth(now))
+    put("global_scanner_health", globalScannerHealth(now).name)
+    put("body_finder_cohort_health", bodyFinderCohortHealth(now).name)
+    put("scan_callback_health", globalScannerHealth(now).name)
+    put("expected_known_peer_count", expectedKnownPeerCount())
+    put("recent_known_peer_count", recentKnownPeerCount(now))
+    put("last_bf_cohort_callback_age_ms", ageMs(now, FabricRuntime.lastBodyFinderScanResultWallMs))
     put("total_scan_results", FabricRuntime.totalScanResults.get())
     put("body_finder_scan_results", FabricRuntime.bodyFinderScanResults.get())
     put("malformed_body_finder_payloads", FabricRuntime.malformedBodyFinderPayloads.get())
@@ -1174,9 +1320,9 @@ class BodyFinderNativeModule : Module() {
       .put("hard_expiry_ms", BleContinuityPolicy.HARD_EXPIRY_MS)
       .put("sigma_aging_m_per_s", BleContinuityPolicy.SIGMA_AGING_M_PER_S)
       .put("holdover_sigma_cap_m", BleContinuityPolicy.HOLDOVER_SIGMA_CAP_M))
-    put("acquisition_policy", JSONObject()
-      .put("strategy", BleAcquisitionPolicy.SCAN_STRATEGY)
-      .put("primary_hardware_filter_count", 0)
+    put("acquisition_policy", BleAcquisitionPolicy.diagnostics(now)
+      .put("primary_hardware_filter_count", 1)
+      .put("recovery_hardware_filter_count", 0)
       .put("match_mode", BleAcquisitionPolicy.matchModeLabel())
       .put("num_matches", BleAcquisitionPolicy.numMatchesLabel())
       .put("report_delay_ms", BleAcquisitionPolicy.REPORT_DELAY_MS)
@@ -1212,15 +1358,20 @@ class BodyFinderNativeModule : Module() {
     put("peers", peers)
   }
 
-  private fun validationRunDiagnostics(now: Long = System.currentTimeMillis()): JSONObject =
-    ValidationRuntime.diagnostics(
+  private fun validationRunDiagnostics(ctx: Context, now: Long = System.currentTimeMillis()): JSONObject {
+    if (ValidationRuntime.runId != null && ValidationRuntime.endedWallMs == null) {
+      ValidationRuntime.recordEnvironmentViolation(now, validationEnvironmentIssues(ctx))
+    }
+    return ValidationRuntime.diagnostics(
       now,
       FabricRuntime.peerExpireCount.get(),
       FabricRuntime.totalRebinds(),
       FabricRuntime.scanRestartCount.get(),
       FabricRuntime.txPackets.get(),
       FabricRuntime.rxPackets.get(),
-    )
+    ).put("acquisition_strategy", BleAcquisitionPolicy.currentStrategy().name)
+      .put("body_finder_cohort_health", bodyFinderCohortHealth(now).name)
+  }
 
   private fun lifecycleDiagnostics(ctx: Context): JSONObject =
     FieldServiceState.diagnostics(ctx).put("app_visibility", ValidationRuntime.appVisibility)
@@ -1235,7 +1386,7 @@ class BodyFinderNativeModule : Module() {
       .put("ble_diagnostics", bleDiagnostics(ctx, now))
       .put("fabric_diagnostics", fabricDiagnostics(now))
       .put("lifecycle_diagnostics", lifecycleDiagnostics(ctx))
-      .put("validation_run", validationRunDiagnostics(now))
+      .put("validation_run", validationRunDiagnostics(ctx, now))
   }
 
   private fun calibrationSnapshot(now: Long = System.currentTimeMillis()): JSONObject {
@@ -1366,7 +1517,10 @@ class BodyFinderNativeModule : Module() {
         var nextSystemRangingRefresh = 0L
         while (FabricRuntime.running) {
           val now = System.currentTimeMillis()
-          restartScannerIfStalled(ctx, now)
+          maintainAdaptiveScanner(ctx, now)
+          if (ValidationRuntime.runId != null && ValidationRuntime.endedWallMs == null) {
+            ValidationRuntime.recordEnvironmentViolation(now, validationEnvironmentIssues(ctx))
+          }
           if (Build.VERSION.SDK_INT >= 36 && now >= nextSystemRangingRefresh && hasPermission(ctx, RANGE_PERMISSION)) {
             try { SystemRangingApi36.refresh(ctx, desiredSystemRangingPeers()) } catch (_: Throwable) {}
             nextSystemRangingRefresh = now + 1_000L

@@ -1,0 +1,331 @@
+name: Dev Release experimental.9
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  requirements:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Enforce experimental.9 release truth
+        shell: bash
+        run: |
+          set -euxo pipefail
+          grep -q "0.2.0-experimental.9" apps/mobile/App.tsx
+          grep -q "HUMAN_SCANNING_ENABLED = false" apps/mobile/App.tsx
+          grep -q "pub const PROTOCOL_VERSION: u16 = 2;" crates/body-finder-core/src/lib.rs
+          python3 validation/android/check_android_ranging_contract.py
+          python3 validation/android/check_ble_range_accuracy_contract.py
+          python3 validation/android/check_ble_continuity_contract.py
+          python3 validation/android/check_ble_acquisition_contract.py
+          python3 validation/android/check_ble_adaptive_acquisition_contract.py
+          test -s IMPLEMENTATION_PLAN_BLE_ADAPTIVE_ACQUISITION_RECOVERY.md
+          test -s docs/ANDROID_BLE_ADAPTIVE_ACQUISITION_RETEST.md
+          python3 -m json.tool validation/fixtures/ble-adaptive-acquisition/experimental8-cohort-stall-baseline.json >/dev/null
+
+  linux-x86_64:
+    needs: requirements
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - run: cargo test --workspace
+      - run: cargo build --release -p body-finder-node
+      - name: Package Linux
+        shell: bash
+        run: |
+          set -euxo pipefail
+          mkdir -p dist/tar dist/deb/usr/bin dist/deb/DEBIAN
+          cp target/release/body-finder-node dist/tar/body-finder-node
+          cp target/release/body-finder-node dist/deb/usr/bin/body-finder-node
+          chmod +x dist/tar/body-finder-node dist/deb/usr/bin/body-finder-node
+          tar -C dist/tar -czf dist/body-finder-node-linux-x86_64.tar.gz body-finder-node
+          cat > dist/deb/DEBIAN/control <<'EOF'
+          Package: body-finder-node
+          Version: 0.2.0~experimental9
+          Section: science
+          Priority: optional
+          Architecture: amd64
+          Maintainer: Trochez
+          Description: Experimental Body Finder RuView automatic geometry field node
+          EOF
+          dpkg-deb --build dist/deb dist/body-finder-node-linux-x86_64.deb
+          rm -rf dist/tar dist/deb
+      - uses: actions/upload-artifact@v4
+        with:
+          name: release-linux-exp9
+          path: dist/*
+          if-no-files-found: error
+
+  windows-x86_64:
+    needs: requirements
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - run: cargo test --workspace
+      - run: cargo build --release -p body-finder-node
+      - name: Package Windows
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force -Path dist\win | Out-Null
+          Copy-Item target\release\body-finder-node.exe dist\win\body-finder-node.exe
+          Compress-Archive -Path dist\win\body-finder-node.exe -DestinationPath dist\body-finder-node-windows-x86_64.zip
+          Remove-Item -Recurse -Force dist\win
+      - uses: actions/upload-artifact@v4
+        with:
+          name: release-windows-exp9
+          path: dist/*
+          if-no-files-found: error
+
+  android:
+    needs: requirements
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: apps/mobile
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: '20' }
+      - uses: actions/setup-java@v4
+        with: { distribution: temurin, java-version: '17' }
+      - run: npm install --package-lock-only
+      - run: npm ci
+      - run: npm audit --omit=dev --audit-level=critical
+      - run: npx tsc --noEmit
+      - run: CI=1 npx expo prebuild --platform android --clean
+      - run: chmod +x android/gradlew
+      - run: ./gradlew assembleRelease bundleRelease --stacktrace
+        working-directory: apps/mobile/android
+      - name: Normalize Android artifacts
+        shell: bash
+        run: |
+          set -euxo pipefail
+          mkdir -p ../../dist
+          cp android/app/build/outputs/apk/release/*.apk ../../dist/body-finder-ruview-universal.apk
+          cp android/app/build/outputs/bundle/release/*.aab ../../dist/body-finder-ruview.aab
+          test -s ../../dist/body-finder-ruview-universal.apk
+          test -s ../../dist/body-finder-ruview.aab
+      - uses: actions/upload-artifact@v4
+        with:
+          name: release-android-exp9
+          path: dist/*
+          if-no-files-found: error
+
+  android-legacy:
+    needs: requirements
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: apps/android-legacy
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with: { distribution: temurin, java-version: '17' }
+      - uses: gradle/actions/setup-gradle@v4
+        with: { gradle-version: '8.10.2' }
+      - name: Create signing key
+        shell: bash
+        run: |
+          mkdir -p "$HOME/.android"
+          keytool -genkeypair -keystore "$HOME/.android/debug.keystore" -storepass android -alias androiddebugkey -keypass android -dname "CN=Android Debug,O=Android,C=US" -keyalg RSA -keysize 2048 -validity 10000
+      - run: gradle :app:assembleRelease --stacktrace
+      - name: Normalize legacy APK
+        shell: bash
+        run: |
+          mkdir -p ../../dist
+          cp app/build/outputs/apk/release/*.apk ../../dist/body-finder-ruview-legacy-minsdk21.apk
+          test -s ../../dist/body-finder-ruview-legacy-minsdk21.apk
+      - uses: actions/upload-artifact@v4
+        with:
+          name: release-android-legacy-exp9
+          path: dist/*
+          if-no-files-found: error
+
+  ios-simulator:
+    needs: requirements
+    runs-on: macos-latest
+    defaults:
+      run:
+        working-directory: apps/mobile
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: '20' }
+      - run: npm install --package-lock-only
+      - run: npm ci
+      - run: npx tsc --noEmit
+      - run: CI=1 npx expo prebuild --platform ios --clean
+      - run: pod install
+        working-directory: apps/mobile/ios
+      - name: Build/package unsigned simulator app
+        working-directory: apps/mobile/ios
+        shell: bash
+        run: |
+          set -euxo pipefail
+          WORKSPACE=$(find . -maxdepth 1 -name '*.xcworkspace' -print -quit)
+          test -n "$WORKSPACE"
+          xcodebuild -workspace "$WORKSPACE" -scheme BodyFinderRuView -configuration Release -sdk iphonesimulator -destination 'generic/platform=iOS Simulator' -derivedDataPath build CODE_SIGNING_ALLOWED=NO build
+          APP=$(find build/Build/Products -type d -name '*.app' -print -quit)
+          test -n "$APP"
+          mkdir -p "$GITHUB_WORKSPACE/dist"
+          ditto -c -k --sequesterRsrc --keepParent "$APP" "$GITHUB_WORKSPACE/dist/body-finder-ruview-ios-simulator.zip"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: release-ios-exp9
+          path: dist/*
+          if-no-files-found: error
+
+  release:
+    needs: [requirements, linux-x86_64, windows-x86_64, android, android-legacy, ios-simulator]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: release-*-exp9
+          path: dist
+          merge-multiple: true
+      - name: Add documentation, fixtures and manifests
+        shell: bash
+        run: |
+          set -euxo pipefail
+          cp docs/TESTING_AUTOGEOMETRY_RELEASE.md dist/TESTING_AUTOGEOMETRY_RELEASE.md
+          cp docs/ANDROID_RANGING_RETEST.md dist/ANDROID_RANGING_RETEST.md
+          cp docs/ANDROID_RANGE_PRECISION_RETEST.md dist/ANDROID_RANGE_PRECISION_RETEST.md
+          cp docs/ANDROID_POWER_LIFECYCLE_RETEST.md dist/ANDROID_POWER_LIFECYCLE_RETEST.md
+          cp docs/ANDROID_BLE_METRIC_GEOMETRY_RETEST.md dist/ANDROID_BLE_METRIC_GEOMETRY_RETEST.md
+          cp docs/ANDROID_BLE_METRIC_CONTINUITY_RETEST.md dist/ANDROID_BLE_METRIC_CONTINUITY_RETEST.md
+          cp docs/ANDROID_BLE_ACQUISITION_CONTINUITY_RETEST.md dist/ANDROID_BLE_ACQUISITION_CONTINUITY_RETEST.md
+          cp docs/ANDROID_BLE_ADAPTIVE_ACQUISITION_RETEST.md dist/ANDROID_BLE_ADAPTIVE_ACQUISITION_RETEST.md
+          cp IMPLEMENTATION_PLAN_AUTOGEOMETRY_RELEASE.md dist/
+          cp IMPLEMENTATION_PLAN_ANDROID_RANGING_STABILIZATION.md dist/
+          cp IMPLEMENTATION_PLAN_BLE_RANGE_ACCURACY_AND_ANDROID_LIFECYCLE.md dist/
+          cp IMPLEMENTATION_PLAN_ANDROID_BLE_LAB_V1_METRIC.md dist/
+          cp IMPLEMENTATION_PLAN_BLE_METRIC_CONTINUITY_STABILIZATION.md dist/
+          cp IMPLEMENTATION_PLAN_BLE_ACQUISITION_CONTINUITY.md dist/
+          cp IMPLEMENTATION_PLAN_BLE_ADAPTIVE_ACQUISITION_RECOVERY.md dist/
+          cp docs/CAPABILITY_MATRIX_AUTOGEOMETRY.json dist/capability-matrix.json
+          cp calibration/ble-range-calibration-profiles.json dist/ble-range-calibration-profiles.json
+          cp calibration/ble-range-calibration-schema.json dist/ble-range-calibration-schema.json
+          cp upstream/ruvieW.lock.json dist/ruview-upstream-lock.json
+          printf '2\n' > dist/protocol-version.txt
+          cat > dist/model-manifest.json <<'EOF'
+          {"schema_version":1,"release_family":"0.2.0-experimental.9","models":[],"note":"No pretrained human-localization model is bundled. Human scanning and rescue validation remain disabled."}
+          EOF
+          cat > dist/IOS_PHYSICAL_DEVICE_SIGNING_REQUIRED.txt <<'EOF'
+          Unsigned iOS Simulator build only. Physical iOS RF participation is not validated by experimental.9.
+          EOF
+          mkdir -p dist/validation-kit
+          cp validation/analysis/validate_autogeometry.py validation/analysis/fit_ble_range_profile.py dist/validation-kit/
+          cp validation/android/check_*.py dist/validation-kit/
+          cp docs/ANDROID_BLE_ADAPTIVE_ACQUISITION_RETEST.md dist/validation-kit/
+          cp protocol/schemas/autogeometry-v2.json dist/validation-kit/autogeometry-v2.schema.json
+          cp calibration/ble-range-calibration-*.json dist/validation-kit/
+          (cd dist/validation-kit && zip -r ../body-finder-validation-tools.zip .)
+          rm -rf dist/validation-kit
+          mkdir -p dist/calibration-fixtures && cp validation/fixtures/ble-range/*.json dist/calibration-fixtures/ && (cd dist/calibration-fixtures && zip -r ../ble-range-calibration-fixtures.zip .) && rm -rf dist/calibration-fixtures
+          mkdir -p dist/continuity-fixtures && cp validation/fixtures/ble-continuity/*.json dist/continuity-fixtures/ && (cd dist/continuity-fixtures && zip -r ../ble-continuity-regression-fixtures.zip .) && rm -rf dist/continuity-fixtures
+          mkdir -p dist/acquisition-fixtures && cp validation/fixtures/ble-acquisition/*.json dist/acquisition-fixtures/ && (cd dist/acquisition-fixtures && zip -r ../ble-acquisition-regression-fixtures.zip .) && rm -rf dist/acquisition-fixtures
+          mkdir -p dist/adaptive-fixtures && cp validation/fixtures/ble-adaptive-acquisition/*.json dist/adaptive-fixtures/ && cp validation/android/check_ble_adaptive_acquisition_contract.py dist/adaptive-fixtures/ && (cd dist/adaptive-fixtures && zip -r ../ble-adaptive-acquisition-regression-fixtures.zip .) && rm -rf dist/adaptive-fixtures
+          mkdir -p dist/ranging-fixtures && cp validation/fixtures/android-ranging/*.json dist/ranging-fixtures/ && (cd dist/ranging-fixtures && zip -r ../android-ranging-diagnostics-fixtures.zip .) && rm -rf dist/ranging-fixtures
+          cat > dist/release-manifest.json <<EOF
+          {
+            "schema_version": 8,
+            "release": "dev-9",
+            "commit": "${GITHUB_SHA}",
+            "version": "0.2.0-experimental.9",
+            "protocol_version": 2,
+            "classification": "EXPERIMENTAL_VALIDATED_COARSE_BLE_METRIC_WITH_ADAPTIVE_ACQUISITION_RECOVERY",
+            "automatic_geometry": true,
+            "manual_node_coordinates_required": false,
+            "ble_metric_profile": "android-ble-lab-v1",
+            "ble_metric_profile_validated": true,
+            "ble_metric_profile_physical_confidence": "COARSE",
+            "ble_metric_rssi_at_1m_dbm": -69.19,
+            "ble_metric_path_loss_exponent": 3.62,
+            "ble_metric_valid_distance_min_m": 0.5,
+            "ble_metric_valid_distance_max_m": 5.0,
+            "ble_metric_min_samples": 3,
+            "ble_fresh_ms": 5000,
+            "ble_holdover_max_ms": 10000,
+            "ble_holdover_sigma_aging_m_per_s": 0.15,
+            "ble_primary_strategy": "FILTERED_PRIMARY",
+            "ble_recovery_strategy": "UNFILTERED_RECOVERY",
+            "ble_global_scanner_health_separate": true,
+            "ble_body_finder_cohort_health": true,
+            "ble_cohort_stall_threshold_ms": 5000,
+            "ble_global_scanner_fresh_ms": 2000,
+            "ble_recovery_unfiltered_window_ms": 10000,
+            "ble_filtered_probe_window_ms": 15000,
+            "ble_restart_cooldown_ms": 30000,
+            "ble_max_recovery_attempts_per_5min": 3,
+            "validation_blocks_battery_saver": true,
+            "android_api36_ranging_ble_acquisition_yield": true,
+            "android_api36_ranging_ble_yield_ms": 120000,
+            "human_scanning_enabled": false,
+            "human_localization_validated": false,
+            "through_wall_validated": false,
+            "rescue_use_validated": false
+          }
+          EOF
+          python3 -m json.tool dist/release-manifest.json >/dev/null
+      - name: Generate SPDX SBOM
+        uses: anchore/sbom-action@v0
+        with:
+          path: .
+          format: spdx-json
+          output-file: dist/SBOM.spdx.json
+      - name: Assert mandatory artifacts
+        shell: bash
+        run: |
+          set -euxo pipefail
+          required=(body-finder-ruview-universal.apk body-finder-ruview.aab body-finder-ruview-legacy-minsdk21.apk body-finder-node-linux-x86_64.tar.gz body-finder-node-linux-x86_64.deb body-finder-node-windows-x86_64.zip body-finder-ruview-ios-simulator.zip ANDROID_BLE_ADAPTIVE_ACQUISITION_RETEST.md IMPLEMENTATION_PLAN_BLE_ADAPTIVE_ACQUISITION_RECOVERY.md ble-adaptive-acquisition-regression-fixtures.zip body-finder-validation-tools.zip release-manifest.json capability-matrix.json protocol-version.txt SBOM.spdx.json)
+          for f in "${required[@]}"; do test -s "dist/$f"; done
+          python3 - <<'PY'
+          import json
+          m=json.load(open('dist/release-manifest.json'))
+          assert m['version']=='0.2.0-experimental.9'
+          assert m['ble_primary_strategy']=='FILTERED_PRIMARY'
+          assert m['ble_recovery_strategy']=='UNFILTERED_RECOVERY'
+          assert m['ble_cohort_stall_threshold_ms']==5000
+          assert m['ble_restart_cooldown_ms']==30000
+          assert m['ble_max_recovery_attempts_per_5min']==3
+          assert m['validation_blocks_battery_saver'] is True
+          assert m['human_scanning_enabled'] is False
+          assert m['rescue_use_validated'] is False
+          PY
+      - name: Generate checksums and verify
+        shell: bash
+        run: |
+          set -euxo pipefail
+          (cd dist && find . -maxdepth 1 -type f ! -name SHA256SUMS -printf '%f\0' | sort -z | xargs -0 sha256sum > SHA256SUMS)
+          (cd dist && sha256sum --check SHA256SUMS)
+          grep -q 'body-finder-ruview-universal.apk' dist/SHA256SUMS
+          grep -q 'ANDROID_BLE_ADAPTIVE_ACQUISITION_RETEST.md' dist/SHA256SUMS
+          grep -q 'ble-adaptive-acquisition-regression-fixtures.zip' dist/SHA256SUMS
+          grep -q 'SBOM.spdx.json' dist/SHA256SUMS
+      - name: Publish dev-9 prerelease
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euxo pipefail
+          TAG=dev-9
+          if gh release view "$TAG" >/dev/null 2>&1; then gh release delete "$TAG" -y --cleanup-tag; fi
+          cat > /tmp/release-notes.md <<'EOF'
+          Experimental Android BLE adaptive acquisition-recovery release.
+
+          The calibrated BLE metric profile is frozen. Manufacturer-filtered LOW_LATENCY is restored as the primary mode; ALL_MATCHES is recovery-only after a full Body Finder cohort stall. Global BLE scanner health is separated from Body Finder cohort health. Recovery is bounded by cooldown/attempt limits and validation cannot start with Battery Saver ON. Human scanning remains blocked.
+
+          Start with `ANDROID_BLE_ADAPTIVE_ACQUISITION_RETEST.md`. Hard physical gates remain usable metric uptime >=90% and Geometry 2D uptime >=90% on all three Android devices. Not validated for rescue use.
+          EOF
+          gh release create "$TAG" --target "$GITHUB_SHA" --prerelease --title "Body Finder – RuView dev-9 — adaptive BLE acquisition recovery" --notes-file /tmp/release-notes.md
+          gh release upload "$TAG" dist/* --clobber

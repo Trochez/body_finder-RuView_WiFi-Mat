@@ -74,7 +74,10 @@
       "role": "fallback sensor/fabric node; experimental.8 acquisition-continuity acceptance targets universal Android app"
     },
     "ubuntu_x86_64": {
-      "artifacts": ["body-finder-node-linux-x86_64.tar.gz", "body-finder-node-linux-x86_64.deb"],
+      "artifacts": [
+        "body-finder-node-linux-x86_64.tar.gz",
+        "body-finder-node-linux-x86_64.deb"
+      ],
       "automatic_geometry_compute": "IMPLEMENTED",
       "geometry_publication_and_consumption": "IMPLEMENTED",
       "manual_coordinates_normal_flow": false,
@@ -131,5 +134,10 @@
     "through_wall_validated": false,
     "rescue_use_validated": false,
     "negative_rf_result_proves_absence": false
-  }
+  },
+  "release_iteration": "experimental.9",
+  "ble_adaptive_acquisition_recovery": true,
+  "ble_primary_strategy": "FILTERED_PRIMARY",
+  "ble_recovery_strategy": "UNFILTERED_RECOVERY",
+  "validation_blocks_battery_saver": true
 }

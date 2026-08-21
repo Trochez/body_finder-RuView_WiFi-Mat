@@ -2,6 +2,7 @@ package com.trochez.bodyfindernative
 
 import android.bluetooth.le.BluetoothLeScanner
 import android.bluetooth.le.ScanCallback
+import android.bluetooth.le.ScanFilter
 import android.bluetooth.le.ScanSettings
 import android.os.Build
 import org.json.JSONObject
@@ -9,24 +10,177 @@ import java.util.concurrent.ConcurrentLinkedDeque
 import java.util.concurrent.atomic.AtomicLong
 import kotlin.math.max
 
+enum class BleAcquisitionStrategy {
+  FILTERED_PRIMARY,
+  UNFILTERED_RECOVERY,
+  FILTERED_RECOVERY_PROBE,
+  COOLDOWN,
+  FAILED_SAFE,
+}
+
+enum class GlobalBleScannerHealth {
+  GLOBAL_SCANNER_HEALTHY,
+  GLOBAL_SCANNER_STALLED,
+  GLOBAL_SCANNER_ERROR,
+  GLOBAL_SCANNER_STARTING,
+  GLOBAL_SCANNER_STOPPED,
+}
+
+enum class BodyFinderCohortHealth {
+  BF_COHORT_HEALTHY,
+  BF_COHORT_SPARSE,
+  BF_COHORT_STALLED,
+  BF_COHORT_RECOVERING,
+  BF_COHORT_UNAVAILABLE,
+}
+
 /**
- * Acquisition-only policy for experimental.8.
+ * Acquisition-only policy for experimental.9.
  *
- * This object MUST NOT change metric calibration, sample-count requirements,
- * freshness, holdover, or solver rules. Its job is to make Android deliver
- * Body Finder advertisements to the already-validated estimator as regularly
- * as possible and to expose enough timing evidence to diagnose every pair.
+ * Physical ranging truth is frozen: android-ble-lab-v1, minSamples=3,
+ * freshness=5s, holdover=10s, sigma aging and solver rules are unchanged.
  */
 internal object BleAcquisitionPolicy {
-  const val SCAN_STRATEGY = "LOW_LATENCY_SOFTWARE_FILTERED_ALL_MATCHES"
+  const val PRIMARY_STRATEGY = "FILTERED_PRIMARY"
+  const val RECOVERY_STRATEGY = "UNFILTERED_RECOVERY"
   const val REPORT_DELAY_MS = 0L
   const val MAX_INTERVAL_SAMPLES = 128
   const val GAP_1S_MS = 1_000L
   const val GAP_2S_MS = 2_000L
   const val GAP_5S_MS = 5_000L
   const val GAP_10S_MS = 10_000L
+
+  const val GLOBAL_SCANNER_FRESH_MS = 2_000L
+  const val COHORT_STALL_THRESHOLD_MS = 5_000L
+  const val RECOVERY_UNFILTERED_WINDOW_MS = 10_000L
+  const val FILTERED_PROBE_WINDOW_MS = 15_000L
+  const val MIN_RESTART_COOLDOWN_MS = 30_000L
+  const val MAX_RECOVERY_ATTEMPTS_PER_5MIN = 3
+  const val RECOVERY_ATTEMPT_WINDOW_MS = 300_000L
+  const val RECOVERY_QUIET_MS = 250L
+
   const val SYSTEM_RANGING_BLE_YIELD_MS = 120_000L
   const val SYSTEM_RANGING_CLOSES_BEFORE_YIELD = 6L
+
+  @Volatile private var strategy: BleAcquisitionStrategy = BleAcquisitionStrategy.FILTERED_PRIMARY
+  @Volatile private var strategySinceWallMs: Long = 0L
+  @Volatile private var lastStrategyReason: String = "STARTUP"
+  @Volatile private var cohortHealth: BodyFinderCohortHealth = BodyFinderCohortHealth.BF_COHORT_UNAVAILABLE
+  @Volatile private var transitionCount: Long = 0L
+  @Volatile private var cohortStallCount: Long = 0L
+  @Volatile private var cohortRecoveryCount: Long = 0L
+  @Volatile private var cohortRecoveryFailureCount: Long = 0L
+  @Volatile private var restartSuppressedCount: Long = 0L
+  @Volatile private var recoveryStartedWallMs: Long? = null
+  @Volatile private var lastRecoveryLatencyMs: Long? = null
+  @Volatile private var lastRecoveryAttemptWallMs: Long = 0L
+  @Volatile private var filteredAccumulatedMs: Long = 0L
+  @Volatile private var unfilteredAccumulatedMs: Long = 0L
+  private val recoveryAttemptWallMs = ConcurrentLinkedDeque<Long>()
+
+  fun reset(now: Long = System.currentTimeMillis()) {
+    strategy = BleAcquisitionStrategy.FILTERED_PRIMARY
+    strategySinceWallMs = now
+    lastStrategyReason = "STARTUP"
+    cohortHealth = BodyFinderCohortHealth.BF_COHORT_UNAVAILABLE
+    transitionCount = 0
+    cohortStallCount = 0
+    cohortRecoveryCount = 0
+    cohortRecoveryFailureCount = 0
+    restartSuppressedCount = 0
+    recoveryStartedWallMs = null
+    lastRecoveryLatencyMs = null
+    lastRecoveryAttemptWallMs = 0
+    filteredAccumulatedMs = 0
+    unfilteredAccumulatedMs = 0
+    recoveryAttemptWallMs.clear()
+  }
+
+  fun currentStrategy(): BleAcquisitionStrategy = strategy
+  fun currentCohortHealth(): BodyFinderCohortHealth = cohortHealth
+  fun strategySinceMs(): Long = strategySinceWallMs
+  fun recoveryStartedMs(): Long? = recoveryStartedWallMs
+  fun transitionCount(): Long = transitionCount
+  fun cohortStallCount(): Long = cohortStallCount
+  fun cohortRecoveryCount(): Long = cohortRecoveryCount
+  fun cohortRecoveryFailureCount(): Long = cohortRecoveryFailureCount
+  fun restartSuppressedCount(): Long = restartSuppressedCount
+
+  @Synchronized
+  fun transition(next: BleAcquisitionStrategy, now: Long, reason: String) {
+    if (strategy == next) return
+    accumulateCurrentMode(now)
+    strategy = next
+    strategySinceWallMs = now
+    lastStrategyReason = reason
+    transitionCount++
+  }
+
+  @Synchronized
+  fun updateCohortHealth(next: BodyFinderCohortHealth) {
+    if (next == BodyFinderCohortHealth.BF_COHORT_STALLED && cohortHealth != BodyFinderCohortHealth.BF_COHORT_STALLED) {
+      cohortStallCount++
+    }
+    cohortHealth = next
+  }
+
+  @Synchronized
+  fun canStartRecovery(now: Long): Boolean {
+    while (true) {
+      val first = recoveryAttemptWallMs.peekFirst() ?: break
+      if (now - first <= RECOVERY_ATTEMPT_WINDOW_MS) break
+      recoveryAttemptWallMs.pollFirst()
+    }
+    if (lastRecoveryAttemptWallMs > 0 && now - lastRecoveryAttemptWallMs < MIN_RESTART_COOLDOWN_MS) {
+      restartSuppressedCount++
+      return false
+    }
+    if (recoveryAttemptWallMs.size >= MAX_RECOVERY_ATTEMPTS_PER_5MIN) {
+      restartSuppressedCount++
+      return false
+    }
+    return true
+  }
+
+  @Synchronized
+  fun beginRecovery(now: Long, reason: String) {
+    recoveryAttemptWallMs.addLast(now)
+    lastRecoveryAttemptWallMs = now
+    recoveryStartedWallMs = now
+    transition(BleAcquisitionStrategy.UNFILTERED_RECOVERY, now, reason)
+    cohortHealth = BodyFinderCohortHealth.BF_COHORT_RECOVERING
+  }
+
+  @Synchronized
+  fun noteRecoverySuccess(now: Long) {
+    val start = recoveryStartedWallMs
+    if (start != null) lastRecoveryLatencyMs = max(0L, now - start)
+    cohortRecoveryCount++
+    recoveryStartedWallMs = null
+  }
+
+  @Synchronized
+  fun noteRecoveryFailure() {
+    cohortRecoveryFailureCount++
+    recoveryStartedWallMs = null
+  }
+
+  @Synchronized
+  fun markFailedSafe(now: Long, reason: String) {
+    transition(BleAcquisitionStrategy.FAILED_SAFE, now, reason)
+  }
+
+  private fun isFiltered(s: BleAcquisitionStrategy): Boolean =
+    s == BleAcquisitionStrategy.FILTERED_PRIMARY || s == BleAcquisitionStrategy.FILTERED_RECOVERY_PROBE || s == BleAcquisitionStrategy.COOLDOWN
+
+  private fun accumulateCurrentMode(now: Long) {
+    val elapsed = max(0L, now - strategySinceWallMs)
+    if (strategy == BleAcquisitionStrategy.UNFILTERED_RECOVERY) unfilteredAccumulatedMs += elapsed
+    else if (isFiltered(strategy)) filteredAccumulatedMs += elapsed
+  }
+
+  fun filteredTotalMs(now: Long): Long = filteredAccumulatedMs + if (isFiltered(strategy)) max(0L, now - strategySinceWallMs) else 0L
+  fun unfilteredTotalMs(now: Long): Long = unfilteredAccumulatedMs + if (strategy == BleAcquisitionStrategy.UNFILTERED_RECOVERY) max(0L, now - strategySinceWallMs) else 0L
 
   fun scanSettings(): ScanSettings {
     val builder = ScanSettings.Builder()
@@ -34,25 +188,52 @@ internal object BleAcquisitionPolicy {
       .setReportDelay(REPORT_DELAY_MS)
       .setCallbackType(ScanSettings.CALLBACK_TYPE_ALL_MATCHES)
     if (Build.VERSION.SDK_INT >= 23) {
-      builder
-        .setMatchMode(ScanSettings.MATCH_MODE_AGGRESSIVE)
+      builder.setMatchMode(ScanSettings.MATCH_MODE_AGGRESSIVE)
         .setNumOfMatches(ScanSettings.MATCH_NUM_MAX_ADVERTISEMENT)
     }
     return builder.build()
   }
 
-  /**
-   * Deliberately use no controller/hardware ScanFilter. Body Finder's
-   * manufacturer id and payload magic are validated in recordScan(). This
-   * avoids device-specific hardware/offload filter suppression while keeping
-   * exactly the same logical Body Finder filter.
-   */
-  fun startSoftwareFilteredScan(scanner: BluetoothLeScanner, callback: ScanCallback) {
+  fun manufacturerFilter(manufacturerId: Int): ScanFilter {
+    val prefix = byteArrayOf(0x42, 0x46)
+    val mask = byteArrayOf(0xff.toByte(), 0xff.toByte())
+    return ScanFilter.Builder().setManufacturerData(manufacturerId, prefix, mask).build()
+  }
+
+  fun startFilteredScan(scanner: BluetoothLeScanner, callback: ScanCallback, manufacturerId: Int) {
+    scanner.startScan(listOf(manufacturerFilter(manufacturerId)), scanSettings(), callback)
+  }
+
+  fun startUnfilteredRecoveryScan(scanner: BluetoothLeScanner, callback: ScanCallback) {
     scanner.startScan(null, scanSettings(), callback)
   }
 
   fun matchModeLabel(): String = if (Build.VERSION.SDK_INT >= 23) "AGGRESSIVE" else "PLATFORM_DEFAULT"
   fun numMatchesLabel(): String = if (Build.VERSION.SDK_INT >= 23) "MAX_ADVERTISEMENT" else "PLATFORM_DEFAULT"
+
+  fun diagnostics(now: Long): JSONObject = JSONObject()
+    .put("primary_strategy", PRIMARY_STRATEGY)
+    .put("recovery_strategy", RECOVERY_STRATEGY)
+    .put("acquisition_strategy", strategy.name)
+    .put("strategy_since_wall_ms", strategySinceWallMs)
+    .put("strategy_age_ms", max(0L, now - strategySinceWallMs))
+    .put("strategy_transition_count", transitionCount)
+    .put("last_strategy_reason", lastStrategyReason)
+    .put("body_finder_cohort_health", cohortHealth.name)
+    .put("cohort_stall_count", cohortStallCount)
+    .put("cohort_recovery_count", cohortRecoveryCount)
+    .put("cohort_recovery_failure_count", cohortRecoveryFailureCount)
+    .put("cohort_recovery_last_latency_ms", lastRecoveryLatencyMs ?: JSONObject.NULL)
+    .put("recovery_started_wall_ms", recoveryStartedWallMs ?: JSONObject.NULL)
+    .put("restart_suppressed_by_cooldown_count", restartSuppressedCount)
+    .put("filtered_mode_total_ms", filteredTotalMs(now))
+    .put("unfiltered_recovery_total_ms", unfilteredTotalMs(now))
+    .put("cohort_stall_threshold_ms", COHORT_STALL_THRESHOLD_MS)
+    .put("global_scanner_fresh_ms", GLOBAL_SCANNER_FRESH_MS)
+    .put("recovery_unfiltered_window_ms", RECOVERY_UNFILTERED_WINDOW_MS)
+    .put("filtered_probe_window_ms", FILTERED_PROBE_WINDOW_MS)
+    .put("restart_cooldown_ms", MIN_RESTART_COOLDOWN_MS)
+    .put("max_recovery_attempts_per_5min", MAX_RECOVERY_ATTEMPTS_PER_5MIN)
 
   fun health(callbackCount: Long, currentGapMs: Long?, valid5s: Int, valid8s: Int): String = when {
     callbackCount <= 0L -> "NO_BODY_FINDER_CALLBACK"
@@ -74,6 +255,8 @@ internal data class BleAcquisitionCounterSnapshot(
   val gapGt2sCount: Long,
   val gapGt5sCount: Long,
   val gapGt10sCount: Long,
+  val filteredCallbackCount: Long = 0,
+  val unfilteredCallbackCount: Long = 0,
 )
 
 internal class BleAcquisitionStats {
@@ -82,6 +265,8 @@ internal class BleAcquisitionStats {
   private val callbackCount = AtomicLong(0)
   private val validCallbackCount = AtomicLong(0)
   private val invalidCallbackCount = AtomicLong(0)
+  private val filteredCallbackCount = AtomicLong(0)
+  private val unfilteredCallbackCount = AtomicLong(0)
   private val intervalCount = AtomicLong(0)
   private val intervalSumMs = AtomicLong(0)
   private val maxIntervalMs = AtomicLong(0)
@@ -90,12 +275,19 @@ internal class BleAcquisitionStats {
   private val gapGt5sCount = AtomicLong(0)
   private val gapGt10sCount = AtomicLong(0)
   private val recentIntervalsMs = ConcurrentLinkedDeque<Long>()
+  @Volatile private var lastCallbackStrategy: String? = null
+  @Volatile private var lastValidCallbackStrategy: String? = null
 
-  fun record(now: Long, validRssi: Boolean) {
+  fun record(now: Long, validRssi: Boolean, strategy: BleAcquisitionStrategy = BleAcquisitionPolicy.currentStrategy()) {
     firstCallbackWallMs.compareAndSet(0L, now)
     val previous = lastCallbackWallMs.getAndSet(now)
     callbackCount.incrementAndGet()
-    if (validRssi) validCallbackCount.incrementAndGet() else invalidCallbackCount.incrementAndGet()
+    lastCallbackStrategy = strategy.name
+    if (strategy == BleAcquisitionStrategy.UNFILTERED_RECOVERY) unfilteredCallbackCount.incrementAndGet() else filteredCallbackCount.incrementAndGet()
+    if (validRssi) {
+      validCallbackCount.incrementAndGet()
+      lastValidCallbackStrategy = strategy.name
+    } else invalidCallbackCount.incrementAndGet()
     if (previous <= 0L) return
     val interval = max(0L, now - previous)
     intervalCount.incrementAndGet()
@@ -113,13 +305,9 @@ internal class BleAcquisitionStats {
   }
 
   fun snapshot(): BleAcquisitionCounterSnapshot = BleAcquisitionCounterSnapshot(
-    callbackCount = callbackCount.get(),
-    validCallbackCount = validCallbackCount.get(),
-    invalidCallbackCount = invalidCallbackCount.get(),
-    gapGt1sCount = gapGt1sCount.get(),
-    gapGt2sCount = gapGt2sCount.get(),
-    gapGt5sCount = gapGt5sCount.get(),
-    gapGt10sCount = gapGt10sCount.get(),
+    callbackCount.get(), validCallbackCount.get(), invalidCallbackCount.get(),
+    gapGt1sCount.get(), gapGt2sCount.get(), gapGt5sCount.get(), gapGt10sCount.get(),
+    filteredCallbackCount.get(), unfilteredCallbackCount.get(),
   )
 
   private fun percentile(values: List<Long>, p: Double): Any {
@@ -159,6 +347,10 @@ internal class BleAcquisitionStats {
       .put("gap_gt_2s_count", snap.gapGt2sCount)
       .put("gap_gt_5s_count", snap.gapGt5sCount)
       .put("gap_gt_10s_count", snap.gapGt10sCount)
+      .put("last_callback_strategy", lastCallbackStrategy ?: JSONObject.NULL)
+      .put("last_valid_callback_strategy", lastValidCallbackStrategy ?: JSONObject.NULL)
+      .put("callbacks_filtered_mode", snap.filteredCallbackCount)
+      .put("callbacks_unfiltered_mode", snap.unfilteredCallbackCount)
       .put("run_callback_delta", delta(snap.callbackCount, baseline?.callbackCount))
       .put("run_valid_callback_delta", delta(snap.validCallbackCount, baseline?.validCallbackCount))
       .put("run_invalid_callback_delta", delta(snap.invalidCallbackCount, baseline?.invalidCallbackCount))
@@ -166,5 +358,7 @@ internal class BleAcquisitionStats {
       .put("run_gap_gt_2s_delta", delta(snap.gapGt2sCount, baseline?.gapGt2sCount))
       .put("run_gap_gt_5s_delta", delta(snap.gapGt5sCount, baseline?.gapGt5sCount))
       .put("run_gap_gt_10s_delta", delta(snap.gapGt10sCount, baseline?.gapGt10sCount))
+      .put("run_callbacks_filtered_delta", delta(snap.filteredCallbackCount, baseline?.filteredCallbackCount))
+      .put("run_callbacks_unfiltered_delta", delta(snap.unfilteredCallbackCount, baseline?.unfilteredCallbackCount))
   }
 }
