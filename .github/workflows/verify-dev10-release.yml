@@ -1,0 +1,110 @@
+name: Verify dev-10 release assets
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'VERIFY_DEV10_RELEASE_TRIGGER.txt'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Download and verify published dev-10
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euxo pipefail
+          rm -rf /tmp/dev10-assets
+          mkdir -p /tmp/dev10-assets verification
+          gh release view dev-10 --json tagName,name,isDraft,isPrerelease,publishedAt,targetCommitish,url,assets > /tmp/dev10-release.json
+          gh release download dev-10 --dir /tmp/dev10-assets
+          required=(
+            body-finder-ruview-universal.apk
+            body-finder-ruview.aab
+            body-finder-ruview-legacy-minsdk21.apk
+            body-finder-node-linux-x86_64.tar.gz
+            body-finder-node-linux-x86_64.deb
+            body-finder-node-windows-x86_64.zip
+            body-finder-ruview-ios-simulator.zip
+            ANDROID_DEV10_VALIDATION_INTEGRITY_RETEST.md
+            IMPLEMENTATION_PLAN_POST_DEV9_VALIDATION_INTEGRITY_AND_RECOVERY_PROVENANCE.md
+            validation-run-snapshot-v1.schema.json
+            validation-snapshot-regression-fixtures.zip
+            body-finder-validation-tools.zip
+            release-manifest.json
+            capability-matrix.json
+            ble-range-calibration-profiles.json
+            protocol-version.txt
+            model-manifest.json
+            SBOM.spdx.json
+            SHA256SUMS
+          )
+          for f in "${required[@]}"; do test -s "/tmp/dev10-assets/$f"; done
+          (cd /tmp/dev10-assets && sha256sum --check SHA256SUMS)
+          python3 - <<'PY'
+          import json, pathlib, hashlib
+          release=json.load(open('/tmp/dev10-release.json'))
+          manifest=json.load(open('/tmp/dev10-assets/release-manifest.json'))
+          assert release['tagName']=='dev-10'
+          assert release['isDraft'] is False
+          assert release['isPrerelease'] is True
+          assert manifest['release']=='dev-10'
+          assert manifest['version']=='0.2.0-experimental.10'
+          assert manifest['validation_snapshot_immutable'] is True
+          assert manifest['validation_recovery_provenance'] is True
+          assert manifest['human_scanning_enabled'] is False
+          assert manifest['rescue_use_validated'] is False
+          assets=release.get('assets',[])
+          names={a['name'] for a in assets}
+          required={
+            'body-finder-ruview-universal.apk','body-finder-ruview.aab','body-finder-ruview-legacy-minsdk21.apk',
+            'body-finder-node-linux-x86_64.tar.gz','body-finder-node-linux-x86_64.deb','body-finder-node-windows-x86_64.zip',
+            'body-finder-ruview-ios-simulator.zip','ANDROID_DEV10_VALIDATION_INTEGRITY_RETEST.md',
+            'IMPLEMENTATION_PLAN_POST_DEV9_VALIDATION_INTEGRITY_AND_RECOVERY_PROVENANCE.md',
+            'validation-run-snapshot-v1.schema.json','validation-snapshot-regression-fixtures.zip',
+            'body-finder-validation-tools.zip','release-manifest.json','capability-matrix.json',
+            'ble-range-calibration-profiles.json','protocol-version.txt','model-manifest.json','SBOM.spdx.json','SHA256SUMS'
+          }
+          missing=sorted(required-names)
+          assert not missing, missing
+          sha=hashlib.sha256(pathlib.Path('/tmp/dev10-assets/SHA256SUMS').read_bytes()).hexdigest()
+          out={
+            'schema_version':1,
+            'release':'dev-10',
+            'version':'0.2.0-experimental.10',
+            'published_at':release.get('publishedAt'),
+            'release_url':release.get('url'),
+            'target_commitish':release.get('targetCommitish'),
+            'asset_count':len(assets),
+            'mandatory_asset_count':len(required),
+            'missing_mandatory_assets':missing,
+            'sha256sums_verified':True,
+            'sha256sums_file_sha256':sha,
+            'manifest_verified':True,
+            'android_universal_size_bytes':pathlib.Path('/tmp/dev10-assets/body-finder-ruview-universal.apk').stat().st_size,
+            'android_aab_size_bytes':pathlib.Path('/tmp/dev10-assets/body-finder-ruview.aab').stat().st_size,
+            'android_legacy_size_bytes':pathlib.Path('/tmp/dev10-assets/body-finder-ruview-legacy-minsdk21.apk').stat().st_size,
+            'linux_tar_size_bytes':pathlib.Path('/tmp/dev10-assets/body-finder-node-linux-x86_64.tar.gz').stat().st_size,
+            'linux_deb_size_bytes':pathlib.Path('/tmp/dev10-assets/body-finder-node-linux-x86_64.deb').stat().st_size,
+            'windows_zip_size_bytes':pathlib.Path('/tmp/dev10-assets/body-finder-node-windows-x86_64.zip').stat().st_size,
+            'ios_simulator_zip_size_bytes':pathlib.Path('/tmp/dev10-assets/body-finder-ruview-ios-simulator.zip').stat().st_size,
+          }
+          pathlib.Path('verification/dev10-release-verification.json').write_text(json.dumps(out,indent=2)+'\n')
+          print(json.dumps(out,indent=2))
+          PY
+      - name: Persist verification report
+        shell: bash
+        run: |
+          set -euxo pipefail
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git add verification/dev10-release-verification.json
+          git commit -m 'verify: record dev-10 published release integrity'
+          git push origin HEAD:main
