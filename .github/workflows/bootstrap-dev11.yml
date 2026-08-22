@@ -2,18 +2,16 @@ name: Bootstrap dev11 implementation
 
 on:
   push:
-    branches: [feat/dev11-post-validation-integrity]
+    branches: [main, feat/dev11-post-validation-integrity]
     paths:
       - 'DEV11_BOOTSTRAP_TRIGGER.txt'
-  pull_request:
-    branches: [main]
   workflow_dispatch:
 
 permissions:
   contents: write
 
 concurrency:
-  group: bootstrap-dev11
+  group: bootstrap-dev11-${{ github.ref }}
   cancel-in-progress: false
 
 jobs:
@@ -22,7 +20,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          ref: feat/dev11-post-validation-integrity
+          ref: ${{ github.ref_name }}
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
@@ -51,5 +49,5 @@ jobs:
             echo 'No implementation changes to commit.'
           else
             git commit -m 'feat: implement dev-11 validation integrity release'
-            git push origin HEAD:feat/dev11-post-validation-integrity
+            git push origin HEAD:${{ github.ref_name }}
           fi
