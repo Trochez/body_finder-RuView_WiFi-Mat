@@ -25,8 +25,8 @@ import {
 import { diagnoseGeometryGraph } from './src/geometryDiagnostics';
 import { applyReciprocalFusion } from './src/rangeFusion';
 
-const BUILD = '0.2.0-experimental.9';
-const REPORT_VERSION = 11;
+const BUILD = '0.2.0-experimental.10';
+const REPORT_VERSION = 12;
 const HUMAN_SCANNING_ENABLED = false;
 
 const T = {
@@ -37,7 +37,7 @@ const T = {
     peers: 'nodes', share: 'Share complete test JSON', empty: 'Keep the target area empty while calibrating.',
     network: 'OPEN / UNTRUSTED FIELD NETWORK', relative: 'POSITION RELATIVE TO THIS DEVICE', geometry: 'SENSOR GEOMETRY',
     estimating: 'Estimating automatically…', positioned: 'nodes positioned', residual: 'solver residual', condition: 'graph condition',
-    noTarget: 'Human scanning remains intentionally blocked until the experimental.9 BLE acquisition-continuity gate is reviewed. This build validates sensor geometry acquisition continuity only.',
+    noTarget: 'Human scanning remains intentionally blocked until the experimental.10 validation-integrity gate is reviewed. This build validates sensor geometry acquisition continuity only.',
     confidence: 'human confidence', uncertainty: 'position uncertainty',
     evidence: 'Evidence: connected-Wi-Fi RSSI disturbance (not CSI). Sensor metric coordinates require validated pairwise ranging.',
     unresolved: 'unresolved nodes are intentionally not placed on the radar', startRun: 'Start validation run', endRun: 'End validation run',
@@ -207,7 +207,7 @@ export default function App() {
       if (validationRun?.active) BodyFinderNative.endValidationRun();
       else {
         const result = BodyFinderNative.startValidationRun();
-        if (typeof result === 'string' && result.startsWith('VALIDATION_ENVVIRONMENT_INVALID:')) {
+        if (typeof result === 'string' && result.startsWith('VALIDATION_ENVIRONMENT_INVALID:')) {
           const reason = result.split(':').slice(1).join(':');
           setError(lang === 'es' ? `Ambiente de validación inválido: ${reason}. Desactiva Battery Saver, mantén pantalla encendida y Body Finder en primer plano.` : `Invalid validation environment: ${reason}. Turn Battery Saver off, keep the screen on and Body Finder in foreground.`);
           return;
@@ -267,9 +267,9 @@ export default function App() {
       },
       range_observations: nodes.flatMap(node => node.ranges ?? []), estimate_array_frame: arrayTarget,
       estimate_relative_to_this_device: target,
-      instructions: 'Return this JSON and screenshots from the 5-minute experimental.9 adaptive BLE acquisition-recovery run. Do not change calibration, minSamples, freshness, holdover or solver settings. Human scanning remains blocked until acquisition continuity is accepted.',
+      instructions: 'Return both exports and screenshots from the 5-minute experimental.10 validation-integrity run plus the 3-minute post-End immutability interval. Do not change calibration, minSamples, freshness, holdover or solver settings. Human scanning remains blocked until acquisition continuity is accepted.',
     };
-    await Share.share({ message: JSON.stringify(payload, null, 2), title: 'Body Finder experimental.9 adaptive BLE acquisition result' });
+    await Share.share({ message: JSON.stringify(payload, null, 2), title: 'Body Finder experimental.10 validation integrity result' });
   }
 
   const scale = 18;
@@ -318,9 +318,9 @@ export default function App() {
             <Text style={s.text}>{tx.uncertainty}: {target.uncertainty_percent.toFixed(0)}% · ±{target.error_radius_95_m.toFixed(1)} m (95%)</Text><Text style={s.muted}>{tx.evidence}</Text></View>
             : <View style={s.card}><Text style={s.text}>{tx.noTarget}</Text></View>}
           <View style={s.card}><Text style={s.h2}>Validation run</Text><Text style={s.text}>run: {validationRun?.run_id ?? '—'} · active: {String(Boolean(validationRun?.active))}</Text>
-            <Text style={s.text}>elapsed: {validationRun?.elapsed_ms ?? 0} ms · peer expiry Δ: {validationRun?.peer_expire_delta ?? 0} · rebind Δ: {validationRun?.address_rebind_delta ?? 0}</Text>
+            <Text style={s.text}>elapsed: {validationRun?.elapsed_ms ?? 0} ms · frozen: {String(Boolean(validationRun?.snapshot_frozen))} · peer expiry Δ: {validationRun?.peer_expire_delta ?? 0} · rebind Δ: {validationRun?.address_rebind_delta ?? 0}</Text>
             <Text style={s.text}>peer: {formatPct(validationRun?.all_peer_uptime_percent)} · fresh metric: {formatPct(validationRun?.fresh_metric_range_uptime_percent)} · usable metric: {formatPct(validationRun?.usable_metric_range_uptime_percent)}</Text>
-            <Text style={s.text}>holdover share: {formatPct(validationRun?.holdover_metric_uptime_percent)} · 2D: {formatPct(validationRun?.geometry_2d_uptime_percent)}</Text></View>
+            <Text style={s.text}>holdover share: {formatPct(validationRun?.holdover_metric_uptime_percent)} · 2D: {formatPct(validationRun?.geometry_2d_uptime_percent)}</Text><Text style={s.text}>recovery attempts Δ: {validationRun?.recovery_attempt_delta ?? 0} · suppressed Δ: {validationRun?.restart_suppressed_delta ?? 0} · cohort stalls Δ: {validationRun?.cohort_stall_delta ?? 0}</Text></View>
           <Pressable style={s.btnTest} onPress={toggleValidationRun}><Text style={s.btnText}>{validationRun?.active ? tx.endRun : tx.startRun}</Text></Pressable>
           <Text style={s.muted}>{tx.empty}</Text>
           <Pressable disabled={calibrating} style={s.btn} onPress={calibrate}><Text style={s.btnText}>{calibrating ? 'CALIBRATING…' : tx.calibrate}</Text></Pressable>
@@ -333,11 +333,11 @@ export default function App() {
             <Text style={s.text}>Node geometry: AUTO ONLY — manual override disabled</Text><Text style={s.text}>Geometry authority: {geometrySelection.source}</Text>
             <Text style={s.text}>BLE RSSI: validated COARSE profile android-ble-lab-v1 only inside 0.5–5.0 m. Profile parameters are frozen from dev-6.</Text>
             <Text style={s.text}>Continuity: fresh metric estimates may enter a bounded 10 s HOLDOVER when samples briefly disappear; sigma increases with age and hard expiry removes the edge.</Text>
-            <Text style={s.text}>Acquisition: experimental.9 uses low-latency ALL_MATCHES scanning with Body Finder manufacturer/payload validation in software; API 23+ requests aggressive/max-advertisement matching.</Text>
+            <Text style={s.text}>Acquisition: experimental.10 uses manufacturer-filtered LOW_LATENCY scanning as FILTERED_PRIMARY. CALLBACK_TYPE_ALL_MATCHES is only the Android callback setting inside the filtered scan; the no-filter path is bounded UNFILTERED_RECOVERY only.</Text>
             <Text style={s.text}>API36+: repeated RangingManager close/no-result churn enters a bounded BLE-acquisition yield; only a real platform distance resets system-ranging failures.</Text>
             <Text style={s.text}>RSSI 127 and other invalid values are filtered before the valid queue and are counted separately for diagnostics.</Text>
             <Text style={s.text}>Reciprocal A↔B BLE observations are inverse-variance fused before the solver; REJECT never enters geometry.</Text>
-            <Text style={s.text}>Human scanning: BLOCKED until the experimental.9 BLE acquisition-continuity gate is reviewed.</Text>
+            <Text style={s.text}>Human scanning: BLOCKED until the experimental.10 validation-integrity gate is reviewed.</Text>
             <Text style={s.text}>Graph condition is not physical accuracy. CSI remains unsupported unless a verified adapter is loaded.</Text></View>
           <Pressable style={s.btnTest} onPress={toggleValidationRun}><Text style={s.btnText}>{validationRun?.active ? tx.endRun : tx.startRun}</Text></Pressable>
           {[

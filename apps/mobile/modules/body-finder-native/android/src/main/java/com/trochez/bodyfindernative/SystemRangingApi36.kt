@@ -28,6 +28,7 @@ import kotlin.math.min
  * validated Body Finder BLE scanner/advertiser can use controller resources
  * without continuous RangingManager session recreation.
  */
+internal data class SystemRangingCounterSnapshot(val yieldTransitions:Long,val realDistanceResults:Long,val closeFailures:Long)
 @RequiresApi(36)
 internal object SystemRangingApi36 {
   private const val RESULT_FRESHNESS_MS = 5_000L
@@ -76,12 +77,15 @@ internal object SystemRangingApi36 {
   private val closeFailureCount = AtomicLong(0)
   private val unexpectedFailureCount = AtomicLong(0)
   private val bleYieldCount = AtomicLong(0)
+  private val realDistanceResultCount = AtomicLong(0)
   val measurements = ConcurrentHashMap<String, Measurement>()
 
   fun hasFreshResult(now: Long = System.currentTimeMillis()): Boolean =
     measurements.values.any { it.distanceM != null && now - it.receivedWallMs <= RESULT_FRESHNESS_MS }
 
   fun isBleYieldActive(now: Long = System.currentTimeMillis()): Boolean = now < bleYieldUntilWallMs
+  fun stateLabel(): String = state
+  fun counterSnapshot(): SystemRangingCounterSnapshot = SystemRangingCounterSnapshot(bleYieldCount.get(), realDistanceResultCount.get(), closeFailureCount.get())
 
   fun diagnostics(now: Long = System.currentTimeMillis()): JSONObject = JSONObject().apply {
     put("state", state)
@@ -118,6 +122,7 @@ internal object SystemRangingApi36 {
     closeFailureCount.set(0)
     unexpectedFailureCount.set(0)
     bleYieldCount.set(0)
+    realDistanceResultCount.set(0)
     requestedPeerCount = 0
     activePeerCount = 0
     lastResultWallMs = null
@@ -140,6 +145,7 @@ internal object SystemRangingApi36 {
     bleYieldReason = reason
     state = "BLE_ACQUISITION_YIELD"
     detail = "API36 RangingManager yielding for validated BLE acquisition: $reason; real fresh system ranges remain preferred when available"
+    ValidationEventLog.record("RANGING_YIELD_ENTER", reason, now = now)
   }
 
   private fun registerFailure(now: Long, kind: String) {
@@ -155,7 +161,9 @@ internal object SystemRangingApi36 {
   }
 
   /** Only a real platform distance is a success. */
-  private fun registerRealRangeSuccess() {
+  private fun registerRealRangeSuccess(now: Long) {
+    realDistanceResultCount.incrementAndGet()
+    ValidationEventLog.record("RANGING_REAL_DISTANCE", "REAL_PLATFORM_DISTANCE", now = now)
     consecutiveFailures = 0
     nextRetryWallMs = 0
     circuitOpenUntilWallMs = 0
@@ -316,7 +324,7 @@ internal object SystemRangingApi36 {
           )
           lastResultWallMs = received
           resultCount.incrementAndGet()
-          if (distanceM != null) registerRealRangeSuccess()
+          if (distanceM != null) registerRealRangeSuccess(received)
           state = if (distanceM != null) "ACTIVE_RESULT" else "ACTIVE_NO_DISTANCE"
           detail = "API36 RangingManager live result peer=$peerNodeId technology=$technology distance=${distanceM ?: "null"}"
         }

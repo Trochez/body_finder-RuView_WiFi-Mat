@@ -71,6 +71,7 @@ internal object BleAcquisitionPolicy {
   @Volatile private var cohortRecoveryCount: Long = 0L
   @Volatile private var cohortRecoveryFailureCount: Long = 0L
   @Volatile private var restartSuppressedCount: Long = 0L
+  @Volatile private var recoveryAttemptCountTotal: Long = 0L
   @Volatile private var recoveryStartedWallMs: Long? = null
   @Volatile private var lastRecoveryLatencyMs: Long? = null
   @Volatile private var lastRecoveryAttemptWallMs: Long = 0L
@@ -88,6 +89,7 @@ internal object BleAcquisitionPolicy {
     cohortRecoveryCount = 0
     cohortRecoveryFailureCount = 0
     restartSuppressedCount = 0
+    recoveryAttemptCountTotal = 0
     recoveryStartedWallMs = null
     lastRecoveryLatencyMs = null
     lastRecoveryAttemptWallMs = 0
@@ -105,6 +107,16 @@ internal object BleAcquisitionPolicy {
   fun cohortRecoveryCount(): Long = cohortRecoveryCount
   fun cohortRecoveryFailureCount(): Long = cohortRecoveryFailureCount
   fun restartSuppressedCount(): Long = restartSuppressedCount
+  fun recoveryAttemptCount(): Long = recoveryAttemptCountTotal
+  fun lastStrategyReason(): String = lastStrategyReason
+  @Synchronized fun recoveryAttemptsInWindow(now: Long): Int {
+    while (true) {
+      val first = recoveryAttemptWallMs.peekFirst() ?: break
+      if (now - first <= RECOVERY_ATTEMPT_WINDOW_MS) break
+      recoveryAttemptWallMs.pollFirst()
+    }
+    return recoveryAttemptWallMs.size
+  }
 
   @Synchronized
   fun transition(next: BleAcquisitionStrategy, now: Long, reason: String) {
@@ -114,12 +126,14 @@ internal object BleAcquisitionPolicy {
     strategySinceWallMs = now
     lastStrategyReason = reason
     transitionCount++
+    ValidationEventLog.record("ACQUISITION_STRATEGY_CHANGED", "$reason:${next.name}", now = now)
   }
 
   @Synchronized
   fun updateCohortHealth(next: BodyFinderCohortHealth) {
     if (next == BodyFinderCohortHealth.BF_COHORT_STALLED && cohortHealth != BodyFinderCohortHealth.BF_COHORT_STALLED) {
       cohortStallCount++
+      ValidationEventLog.record("BF_COHORT_STALLED", "GLOBAL_HEALTHY_BF_STALE", now = System.currentTimeMillis())
     }
     cohortHealth = next
   }
@@ -133,10 +147,12 @@ internal object BleAcquisitionPolicy {
     }
     if (lastRecoveryAttemptWallMs > 0 && now - lastRecoveryAttemptWallMs < MIN_RESTART_COOLDOWN_MS) {
       restartSuppressedCount++
+      ValidationEventLog.record("RECOVERY_SUPPRESSED_COOLDOWN", "MIN_RESTART_COOLDOWN")
       return false
     }
     if (recoveryAttemptWallMs.size >= MAX_RECOVERY_ATTEMPTS_PER_5MIN) {
       restartSuppressedCount++
+      ValidationEventLog.record("RECOVERY_SUPPRESSED_MAX_ATTEMPTS", "MAX_RECOVERY_ATTEMPTS_PER_5MIN")
       return false
     }
     return true
@@ -144,7 +160,9 @@ internal object BleAcquisitionPolicy {
 
   @Synchronized
   fun beginRecovery(now: Long, reason: String) {
+    recoveryAttemptCountTotal++
     recoveryAttemptWallMs.addLast(now)
+    ValidationEventLog.record("RECOVERY_REQUESTED", reason, now = now)
     lastRecoveryAttemptWallMs = now
     recoveryStartedWallMs = now
     transition(BleAcquisitionStrategy.UNFILTERED_RECOVERY, now, reason)
@@ -156,12 +174,14 @@ internal object BleAcquisitionPolicy {
     val start = recoveryStartedWallMs
     if (start != null) lastRecoveryLatencyMs = max(0L, now - start)
     cohortRecoveryCount++
+    ValidationEventLog.record("RECOVERY_SUCCESS", "FIRST_VALID_BF_CALLBACK", now = now)
     recoveryStartedWallMs = null
   }
 
   @Synchronized
   fun noteRecoveryFailure() {
     cohortRecoveryFailureCount++
+    ValidationEventLog.record("RECOVERY_FAILURE", "RECOVERY_WINDOW_EXPIRED")
     recoveryStartedWallMs = null
   }
 
@@ -226,6 +246,8 @@ internal object BleAcquisitionPolicy {
     .put("cohort_recovery_last_latency_ms", lastRecoveryLatencyMs ?: JSONObject.NULL)
     .put("recovery_started_wall_ms", recoveryStartedWallMs ?: JSONObject.NULL)
     .put("restart_suppressed_by_cooldown_count", restartSuppressedCount)
+    .put("recovery_attempt_count", recoveryAttemptCountTotal)
+    .put("recovery_attempts_in_current_5min_window", recoveryAttemptsInWindow(now))
     .put("filtered_mode_total_ms", filteredTotalMs(now))
     .put("unfiltered_recovery_total_ms", unfilteredTotalMs(now))
     .put("cohort_stall_threshold_ms", COHORT_STALL_THRESHOLD_MS)
@@ -275,6 +297,8 @@ internal class BleAcquisitionStats {
   private val gapGt5sCount = AtomicLong(0)
   private val gapGt10sCount = AtomicLong(0)
   private val recentIntervalsMs = ConcurrentLinkedDeque<Long>()
+  private val peerRecoveryCount = AtomicLong(0)
+  private val lastPeerRecoveryLatencyMs = AtomicLong(0)
   @Volatile private var lastCallbackStrategy: String? = null
   @Volatile private var lastValidCallbackStrategy: String? = null
 
@@ -298,7 +322,7 @@ internal class BleAcquisitionStats {
     }
     if (interval > BleAcquisitionPolicy.GAP_1S_MS) gapGt1sCount.incrementAndGet()
     if (interval > BleAcquisitionPolicy.GAP_2S_MS) gapGt2sCount.incrementAndGet()
-    if (interval > BleAcquisitionPolicy.GAP_5S_MS) gapGt5sCount.incrementAndGet()
+    if (interval > BleAcquisitionPolicy.GAP_5S_MS) { gapGt5sCount.incrementAndGet(); peerRecoveryCount.incrementAndGet(); lastPeerRecoveryLatencyMs.set(interval) }
     if (interval > BleAcquisitionPolicy.GAP_10S_MS) gapGt10sCount.incrementAndGet()
     recentIntervalsMs.addLast(interval)
     while (recentIntervalsMs.size > BleAcquisitionPolicy.MAX_INTERVAL_SAMPLES) recentIntervalsMs.pollFirst()
@@ -360,5 +384,8 @@ internal class BleAcquisitionStats {
       .put("run_gap_gt_10s_delta", delta(snap.gapGt10sCount, baseline?.gapGt10sCount))
       .put("run_callbacks_filtered_delta", delta(snap.filteredCallbackCount, baseline?.filteredCallbackCount))
       .put("run_callbacks_unfiltered_delta", delta(snap.unfilteredCallbackCount, baseline?.unfilteredCallbackCount))
+      .put("peer_stall_count", snap.gapGt5sCount)
+      .put("peer_recovery_count", peerRecoveryCount.get())
+      .put("peer_recovery_latency_ms", lastPeerRecoveryLatencyMs.get().takeIf { it > 0 } ?: JSONObject.NULL)
   }
 }

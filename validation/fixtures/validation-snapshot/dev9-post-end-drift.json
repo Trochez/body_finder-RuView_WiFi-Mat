@@ -1,0 +1,32 @@
+{
+  "schema_version": 1,
+  "source": "dev-9 physical evidence",
+  "pixel7": {
+    "at_end": {
+      "scan_restart_delta": 2,
+      "strategy_transition_delta": 3,
+      "cohort_stall_delta": 1,
+      "cohort_recovery_delta": 1
+    },
+    "later_same_run": {
+      "scan_restart_delta": 4,
+      "strategy_transition_delta": 6,
+      "cohort_stall_delta": 2,
+      "cohort_recovery_delta": 2
+    }
+  },
+  "pixel10": {
+    "at_end": {
+      "scan_restart_delta": 8,
+      "strategy_transition_delta": 11,
+      "cohort_stall_delta": 4,
+      "cohort_recovery_delta": 4
+    },
+    "later_same_run": {
+      "scan_restart_delta": 10,
+      "strategy_transition_delta": 14,
+      "cohort_stall_delta": 5,
+      "cohort_recovery_delta": 5
+    }
+  }
+}

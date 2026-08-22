@@ -1,0 +1,44 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Body Finder completed validation snapshot v1",
+  "type": "object",
+  "required": [
+    "active",
+    "run_id",
+    "started_wall_ms",
+    "ended_wall_ms",
+    "elapsed_ms",
+    "snapshot_frozen",
+    "snapshot_schema_version",
+    "scan_restart_delta",
+    "strategy_transition_delta",
+    "cohort_stall_delta",
+    "cohort_recovery_delta",
+    "recovery_attempt_delta",
+    "restart_suppressed_delta",
+    "environment_valid",
+    "usable_metric_range_uptime_percent",
+    "geometry_2d_uptime_percent",
+    "peer_expire_delta",
+    "events"
+  ],
+  "properties": {
+    "active": {
+      "const": false
+    },
+    "snapshot_frozen": {
+      "const": true
+    },
+    "snapshot_schema_version": {
+      "const": 1
+    },
+    "recovery_attempt_delta": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 3
+    },
+    "events": {
+      "type": "array"
+    }
+  }
+}

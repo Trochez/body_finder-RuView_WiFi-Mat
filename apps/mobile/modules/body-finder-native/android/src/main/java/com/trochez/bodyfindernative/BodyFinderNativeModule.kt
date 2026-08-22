@@ -83,6 +83,13 @@ private object ValidationRuntime {
   @Volatile private var baselineCohortStalls: Long = 0
   @Volatile private var baselineCohortRecoveries: Long = 0
   @Volatile private var baselineCohortRecoveryFailures: Long = 0
+  @Volatile private var baselineRecoveryAttempts: Long = 0
+  @Volatile private var baselineRestartSuppressed: Long = 0
+  @Volatile private var baselineRangingYield: Long = 0
+  @Volatile private var baselineRangingReal: Long = 0
+  @Volatile private var baselineRangingClose: Long = 0
+  @Volatile private var baselineEventSeq: Long = 0
+  @Volatile private var completedSnapshotJson: String? = null
 
   @Synchronized
   fun start(now: Long, peerExpire: Long, rebind: Long, scanRestart: Long, tx: Long, rx: Long): String {
@@ -109,6 +116,13 @@ private object ValidationRuntime {
     baselineCohortStalls = BleAcquisitionPolicy.cohortStallCount()
     baselineCohortRecoveries = BleAcquisitionPolicy.cohortRecoveryCount()
     baselineCohortRecoveryFailures = BleAcquisitionPolicy.cohortRecoveryFailureCount()
+    baselineRecoveryAttempts = BleAcquisitionPolicy.recoveryAttemptCount()
+    baselineRestartSuppressed = BleAcquisitionPolicy.restartSuppressedCount()
+    val r = if (Build.VERSION.SDK_INT >= 36) SystemRangingApi36.counterSnapshot() else SystemRangingCounterSnapshot(0,0,0)
+    baselineRangingYield=r.yieldTransitions; baselineRangingReal=r.realDistanceResults; baselineRangingClose=r.closeFailures
+    baselineEventSeq = ValidationEventLog.currentSeq()
+    completedSnapshotJson = null
+    ValidationEventLog.record("VALIDATION_RUN_STARTED", id, now = now)
     return id
   }
 
@@ -133,11 +147,18 @@ private object ValidationRuntime {
   }
 
   @Synchronized
-  fun end(now: Long) {
-    if (runId != null && endedWallMs == null) {
-      endedWallMs = now
-      lastObserveWallMs = now
-    }
+  fun end(now: Long, peerExpire:Long, rebind:Long, scanRestart:Long, tx:Long, rx:Long, acquisitionState:JSONObject, perPeer:JSONArray, systemRanging:JSONObject) {
+    if (runId == null || endedWallMs != null) return
+    endedWallMs = now; lastObserveWallMs = now
+    ValidationEventLog.record("VALIDATION_RUN_ENDED", runId ?: "", now = now)
+    val base = liveDiagnostics(now,peerExpire,rebind,scanRestart,tx,rx)
+    val timeline=ValidationEventLog.snapshotSince(baselineEventSeq, startedWallMs ?: now)
+    val events=timeline.optJSONArray("events") ?: JSONArray(); var stallsDuringYield=0
+    for(i in 0 until events.length()){ val e=events.optJSONObject(i) ?: continue; if(e.optString("type")=="BF_COHORT_STALLED" && e.optBoolean("ranging_yield_active")) stallsDuringYield++ }
+    base.put("snapshot_frozen",true).put("snapshot_schema_version",1).put("acquisition_state_at_end",acquisitionState).put("per_peer",perPeer).put("system_ranging_at_end",systemRanging)
+      .put("events",events).put("event_timeline_total_count",timeline.optInt("event_timeline_total_count")).put("event_timeline_truncated",timeline.optBoolean("event_timeline_truncated"))
+      .put("cohort_stall_while_ranging_yield_count",stallsDuringYield)
+    completedSnapshotJson=base.toString()
   }
 
   @Synchronized
@@ -154,8 +175,7 @@ private object ValidationRuntime {
     environmentViolationTypes = (environmentViolationTypes.split(',').filter { it.isNotBlank() } + issues).distinct().joinToString(",")
   }
 
-  @Synchronized
-  fun diagnostics(
+  private fun liveDiagnostics(
     now: Long,
     peerExpire: Long,
     rebind: Long,
@@ -197,7 +217,17 @@ private object ValidationRuntime {
       .put("cohort_stall_delta", (BleAcquisitionPolicy.cohortStallCount() - baselineCohortStalls).coerceAtLeast(0))
       .put("cohort_recovery_delta", (BleAcquisitionPolicy.cohortRecoveryCount() - baselineCohortRecoveries).coerceAtLeast(0))
       .put("cohort_recovery_failure_delta", (BleAcquisitionPolicy.cohortRecoveryFailureCount() - baselineCohortRecoveryFailures).coerceAtLeast(0))
+      .put("recovery_attempt_delta", (BleAcquisitionPolicy.recoveryAttemptCount() - baselineRecoveryAttempts).coerceAtLeast(0))
+      .put("restart_suppressed_delta", (BleAcquisitionPolicy.restartSuppressedCount() - baselineRestartSuppressed).coerceAtLeast(0))
+      .put("ranging_yield_transition_delta", ((if(Build.VERSION.SDK_INT>=36) SystemRangingApi36.counterSnapshot().yieldTransitions else 0)-baselineRangingYield).coerceAtLeast(0))
+      .put("ranging_real_result_delta", ((if(Build.VERSION.SDK_INT>=36) SystemRangingApi36.counterSnapshot().realDistanceResults else 0)-baselineRangingReal).coerceAtLeast(0))
+      .put("ranging_close_failure_delta", ((if(Build.VERSION.SDK_INT>=36) SystemRangingApi36.counterSnapshot().closeFailures else 0)-baselineRangingClose).coerceAtLeast(0))
+      .put("snapshot_frozen", false)
+      .put("snapshot_schema_version", 1)
   }
+
+  @Synchronized
+  fun diagnostics(now:Long,peerExpire:Long,rebind:Long,scanRestart:Long,tx:Long,rx:Long):JSONObject = completedSnapshotJson?.let { JSONObject(it) } ?: liveDiagnostics(now,peerExpire,rebind,scanRestart,tx,rx)
 }
 
 private object FabricRuntime {
@@ -222,6 +252,7 @@ private object FabricRuntime {
   @Volatile var multicastJoinState = "IDLE"
   @Volatile var publishedGeometryJson: String? = null
   @Volatile var lastScanRestartWallMs: Long = 0L
+  val scanGeneration = AtomicLong(0)
 
   var socket: MulticastSocket? = null
   var advertiser: android.bluetooth.le.BluetoothLeAdvertiser? = null
@@ -293,6 +324,8 @@ private object FabricRuntime {
     lastBodyFinderScanResultWallMs = null
     lastValidBodyFinderRssiWallMs = null
     lastScanRestartWallMs = 0
+    scanGeneration.set(0)
+    ValidationEventLog.reset()
     BleAcquisitionPolicy.reset(System.currentTimeMillis())
     peerPacketCounts.clear()
     peerLastSeenWallMs.clear()
@@ -401,7 +434,9 @@ class BodyFinderNativeModule : Module() {
       )
     }
     Function("endValidationRun") {
-      ValidationRuntime.end(System.currentTimeMillis())
+      val ctx = appContext.reactContext ?: return@Function false
+      val now=System.currentTimeMillis()
+      ValidationRuntime.end(now,FabricRuntime.peerExpireCount.get(),FabricRuntime.totalRebinds(),FabricRuntime.scanRestartCount.get(),FabricRuntime.txPackets.get(),FabricRuntime.rxPackets.get(),acquisitionProvenance(now),peerBleDiagnostics(now),if(Build.VERSION.SDK_INT>=36) SystemRangingApi36.diagnostics(now) else JSONObject().put("state","UNSUPPORTED"))
       true
     }
     Function("getValidationRunJson") {
@@ -671,15 +706,16 @@ class BodyFinderNativeModule : Module() {
     reason: String = "START",
   ) {
     val now = System.currentTimeMillis()
+    FabricRuntime.scanGeneration.incrementAndGet()
     when (strategy) {
       BleAcquisitionStrategy.UNFILTERED_RECOVERY -> {
         BleAcquisitionPolicy.startUnfilteredRecoveryScan(scanner, callback)
-        FabricRuntime.bleScanMode = "UNFILTERED_RECOVERY"
+        FabricRuntime.bleScanMode = "LOW_LATENCY"
         FabricRuntime.bleDetail = "Temporary ALL_MATCHES recovery scan; Body Finder payload validation remains in software"
       }
       else -> {
         BleAcquisitionPolicy.startFilteredScan(scanner, callback, MANUFACTURER_ID)
-        FabricRuntime.bleScanMode = strategy.name
+        FabricRuntime.bleScanMode = "LOW_LATENCY"
         FabricRuntime.bleDetail = "Manufacturer-filtered low-latency Body Finder scan active; strategy=${strategy.name}"
       }
     }
@@ -761,7 +797,7 @@ class BodyFinderNativeModule : Module() {
           if (BleAcquisitionPolicy.canStartRecovery(now)) {
             BleAcquisitionPolicy.beginRecovery(now, "BF_COHORT_STALLED")
             restartScannerWithStrategy(now, BleAcquisitionStrategy.UNFILTERED_RECOVERY, "BF_COHORT_STALLED")
-          }
+          } else if(BleAcquisitionPolicy.recoveryAttemptsInWindow(now)>=BleAcquisitionPolicy.MAX_RECOVERY_ATTEMPTS_PER_5MIN) BleAcquisitionPolicy.markFailedSafe(now,"MAX_RECOVERY_ATTEMPTS")
         }
       }
       BleAcquisitionStrategy.UNFILTERED_RECOVERY -> {
@@ -793,7 +829,7 @@ class BodyFinderNativeModule : Module() {
           BleAcquisitionPolicy.transition(BleAcquisitionStrategy.FILTERED_PRIMARY, now, "COOLDOWN_COMPLETE")
         }
       }
-      BleAcquisitionStrategy.FAILED_SAFE -> Unit
+      BleAcquisitionStrategy.FAILED_SAFE -> if(BleAcquisitionPolicy.recoveryAttemptsInWindow(now)<BleAcquisitionPolicy.MAX_RECOVERY_ATTEMPTS_PER_5MIN && now-FabricRuntime.lastScanRestartWallMs>=BleAcquisitionPolicy.MIN_RESTART_COOLDOWN_MS) BleAcquisitionPolicy.transition(BleAcquisitionStrategy.FILTERED_PRIMARY,now,"FAILED_SAFE_WINDOW_CLEARED")
     }
   }
 
@@ -921,6 +957,7 @@ class BodyFinderNativeModule : Module() {
       return
     }
     FabricRuntime.bodyFinderScanResults.incrementAndGet()
+    if(BleAcquisitionPolicy.currentStrategy()==BleAcquisitionStrategy.UNFILTERED_RECOVERY) ValidationEventLog.record("FIRST_VALID_BF_CALLBACK_AFTER_RECOVERY","BODY_FINDER_CALLBACK",now=now)
     FabricRuntime.lastBodyFinderScanResultWallMs = now
     FabricRuntime.bleLastSeenWallMsByIdentity[id] = now
     FabricRuntime.bleSeenCountByIdentity.computeIfAbsent(id) { AtomicLong(0) }.incrementAndGet()
@@ -1276,6 +1313,14 @@ class BodyFinderNativeModule : Module() {
     return arr
   }
 
+  private fun acquisitionProvenance(now:Long)=JSONObject()
+    .put("logical_acquisition_strategy",BleAcquisitionPolicy.currentStrategy().name)
+    .put("strategy_since_wall_ms",BleAcquisitionPolicy.strategySinceMs())
+    .put("strategy_reason",BleAcquisitionPolicy.lastStrategyReason())
+    .put("android_scan_settings",JSONObject().put("scan_mode","LOW_LATENCY").put("callback_type","ALL_MATCHES").put("report_delay_ms",BleAcquisitionPolicy.REPORT_DELAY_MS).put("match_mode",BleAcquisitionPolicy.matchModeLabel()).put("num_matches",BleAcquisitionPolicy.numMatchesLabel()))
+    .put("filter_configuration",JSONObject().put("mode",if(BleAcquisitionPolicy.currentStrategy()==BleAcquisitionStrategy.UNFILTERED_RECOVERY) "UNFILTERED" else "MANUFACTURER_FILTERED").put("hardware_filter_count",if(BleAcquisitionPolicy.currentStrategy()==BleAcquisitionStrategy.UNFILTERED_RECOVERY)0 else 1).put("manufacturer_id",MANUFACTURER_ID).put("body_finder_prefix","4246"))
+    .put("scan_generation",FabricRuntime.scanGeneration.get()).put("scanner_started_wall_ms",FabricRuntime.bleScanStartedWallMs ?: JSONObject.NULL)
+
   private fun bleDiagnostics(ctx: Context, now: Long = System.currentTimeMillis()) = JSONObject().apply {
     put("permissions", JSONObject().apply {
       put("legacy_granted", legacyBluetoothPermissionsGranted(ctx))
@@ -1285,6 +1330,7 @@ class BodyFinderNativeModule : Module() {
     put("scan_state", FabricRuntime.bleScanState)
     put("advertise_state", FabricRuntime.bleAdvertiseState)
     put("scan_mode", FabricRuntime.bleScanMode)
+    put("acquisition_provenance", acquisitionProvenance(now))
     put("scan_strategy", BleAcquisitionPolicy.currentStrategy().name)
     put("hardware_filter_count", if (BleAcquisitionPolicy.currentStrategy() == BleAcquisitionStrategy.UNFILTERED_RECOVERY) 0 else 1)
     put("match_mode", BleAcquisitionPolicy.matchModeLabel())
@@ -1362,15 +1408,9 @@ class BodyFinderNativeModule : Module() {
     if (ValidationRuntime.runId != null && ValidationRuntime.endedWallMs == null) {
       ValidationRuntime.recordEnvironmentViolation(now, validationEnvironmentIssues(ctx))
     }
-    return ValidationRuntime.diagnostics(
-      now,
-      FabricRuntime.peerExpireCount.get(),
-      FabricRuntime.totalRebinds(),
-      FabricRuntime.scanRestartCount.get(),
-      FabricRuntime.txPackets.get(),
-      FabricRuntime.rxPackets.get(),
-    ).put("acquisition_strategy", BleAcquisitionPolicy.currentStrategy().name)
-      .put("body_finder_cohort_health", bodyFinderCohortHealth(now).name)
+    val out=ValidationRuntime.diagnostics(now,FabricRuntime.peerExpireCount.get(),FabricRuntime.totalRebinds(),FabricRuntime.scanRestartCount.get(),FabricRuntime.txPackets.get(),FabricRuntime.rxPackets.get())
+    if(!out.optBoolean("snapshot_frozen")) out.put("acquisition_strategy",BleAcquisitionPolicy.currentStrategy().name).put("body_finder_cohort_health",bodyFinderCohortHealth(now).name)
+    return out
   }
 
   private fun lifecycleDiagnostics(ctx: Context): JSONObject =
