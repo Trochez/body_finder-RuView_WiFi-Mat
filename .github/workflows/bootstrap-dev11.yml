@@ -5,6 +5,8 @@ on:
     branches: [feat/dev11-post-validation-integrity]
     paths:
       - 'DEV11_BOOTSTRAP_TRIGGER.txt'
+  pull_request:
+    branches: [main]
   workflow_dispatch:
 
 permissions:
