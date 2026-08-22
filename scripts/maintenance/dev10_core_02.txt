@@ -1,0 +1,109 @@
+wr('validation/fixtures/validation-snapshot/dev9-post-end-drift.json',json.dumps({"schema_version":1,"source":"dev-9 physical evidence","pixel7":{"at_end":{"scan_restart_delta":2,"strategy_transition_delta":3,"cohort_stall_delta":1,"cohort_recovery_delta":1},"later_same_run":{"scan_restart_delta":4,"strategy_transition_delta":6,"cohort_stall_delta":2,"cohort_recovery_delta":2}},"pixel10":{"at_end":{"scan_restart_delta":8,"strategy_transition_delta":11,"cohort_stall_delta":4,"cohort_recovery_delta":4},"later_same_run":{"scan_restart_delta":10,"strategy_transition_delta":14,"cohort_stall_delta":5,"cohort_recovery_delta":5}}},indent=2)+'\n')
+wr('protocol/schemas/validation-run-snapshot-v1.json',json.dumps({"$schema":"https://json-schema.org/draft/2020-12/schema","title":"Body Finder completed validation snapshot v1","type":"object","required":["active","run_id","started_wall_ms","ended_wall_ms","elapsed_ms","snapshot_frozen","snapshot_schema_version","scan_restart_delta","strategy_transition_delta","cohort_stall_delta","cohort_recovery_delta","recovery_attempt_delta","restart_suppressed_delta","environment_valid","usable_metric_range_uptime_percent","geometry_2d_uptime_percent","peer_expire_delta","events"],"properties":{"active":{"const":False},"snapshot_frozen":{"const":True},"snapshot_schema_version":{"const":1},"recovery_attempt_delta":{"type":"integer","minimum":0,"maximum":3},"events":{"type":"array"}}},indent=2)+'\n')
+wr('validation/analysis/compare_validation_snapshots.py',r'''#!/usr/bin/env python3
+import json,sys
+if len(sys.argv)!=3: raise SystemExit("usage: compare_validation_snapshots.py export1.json export2.json")
+a=json.load(open(sys.argv[1],encoding="utf-8")).get("validation_run"); b=json.load(open(sys.argv[2],encoding="utf-8")).get("validation_run")
+if not a or not b: raise SystemExit("FAIL: validation_run missing")
+if not a.get("snapshot_frozen") or not b.get("snapshot_frozen"): raise SystemExit("FAIL: snapshot_frozen must be true")
+if a!=b:
+  keys=sorted(set(a or {})|set(b or {})); dif=[k for k in keys if a.get(k)!=b.get(k)]
+  raise SystemExit("FAIL: completed validation snapshot drift: "+", ".join(dif))
+print("PASS: completed validation snapshot is immutable")
+''')
+wr('validation/android/check_validation_snapshot_contract.py',r'''#!/usr/bin/env python3
+from pathlib import Path
+r=Path(__file__).resolve().parents[2]; n=(r/'apps/mobile/modules/body-finder-native/android/src/main/java/com/trochez/bodyfindernative/BodyFinderNativeModule.kt').read_text()
+for t in ['completedSnapshotJson','snapshot_frozen','recovery_attempt_delta','restart_suppressed_delta','ranging_yield_transition_delta','acquisition_state_at_end','event_timeline_total_count']: assert t in n,t
+assert 'completedSnapshotJson?.let { JSONObject(it) }' in n
+print('validation snapshot contract: PASS')
+''')
+wr('validation/android/check_acquisition_truth_contract.py',r'''#!/usr/bin/env python3
+from pathlib import Path
+r=Path(__file__).resolve().parents[2]; a=(r/'apps/mobile/App.tsx').read_text(); n=(r/'apps/mobile/modules/body-finder-native/android/src/main/java/com/trochez/bodyfindernative/BodyFinderNativeModule.kt').read_text()
+assert '0.2.0-experimental.10' in a and 'manufacturer-filtered LOW_LATENCY scanning as FILTERED_PRIMARY' in a
+assert 'low-latency ALL_MATCHES scanning with Body Finder manufacturer/payload validation' not in a
+for t in ['logical_acquisition_strategy','filter_configuration','MANUFACTURER_FILTERED','scan_generation']: assert t in n,t
+assert 'VALIDATION_ENVVIRONMENT_INVALID' not in a
+print('acquisition truth contract: PASS')
+''')
+wr('docs/ANDROID_DEV10_VALIDATION_INTEGRITY_RETEST.md',r'''# Body Finder – RuView dev-10 — detailed 3-Android validation-integrity retest
+
+## Goal
+Verify that dev-9 BLE continuity remains >=90% while a completed `validation_run` is immutable after End. Human localization/rescue testing is NOT authorized.
+
+## Devices and setup
+Use the same **Pixel 10 Pro, Pixel 7 Pro and Lenovo TB-J606L**. Install the same `body-finder-ruview-universal.apk` from release `dev-10` on all three. Battery Saver OFF, Bluetooth ON, screens ON, app foreground, same LAN/session; Lenovo Location ON. Place a non-collinear triangle with every physical pair distance between 0.5 and 5.0 m and do not move it.
+
+## Warm-up
+Open all three apps, wait 30 s, verify on every device: 3 nodes, 2 BLE peers, logical strategy FILTERED_PRIMARY, filter mode MANUFACTURER_FILTERED, hardware filter count >0, field service RUNNING and environment valid.
+
+## Five-minute run
+Start Validation Run on all three. Confirm `active=true` and leave them stationary exactly 5 minutes. Do not lock screens, change apps/radios or restart scanning.
+
+## End and Export #1
+End each run, wait ~2 s, confirm `active=false` and `snapshot_frozen=true`. Capture Radar + Validation + Expert/acquisition; on Pixel10 also System Ranging. Export:
+`pixel10_dev10_export1.json`, `pixel7_dev10_export1.json`, `lenovo_dev10_export1.json`.
+
+## Mandatory post-End period
+Do NOT start another run or close the apps. Leave all three running for 3 more minutes. Live runtime counters outside `validation_run` may change.
+
+## Export #2
+Capture Validation again and export `pixel10_dev10_export2.json`, `pixel7_dev10_export2.json`, `lenovo_dev10_export2.json`.
+
+## Compare immutable snapshots
+Extract `body-finder-validation-tools.zip` and run:
+```bash
+python3 compare_validation_snapshots.py pixel10_dev10_export1.json pixel10_dev10_export2.json
+python3 compare_validation_snapshots.py pixel7_dev10_export1.json pixel7_dev10_export2.json
+python3 compare_validation_snapshots.py lenovo_dev10_export1.json lenovo_dev10_export2.json
+```
+Each must print `PASS: completed validation snapshot is immutable`.
+
+## Hard gates (3/3)
+- snapshot_frozen=true and Export1 validation_run == Export2 validation_run
+- usable_metric_range_uptime_percent >=90
+- geometry_2d_uptime_percent >=90
+- peer_expire_delta=0
+- recovery_attempt_delta<=3
+- environment_valid=true
+- timeline present; recoveries reconstruct stall → request → unfiltered recovery → callback → success → filtered probe/primary.
+
+## Return evidence
+Six JSON exports, three comparator TXT outputs, screenshots named by device (`*_radar`, `*_validation_end`, `*_validation_plus3m`, `*_acquisition`, plus `pixel10_*_ranging`) and a TXT with measured physical pair distances. Zip as `dev10-3android-validation-integrity-evidence.zip`.
+''')
+wr('IMPLEMENTATION_PLAN_POST_DEV9_VALIDATION_INTEGRITY_AND_RECOVERY_PROVENANCE.md',f'''# Body Finder – RuView — Post-dev-9 validation integrity and recovery provenance
+
+Baseline `{BASELINE_SHA}`; target `dev-10 / 0.2.0-experimental.10`; protocol 2. Recommended team: 8 logical roles (TL, Android BLE, Validation/Protocol, RF Reliability, Mobile UX, QA Automation, DevOps/Release, Field Validation).
+
+## Frozen invariants
+android-ble-lab-v1; RSSI@1m -69.19; n 3.62; domain 0.5–5m; minSamples 3; fresh 5s; holdover/hard expiry 10s; sigma aging 0.15m/s; FILTERED_PRIMARY; UNFILTERED_RECOVERY; stall 5s; cooldown 30s; max 3 attempts/5min; API36 BLE yield 120s; human/rescue false.
+
+## Implemented backlog
+Immutable completed validation snapshot and atomic End; run-scoped recovery/suppression/ranging counters; bounded event timeline; unambiguous logical strategy/ScanSettings/filter provenance; per-peer stall/recovery provenance; RangingManager correlation; Expert truth correction; report/schema/contracts; CI/release dev-10; detailed two-export physical retest and comparator.
+
+## DoD
+CI matrix green, release dev-10 with Android universal/AAB/legacy, Linux/Windows node, iOS simulator, fixtures/tools/schema/manifest/SBOM/SHA256, then 3-device physical retest: usable metric>=90%, Geometry2D>=90%, peer expiry 0 and immutable Export1==Export2 snapshot on 3/3. Human scanning remains disabled.
+''')
+
+# workflows from exp9
+ci=rd('.github/workflows/ci-exp9.yml').replace('experimental.9','experimental.10').replace('exp9','exp10')
+ci=rep(ci,'          python3 validation/android/check_ble_adaptive_acquisition_contract.py\n','          python3 validation/android/check_ble_adaptive_acquisition_contract.py\n          python3 validation/android/check_validation_snapshot_contract.py\n          python3 validation/android/check_acquisition_truth_contract.py\n','ci contracts')
+ci=rep(ci,'          test -s docs/ANDROID_BLE_ADAPTIVE_ACQUISITION_RETEST.md\n','          test -s docs/ANDROID_BLE_ADAPTIVE_ACQUISITION_RETEST.md\n          test -s docs/ANDROID_DEV10_VALIDATION_INTEGRITY_RETEST.md\n          test -s protocol/schemas/validation-run-snapshot-v1.json\n','ci docs')
+wr('.github/workflows/ci-exp10.yml',ci)
+rel=rd('.github/workflows/release-exp9.yml').replace('experimental.9','experimental.10').replace('experimental9','experimental10').replace('exp9','exp10').replace('dev-9','dev-10')
+rel=rep(rel,'          python3 validation/android/check_ble_adaptive_acquisition_contract.py\n','          python3 validation/android/check_ble_adaptive_acquisition_contract.py\n          python3 validation/android/check_validation_snapshot_contract.py\n          python3 validation/android/check_acquisition_truth_contract.py\n','release contracts')
+rel=rep(rel,'          cp docs/ANDROID_BLE_ADAPTIVE_ACQUISITION_RETEST.md dist/ANDROID_BLE_ADAPTIVE_ACQUISITION_RETEST.md\n','          cp docs/ANDROID_BLE_ADAPTIVE_ACQUISITION_RETEST.md dist/ANDROID_BLE_ADAPTIVE_ACQUISITION_RETEST.md\n          cp docs/ANDROID_DEV10_VALIDATION_INTEGRITY_RETEST.md dist/ANDROID_DEV10_VALIDATION_INTEGRITY_RETEST.md\n','release docs')
+rel=rep(rel,'          cp IMPLEMENTATION_PLAN_BLE_ADAPTIVE_ACQUISITION_RECOVERY.md dist/\n','          cp IMPLEMENTATION_PLAN_BLE_ADAPTIVE_ACQUISITION_RECOVERY.md dist/\n          cp IMPLEMENTATION_PLAN_POST_DEV9_VALIDATION_INTEGRITY_AND_RECOVERY_PROVENANCE.md dist/\n          cp protocol/schemas/validation-run-snapshot-v1.json dist/validation-run-snapshot.schema.json\n','release plan')
+rel=rep(rel,'          cp validation/analysis/validate_autogeometry.py validation/analysis/fit_ble_range_profile.py dist/validation-kit/\n','          cp validation/analysis/validate_autogeometry.py validation/analysis/fit_ble_range_profile.py validation/analysis/compare_validation_snapshots.py dist/validation-kit/\n','release comparator')
+rel=rep(rel,'          mkdir -p dist/ranging-fixtures && cp validation/fixtures/android-ranging/*.json dist/ranging-fixtures/ && (cd dist/ranging-fixtures && zip -r ../android-ranging-diagnostics-fixtures.zip .) && rm -rf dist/ranging-fixtures\n','          mkdir -p dist/ranging-fixtures && cp validation/fixtures/android-ranging/*.json dist/ranging-fixtures/ && (cd dist/ranging-fixtures && zip -r ../android-ranging-diagnostics-fixtures.zip .) && rm -rf dist/ranging-fixtures\n          mkdir -p dist/validation-snapshot-fixtures && cp validation/fixtures/validation-snapshot/*.json dist/validation-snapshot-fixtures/ && (cd dist/validation-snapshot-fixtures && zip -r ../validation-snapshot-regression-fixtures.zip .) && rm -rf dist/validation-snapshot-fixtures\n','release fixture')
+rel=rel.replace('"schema_version": 8,','"schema_version": 9,').replace('"classification": "EXPERIMENTAL_VALIDATED_COARSE_BLE_METRIC_WITH_ADAPTIVE_ACQUISITION_RECOVERY",','"classification": "EXPERIMENTAL_VALIDATED_COARSE_BLE_METRIC_WITH_ADAPTIVE_ACQUISITION_AND_IMMUTABLE_VALIDATION_SNAPSHOTS",')
+rel=rep(rel,'            "ble_recovery_strategy": "UNFILTERED_RECOVERY",\n','            "ble_recovery_strategy": "UNFILTERED_RECOVERY",\n            "ble_primary_filter_mode": "MANUFACTURER_FILTERED",\n            "validation_run_snapshot_immutable": true,\n            "validation_snapshot_schema_version": 1,\n            "validation_run_event_timeline": true,\n            "validation_run_per_peer_provenance": true,\n            "validation_run_ranging_correlation": true,\n','manifest')
+rel=rel.replace('ANDROID_BLE_ADAPTIVE_ACQUISITION_RETEST.md IMPLEMENTATION_PLAN_BLE_ADAPTIVE_ACQUISITION_RECOVERY.md ble-adaptive-acquisition-regression-fixtures.zip','ANDROID_DEV10_VALIDATION_INTEGRITY_RETEST.md IMPLEMENTATION_PLAN_POST_DEV9_VALIDATION_INTEGRITY_AND_RECOVERY_PROVENANCE.md validation-run-snapshot.schema.json validation-snapshot-regression-fixtures.zip ble-adaptive-acquisition-regression-fixtures.zip')
+rel=rel.replace("assert m['validation_blocks_battery_saver'] is True\n", "assert m['validation_blocks_battery_saver'] is True\n          assert m['validation_run_snapshot_immutable'] is True\n          assert m['ble_primary_filter_mode']=='MANUFACTURER_FILTERED'\n")
+rel=rel.replace('Start with `ANDROID_BLE_ADAPTIVE_ACQUISITION_RETEST.md`.','Start with `ANDROID_DEV10_VALIDATION_INTEGRITY_RETEST.md`.')
+wr('.github/workflows/release-exp10.yml',rel)
+p('.github/workflows/ci-exp9.yml').unlink(); p('.github/workflows/release-exp9.yml').unlink()
+# remove staging leftovers
+for q in p('scripts/maintenance').glob('dev10_patch_part_*.txt'): q.unlink()
+print('dev10 patch applied')
