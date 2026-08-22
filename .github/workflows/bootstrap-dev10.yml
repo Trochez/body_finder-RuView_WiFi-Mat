@@ -1,14 +1,11 @@
 name: Bootstrap dev10 implementation
 on:
   push:
-    branches: [feat/dev10-validation-integrity]
-  pull_request:
     branches: [main]
-  workflow_dispatch:
 permissions:
   contents: write
 concurrency:
-  group: bootstrap-dev10-${{ github.ref }}
+  group: bootstrap-dev10-main
   cancel-in-progress: true
 jobs:
   apply:
@@ -17,7 +14,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          ref: feat/dev10-validation-integrity
+          ref: main
       - name: Assemble and apply dev10 transformation
         shell: bash
         run: |
@@ -30,7 +27,7 @@ jobs:
           python3 validation/android/check_acquisition_truth_contract.py
           python3 -m json.tool protocol/schemas/validation-run-snapshot-v1.json >/dev/null
           python3 -m json.tool validation/fixtures/validation-snapshot/dev9-post-end-drift.json >/dev/null
-      - name: Commit implementation
+      - name: Commit implementation and remove bootstrap
         shell: bash
         run: |
           set -euxo pipefail
@@ -40,4 +37,4 @@ jobs:
           git add -A
           git diff --cached --check
           git commit -m 'feat: implement dev10 validation integrity and recovery provenance'
-          git push origin HEAD:feat/dev10-validation-integrity
+          git push origin HEAD:main
