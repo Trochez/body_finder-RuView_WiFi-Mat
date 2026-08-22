@@ -1,0 +1,398 @@
+name: Dev Release experimental.11
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - 'RELEASE_DEV11_TRIGGER.txt'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release-exp11
+  cancel-in-progress: false
+
+jobs:
+  requirements:
+    if: github.event_name == 'workflow_dispatch' || github.head_ref == 'release/dev11'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with: { ref: main }
+      - uses: actions/setup-python@v5
+        with: { python-version: '3.12' }
+      - name: Enforce dev11 release truth
+        shell: bash
+        run: |
+          set -euxo pipefail
+          grep -q "0.2.0-experimental.11" apps/mobile/src/version.ts
+          grep -q "reportVersion: 13" apps/mobile/src/version.ts
+          grep -q "humanScanningEnabled: false" apps/mobile/src/version.ts
+          grep -q '"versionCode": 11' apps/mobile/app.json
+          grep -q '"releaseIteration": "experimental.11"' apps/mobile/app.json
+          grep -q "pub const PROTOCOL_VERSION: u16 = 2;" crates/body-finder-core/src/lib.rs
+          ! grep -nE 'experimental\.(9|10)' apps/mobile/App.tsx
+          python3 validation/android/check_android_ranging_contract.py
+          python3 validation/android/check_ble_range_accuracy_contract.py
+          python3 validation/android/check_ble_continuity_contract.py
+          python3 validation/android/check_ble_acquisition_contract.py
+          python3 validation/android/check_ble_adaptive_acquisition_contract.py
+          python3 validation/android/check_validation_snapshot_contract.py
+          python3 validation/android/check_acquisition_truth_contract.py
+          python3 validation/android/check_validation_snapshot_v2_contract.py
+          python3 validation/android/check_recovery_timeline_contract.py
+          python3 validation/android/check_peer_telemetry_semantics.py
+          python3 validation/android/check_geometry_snapshot_contract.py
+          python3 validation/android/check_version_truth_contract.py
+          python3 validation/android/check_dev11_frozen_truth_contract.py
+          python3 -m json.tool protocol/schemas/validation-run-snapshot-v2.json >/dev/null
+          test -s DEV11_FROZEN_TRUTH.md
+          test -s docs/ANDROID_DEV11_FINAL_ACCEPTANCE_RETEST.md
+          test -s IMPLEMENTATION_PLAN_POST_DEV10_DEV11_RELEASE.md
+
+  linux-x86_64:
+    if: github.event_name == 'workflow_dispatch' || github.head_ref == 'release/dev11'
+    needs: requirements
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with: { ref: main }
+      - uses: dtolnay/rust-toolchain@stable
+      - run: cargo test --workspace
+      - run: cargo build --release -p body-finder-node
+      - name: Package Linux
+        shell: bash
+        run: |
+          set -euxo pipefail
+          mkdir -p dist/tar dist/deb/usr/bin dist/deb/DEBIAN
+          cp target/release/body-finder-node dist/tar/body-finder-node
+          cp target/release/body-finder-node dist/deb/usr/bin/body-finder-node
+          chmod +x dist/tar/body-finder-node dist/deb/usr/bin/body-finder-node
+          tar -C dist/tar -czf dist/body-finder-node-linux-x86_64.tar.gz body-finder-node
+          cat > dist/deb/DEBIAN/control <<'EOF'
+          Package: body-finder-node
+          Version: 0.2.0~experimental11
+          Section: science
+          Priority: optional
+          Architecture: amd64
+          Maintainer: Trochez
+          Description: Experimental Body Finder RuView automatic geometry field node
+          EOF
+          dpkg-deb --build dist/deb dist/body-finder-node-linux-x86_64.deb
+          rm -rf dist/tar dist/deb
+      - uses: actions/upload-artifact@v4
+        with:
+          name: release-linux-exp11
+          path: dist/*
+          if-no-files-found: error
+
+  windows-x86_64:
+    if: github.event_name == 'workflow_dispatch' || github.head_ref == 'release/dev11'
+    needs: requirements
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+        with: { ref: main }
+      - uses: dtolnay/rust-toolchain@stable
+      - run: cargo test --workspace
+      - run: cargo build --release -p body-finder-node
+      - name: Package Windows
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force -Path dist\win | Out-Null
+          Copy-Item target\release\body-finder-node.exe dist\win\body-finder-node.exe
+          Compress-Archive -Path dist\win\body-finder-node.exe -DestinationPath dist\body-finder-node-windows-x86_64.zip
+          Remove-Item -Recurse -Force dist\win
+      - uses: actions/upload-artifact@v4
+        with:
+          name: release-windows-exp11
+          path: dist/*
+          if-no-files-found: error
+
+  android:
+    if: github.event_name == 'workflow_dispatch' || github.head_ref == 'release/dev11'
+    needs: requirements
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: apps/mobile
+    steps:
+      - uses: actions/checkout@v4
+        with: { ref: main }
+      - uses: actions/setup-node@v4
+        with: { node-version: '20' }
+      - uses: actions/setup-java@v4
+        with: { distribution: temurin, java-version: '17' }
+      - run: npm install --package-lock-only
+      - run: npm ci
+      - run: npm audit --omit=dev --audit-level=critical
+      - run: npx tsc --noEmit
+      - run: CI=1 npx expo prebuild --platform android --clean
+      - run: chmod +x android/gradlew
+      - run: ./gradlew assembleRelease bundleRelease --stacktrace
+        working-directory: apps/mobile/android
+      - name: Normalize Android artifacts
+        shell: bash
+        run: |
+          set -euxo pipefail
+          mkdir -p ../../dist
+          cp android/app/build/outputs/apk/release/*.apk ../../dist/body-finder-ruview-universal.apk
+          cp android/app/build/outputs/bundle/release/*.aab ../../dist/body-finder-ruview.aab
+          test -s ../../dist/body-finder-ruview-universal.apk
+          test -s ../../dist/body-finder-ruview.aab
+      - uses: actions/upload-artifact@v4
+        with:
+          name: release-android-exp11
+          path: dist/*
+          if-no-files-found: error
+
+  android-legacy:
+    if: github.event_name == 'workflow_dispatch' || github.head_ref == 'release/dev11'
+    needs: requirements
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: apps/android-legacy
+    steps:
+      - uses: actions/checkout@v4
+        with: { ref: main }
+      - uses: actions/setup-java@v4
+        with: { distribution: temurin, java-version: '17' }
+      - uses: gradle/actions/setup-gradle@v4
+        with: { gradle-version: '8.10.2' }
+      - name: Create internal-test signing key
+        shell: bash
+        run: |
+          mkdir -p "$HOME/.android"
+          keytool -genkeypair -keystore "$HOME/.android/debug.keystore" -storepass android -alias androiddebugkey -keypass android -dname "CN=Android Debug,O=Android,C=US" -keyalg RSA -keysize 2048 -validity 10000
+      - run: gradle :app:assembleRelease --stacktrace
+      - name: Normalize legacy APK
+        shell: bash
+        run: |
+          set -euxo pipefail
+          mkdir -p ../../dist
+          cp app/build/outputs/apk/release/*.apk ../../dist/body-finder-ruview-legacy-minsdk21.apk
+          test -s ../../dist/body-finder-ruview-legacy-minsdk21.apk
+      - uses: actions/upload-artifact@v4
+        with:
+          name: release-android-legacy-exp11
+          path: dist/*
+          if-no-files-found: error
+
+  ios-simulator:
+    if: github.event_name == 'workflow_dispatch' || github.head_ref == 'release/dev11'
+    needs: requirements
+    runs-on: macos-latest
+    defaults:
+      run:
+        working-directory: apps/mobile
+    steps:
+      - uses: actions/checkout@v4
+        with: { ref: main }
+      - uses: actions/setup-node@v4
+        with: { node-version: '20' }
+      - run: npm install --package-lock-only
+      - run: npm ci
+      - run: npx tsc --noEmit
+      - run: CI=1 npx expo prebuild --platform ios --clean
+      - run: pod install
+        working-directory: apps/mobile/ios
+      - name: Build/package unsigned simulator app
+        working-directory: apps/mobile/ios
+        shell: bash
+        run: |
+          set -euxo pipefail
+          WORKSPACE=$(find . -maxdepth 1 -name '*.xcworkspace' -print -quit)
+          test -n "$WORKSPACE"
+          xcodebuild -workspace "$WORKSPACE" -scheme BodyFinderRuView -configuration Release -sdk iphonesimulator -destination 'generic/platform=iOS Simulator' -derivedDataPath build CODE_SIGNING_ALLOWED=NO build
+          APP=$(find build/Build/Products -type d -name '*.app' -print -quit)
+          test -n "$APP"
+          mkdir -p "$GITHUB_WORKSPACE/dist"
+          ditto -c -k --sequesterRsrc --keepParent "$APP" "$GITHUB_WORKSPACE/dist/body-finder-ruview-ios-simulator.zip"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: release-ios-exp11
+          path: dist/*
+          if-no-files-found: error
+
+  release:
+    if: github.event_name == 'workflow_dispatch' || github.head_ref == 'release/dev11'
+    needs: [requirements, linux-x86_64, windows-x86_64, android, android-legacy, ios-simulator]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with: { ref: main }
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: release-*-exp11
+          path: dist
+          merge-multiple: true
+      - name: Add dev11 docs, tools, schemas and fixtures
+        shell: bash
+        run: |
+          set -euxo pipefail
+          SOURCE_SHA=$(git rev-parse HEAD)
+          echo "SOURCE_SHA=$SOURCE_SHA" >> "$GITHUB_ENV"
+          cp docs/ANDROID_DEV11_FINAL_ACCEPTANCE_RETEST.md dist/ANDROID_DEV11_FINAL_ACCEPTANCE_RETEST.md
+          cp IMPLEMENTATION_PLAN_POST_DEV10_DEV11_RELEASE.md dist/IMPLEMENTATION_PLAN_POST_DEV10_DEV11_RELEASE.md
+          cp protocol/schemas/validation-run-snapshot-v2.json dist/validation-run-snapshot-v2.schema.json
+          cp docs/CAPABILITY_MATRIX_AUTOGEOMETRY.json dist/capability-matrix.json
+          cp calibration/ble-range-calibration-profiles.json dist/ble-range-calibration-profiles.json
+          cp calibration/ble-range-calibration-schema.json dist/ble-range-calibration-schema.json
+          cp upstream/ruvieW.lock.json dist/ruview-upstream-lock.json
+          printf '2\n' > dist/protocol-version.txt
+          cat > dist/model-manifest.json <<'EOF'
+          {"schema_version":1,"release_family":"0.2.0-experimental.11","models":[],"note":"No pretrained human-localization model is bundled. Human scanning, human localization validation and rescue validation remain disabled."}
+          EOF
+          mkdir -p dist/validation-kit
+          cp validation/analysis/validate_autogeometry.py validation/analysis/fit_ble_range_profile.py validation/analysis/compare_validation_snapshots.py validation/analysis/validate_recovery_timeline.py validation/analysis/validate_peer_semantics.py validation/analysis/validate_geometry_snapshot.py validation/analysis/dev11_accuracy_report.py dist/validation-kit/
+          cp validation/android/check_*.py dist/validation-kit/
+          cp docs/ANDROID_DEV11_FINAL_ACCEPTANCE_RETEST.md dist/validation-kit/
+          cp protocol/schemas/autogeometry-v2.json dist/validation-kit/autogeometry-v2.schema.json
+          cp protocol/schemas/validation-run-snapshot-v2.json dist/validation-kit/validation-run-snapshot-v2.schema.json
+          cp calibration/ble-range-calibration-*.json dist/validation-kit/
+          (cd dist/validation-kit && zip -r ../body-finder-validation-tools.zip .)
+          rm -rf dist/validation-kit
+          mkdir -p dist/snapshot-v2-fixtures
+          cp validation/fixtures/dev11/post-end-live-counter-drift-v2.json validation/fixtures/dev11/new-run-preserves-previous-completed.json dist/snapshot-v2-fixtures/
+          (cd dist/snapshot-v2-fixtures && zip -r ../validation-snapshot-v2-regression-fixtures.zip .)
+          rm -rf dist/snapshot-v2-fixtures
+          mkdir -p dist/timeline-fixtures
+          cp validation/fixtures/dev11/timeline-valid.json validation/fixtures/dev11/timeline-timestamp-inversion.json validation/fixtures/dev11/stalled-event-wrong-state.json validation/fixtures/dev11/duplicate-first-callback.json dist/timeline-fixtures/
+          (cd dist/timeline-fixtures && zip -r ../recovery-timeline-regression-fixtures.zip .)
+          rm -rf dist/timeline-fixtures
+          mkdir -p dist/peer-fixtures
+          cp validation/fixtures/dev11/peer-lifetime-vs-run-scope.json dist/peer-fixtures/
+          (cd dist/peer-fixtures && zip -r ../peer-telemetry-regression-fixtures.zip .)
+          rm -rf dist/peer-fixtures
+          mkdir -p dist/geometry-fixtures
+          cp validation/fixtures/dev11/geometry-at-end-drift.json dist/geometry-fixtures/
+          (cd dist/geometry-fixtures && zip -r ../geometry-at-end-regression-fixtures.zip .)
+          rm -rf dist/geometry-fixtures
+          cat > dist/release-manifest.json <<EOF
+          {
+            "schema_version": 11,
+            "release": "dev-11",
+            "commit": "$SOURCE_SHA",
+            "version": "0.2.0-experimental.11",
+            "protocol_version": 2,
+            "validation_snapshot_schema_version": 2,
+            "validation_snapshot_immutable": true,
+            "completed_validation_run_history": true,
+            "completed_validation_run_history_limit": 5,
+            "recovery_generation_enabled": true,
+            "recovery_timeline_monotonic": true,
+            "recovery_first_callback_exactly_once": true,
+            "per_peer_run_scoped_telemetry": true,
+            "geometry_snapshot_at_end": true,
+            "automatic_geometry": true,
+            "manual_node_coordinates_required": false,
+            "ble_metric_profile": "android-ble-lab-v1",
+            "ble_metric_profile_physical_confidence": "COARSE",
+            "ble_metric_rssi_at_1m_dbm": -69.19,
+            "ble_metric_path_loss_exponent": 3.62,
+            "ble_metric_valid_distance_min_m": 0.5,
+            "ble_metric_valid_distance_max_m": 5.0,
+            "ble_metric_min_samples": 3,
+            "ble_fresh_ms": 5000,
+            "ble_holdover_max_ms": 10000,
+            "ble_holdover_sigma_aging_m_per_s": 0.15,
+            "ble_primary_strategy": "FILTERED_PRIMARY",
+            "ble_recovery_strategy": "UNFILTERED_RECOVERY",
+            "ble_cohort_stall_threshold_ms": 5000,
+            "ble_recovery_unfiltered_window_ms": 10000,
+            "ble_filtered_recovery_probe_ms": 15000,
+            "ble_restart_cooldown_ms": 30000,
+            "ble_max_recovery_attempts_per_5min": 3,
+            "android_api36_ble_yield_ms": 120000,
+            "human_scanning_enabled": false,
+            "human_localization_validated": false,
+            "rescue_use_validated": false
+          }
+          EOF
+          python3 -m json.tool dist/release-manifest.json >/dev/null
+      - name: Generate SPDX SBOM
+        uses: anchore/sbom-action@v0
+        with:
+          path: .
+          format: spdx-json
+          output-file: dist/SBOM.spdx.json
+      - name: Assert mandatory dev11 artifacts
+        shell: bash
+        run: |
+          set -euxo pipefail
+          required=(body-finder-ruview-universal.apk body-finder-ruview.aab body-finder-ruview-legacy-minsdk21.apk body-finder-node-linux-x86_64.tar.gz body-finder-node-linux-x86_64.deb body-finder-node-windows-x86_64.zip body-finder-ruview-ios-simulator.zip ANDROID_DEV11_FINAL_ACCEPTANCE_RETEST.md IMPLEMENTATION_PLAN_POST_DEV10_DEV11_RELEASE.md validation-run-snapshot-v2.schema.json validation-snapshot-v2-regression-fixtures.zip recovery-timeline-regression-fixtures.zip peer-telemetry-regression-fixtures.zip geometry-at-end-regression-fixtures.zip body-finder-validation-tools.zip release-manifest.json capability-matrix.json ble-range-calibration-profiles.json ble-range-calibration-schema.json protocol-version.txt model-manifest.json ruvview-upstream-lock.json SBOM.spdx.json)
+          if [ ! -s dist/ruvview-upstream-lock.json ] && [ -s dist/ruview-upstream-lock.json ]; then cp dist/ruview-upstream-lock.json dist/ruvview-upstream-lock.json; fi
+          for f in "${required[@]}"; do test -s "dist/$f"; done
+          python3 - <<'PY'
+          import json
+          m=json.load(open('dist/release-manifest.json'))
+          assert m['release']=='dev-11'
+          assert m['version']=='0.2.0-experimental.11'
+          assert m['protocol_version']==2
+          assert m['validation_snapshot_schema_version']==2
+          assert m['validation_snapshot_immutable'] is True
+          assert m['completed_validation_run_history'] is True
+          assert m['completed_validation_run_history_limit']==5
+          assert m['recovery_generation_enabled'] is True
+          assert m['recovery_timeline_monotonic'] is True
+          assert m['recovery_first_callback_exactly_once'] is True
+          assert m['per_peer_run_scoped_telemetry'] is True
+          assert m['geometry_snapshot_at_end'] is True
+          assert m['ble_metric_rssi_at_1m_dbm']==-69.19
+          assert m['ble_metric_path_loss_exponent']==3.62
+          assert m['ble_primary_strategy']=='FILTERED_PRIMARY'
+          assert m['ble_recovery_strategy']=='UNFILTERED_RECOVERY'
+          assert m['human_scanning_enabled'] is False
+          assert m['human_localization_validated'] is False
+          assert m['rescue_use_validated'] is False
+          PY
+      - name: Generate checksums and verify locally
+        shell: bash
+        run: |
+          set -euxo pipefail
+          (cd dist && find . -maxdepth 1 -type f ! -name SHA256SUMS -printf '%f\0' | sort -z | xargs -0 sha256sum > SHA256SUMS)
+          (cd dist && sha256sum --check SHA256SUMS)
+          grep -q 'body-finder-ruview-universal.apk' dist/SHA256SUMS
+          grep -q 'validation-snapshot-v2-regression-fixtures.zip' dist/SHA256SUMS
+          grep -q 'recovery-timeline-regression-fixtures.zip' dist/SHA256SUMS
+          grep -q 'SBOM.spdx.json' dist/SHA256SUMS
+      - name: Publish dev-11 prerelease
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euxo pipefail
+          TAG=dev-11
+          if gh release view "$TAG" >/dev/null 2>&1; then gh release delete "$TAG" -y --cleanup-tag; fi
+          cat > /tmp/release-notes.md <<'EOF'
+          dev-11 closes post-dev10 validation integrity/provenance defects without changing the validated coarse BLE physics. It adds bounded immutable completed-run history, selected historical export, causal recovery generations, exactly-once first callback, corrected per-peer lifetime/run/recovery semantics, and frozen geometry/fusion/graph truth at End.
+
+          Start with ANDROID_DEV11_FINAL_ACCEPTANCE_RETEST.md. Human scanning, human localization validation and rescue-use validation remain disabled.
+          EOF
+          gh release create "$TAG" --target "$SOURCE_SHA" --prerelease --title "Body Finder – RuView dev-11 — validation integrity & frozen geometry" --notes-file /tmp/release-notes.md
+          gh release upload "$TAG" dist/* --clobber
+      - name: Verify published release and upload verification report
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euxo pipefail
+          rm -rf published && mkdir published
+          gh release download dev-11 --dir published
+          (cd published && sha256sum --check SHA256SUMS)
+          python3 - <<'PY'
+          import json, pathlib, hashlib
+          d=pathlib.Path('published')
+          required=['body-finder-ruview-universal.apk','body-finder-ruview.aab','body-finder-ruview-legacy-minsdk21.apk','body-finder-node-linux-x86_64.tar.gz','body-finder-node-linux-x86_64.deb','body-finder-node-windows-x86_64.zip','body-finder-ruview-ios-simulator.zip','ANDROID_DEV11_FINAL_ACCEPTANCE_RETEST.md','IMPLEMENTATION_PLAN_POST_DEV10_DEV11_RELEASE.md','validation-run-snapshot-v2.schema.json','validation-snapshot-v2-regression-fixtures.zip','recovery-timeline-regression-fixtures.zip','peer-telemetry-regression-fixtures.zip','geometry-at-end-regression-fixtures.zip','body-finder-validation-tools.zip','release-manifest.json','capability-matrix.json','ble-range-calibration-profiles.json','ble-range-calibration-schema.json','protocol-version.txt','model-manifest.json','ruvview-upstream-lock.json','SBOM.spdx.json','SHA256SUMS']
+          missing=[x for x in required if not (d/x).is_file() or (d/x).stat().st_size==0]
+          assert not missing, missing
+          m=json.load(open(d/'release-manifest.json'))
+          assert m['release']=='dev-11' and m['version']=='0.2.0-experimental.11'
+          assert m['completed_validation_run_history'] is True and m['geometry_snapshot_at_end'] is True
+          out={'release':'dev-11','version':'0.2.0-experimental.11','commit':m['commit'],'published_asset_count':len([p for p in d.iterdir() if p.is_file()]),'sha256sums_verified':True,'manifest_verified':True,'mandatory_assets_verified':True,'published_release_verifier':'PASS'}
+          pathlib.Path('release-verification.json').write_text(json.dumps(out,indent=2)+'\n')
+          PY
+          gh release upload dev-11 release-verification.json --clobber
