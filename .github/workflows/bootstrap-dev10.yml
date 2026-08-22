@@ -34,7 +34,8 @@ jobs:
         shell: bash
         run: |
           set -euxo pipefail
-          git checkout HEAD -- .github/workflows
+          rm -f .github/workflows/ci-exp10.yml .github/workflows/release-exp10.yml
+          git checkout HEAD -- .github/workflows/ci-exp9.yml .github/workflows/release-exp9.yml .github/workflows/bootstrap-dev10.yml
           rm -f scripts/maintenance/dev10_core_00.txt scripts/maintenance/dev10_core_01.txt scripts/maintenance/dev10_core_02.txt scripts/maintenance/apply_dev10_core.py scripts/maintenance/dev10_patch_part_00.txt
           find . -type d -name __pycache__ -prune -exec rm -rf {} +
           git config user.name github-actions[bot]
