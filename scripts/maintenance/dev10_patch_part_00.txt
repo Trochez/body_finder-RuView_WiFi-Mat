@@ -1,0 +1,211 @@
+#!/usr/bin/env python3
+from pathlib import Path
+import json
+import re
+
+ROOT = Path(__file__).resolve().parents[2]
+
+
+def read(path: str) -> str:
+    return (ROOT / path).read_text(encoding="utf-8")
+
+
+def write(path: str, content: str) -> None:
+    target = ROOT / path
+    target.parent.mkdir(parents=True, exist_ok=True)
+    target.write_text(content, encoding="utf-8")
+
+
+def must_replace(text: str, old: str, new: str, label: str, count: int = 1) -> str:
+    actual = text.count(old)
+    if actual < count:
+        raise RuntimeError(f"{label}: expected at least {count} occurrence(s), found {actual}")
+    return text.replace(old, new, count)
+
+
+def replace_between(text: str, start: str, end: str, replacement: str, label: str) -> str:
+    i = text.find(start)
+    if i < 0:
+        raise RuntimeError(f"{label}: start marker missing")
+    j = text.find(end, i)
+    if j < 0:
+        raise RuntimeError(f"{label}: end marker missing")
+    return text[:i] + replacement + text[j:]
+
+
+BASELINE_SHA = "a2cdadd0d0055f0787c85d414d3c07d98810f1c9"
+
+# ---------------------------------------------------------------------------
+# 1) Validation event log shared by BLE policy + RangingManager + validation.
+# ---------------------------------------------------------------------------
+write("apps/mobile/modules/body-finder-native/android/src/main/java/com/trochez/bodyfindernative/ValidationEventLog.kt", r'''package com.trochez.bodyfindernative
+
+import android.os.Build
+import org.json.JSONArray
+import org.json.JSONObject
+import java.util.concurrent.ConcurrentLinkedDeque
+import java.util.concurrent.atomic.AtomicLong
+import kotlin.math.max
+
+internal data class ValidationEvent(
+  val seq: Long,
+  val wallMs: Long,
+  val type: String,
+  val reason: String,
+  val peerId: String?,
+  val logicalStrategy: String,
+  val cohortHealth: String,
+  val systemRangingState: String,
+  val rangingYieldActive: Boolean,
+)
+
+internal data class EventTimelineSnapshot(
+  val events: JSONArray,
+  val totalCount: Int,
+  val truncated: Boolean,
+)
+
+/** Diagnostics-only bounded provenance. It never influences ranging or solver decisions. */
+internal object ValidationEventLog {
+  const val MAX_RUNTIME_EVENTS = 512
+  const val MAX_VALIDATION_EVENTS = 256
+
+  private val sequence = AtomicLong(0)
+  private val events = ConcurrentLinkedDeque<ValidationEvent>()
+
+  @Synchronized
+  fun reset() {
+    sequence.set(0)
+    events.clear()
+  }
+
+  fun currentSeq(): Long = sequence.get()
+
+  @Synchronized
+  fun record(
+    type: String,
+    reason: String = "",
+    peerId: String? = null,
+    now: Long = System.currentTimeMillis(),
+  ) {
+    val rangingState = if (Build.VERSION.SDK_INT >= 36) SystemRangingApi36.stateLabel() else "UNSUPPORTED"
+    val yieldActive = Build.VERSION.SDK_INT >= 36 && SystemRangingApi36.isBleYieldActive(now)
+    events.addLast(
+      ValidationEvent(
+        seq = sequence.incrementAndGet(),
+        wallMs = now,
+        type = type,
+        reason = reason,
+        peerId = peerId,
+        logicalStrategy = BleAcquisitionPolicy.currentStrategy().name,
+        cohortHealth = BleAcquisitionPolicy.currentCohortHealth().name,
+        systemRangingState = rangingState,
+        rangingYieldActive = yieldActive,
+      )
+    )
+    while (events.size > MAX_RUNTIME_EVENTS) events.pollFirst()
+  }
+
+  @Synchronized
+  fun snapshotSince(afterSeq: Long, runStartWallMs: Long): EventTimelineSnapshot {
+    val selected = events.filter { it.seq > afterSeq }
+    val truncated = selected.size > MAX_VALIDATION_EVENTS
+    val kept = if (truncated) selected.takeLast(MAX_VALIDATION_EVENTS) else selected
+    val arr = JSONArray()
+    kept.forEach { event ->
+      arr.put(
+        JSONObject()
+          .put("seq", event.seq)
+          .put("wall_ms", event.wallMs)
+          .put("elapsed_from_run_start_ms", max(0L, event.wallMs - runStartWallMs))
+          .put("type", event.type)
+          .put("reason", event.reason)
+          .put("peer_id", event.peerId ?: JSONObject.NULL)
+          .put("logical_strategy", event.logicalStrategy)
+          .put("cohort_health", event.cohortHealth)
+          .put("system_ranging_state", event.systemRangingState)
+          .put("ranging_yield_active", event.rangingYieldActive)
+      )
+    }
+    return EventTimelineSnapshot(arr, selected.size, truncated)
+  }
+}
+''')
+
+# ---------------------------------------------------------------------------
+# 2) Adaptive acquisition policy: attempts, events and per-peer provenance.
+# ---------------------------------------------------------------------------
+policy_path = "apps/mobile/modules/body-finder-native/android/src/main/java/com/trochez/bodyfindernative/BleAcquisitionPolicy.kt"
+policy = read(policy_path)
+policy = must_replace(policy,
+'''  @Volatile private var restartSuppressedCount: Long = 0L
+  @Volatile private var recoveryStartedWallMs: Long? = null
+''',
+'''  @Volatile private var restartSuppressedCount: Long = 0L
+  @Volatile private var recoveryAttemptCountTotal: Long = 0L
+  @Volatile private var lastRecoverySuppressionReason: String? = null
+  @Volatile private var recoveryFirstCallbackRecorded: Boolean = false
+  @Volatile private var recoveryStartedWallMs: Long? = null
+''', "policy fields")
+policy = must_replace(policy,
+'''    restartSuppressedCount = 0
+    recoveryStartedWallMs = null
+''',
+'''    restartSuppressedCount = 0
+    recoveryAttemptCountTotal = 0
+    lastRecoverySuppressionReason = null
+    recoveryFirstCallbackRecorded = false
+    recoveryStartedWallMs = null
+''', "policy reset")
+policy = must_replace(policy,
+'''  fun cohortRecoveryFailureCount(): Long = cohortRecoveryFailureCount
+  fun restartSuppressedCount(): Long = restartSuppressedCount
+
+  @Synchronized
+  fun transition(next: BleAcquisitionStrategy, now: Long, reason: String) {
+    if (strategy == next) return
+    accumulateCurrentMode(now)
+    strategy = next
+    strategySinceWallMs = now
+    lastStrategyReason = reason
+    transitionCount++
+  }
+''',
+'''  fun cohortRecoveryFailureCount(): Long = cohortRecoveryFailureCount
+  fun restartSuppressedCount(): Long = restartSuppressedCount
+  fun recoveryAttemptCount(): Long = recoveryAttemptCountTotal
+  fun lastStrategyReason(): String = lastStrategyReason
+  fun lastRecoverySuppressionReason(): String? = lastRecoverySuppressionReason
+
+  @Synchronized
+  fun recoveryAttemptsInWindow(now: Long): Int {
+    pruneRecoveryAttempts(now)
+    return recoveryAttemptWallMs.size
+  }
+
+  @Synchronized
+  fun canExitFailedSafe(now: Long): Boolean =
+    recoveryAttemptsInWindow(now) < MAX_RECOVERY_ATTEMPTS_PER_5MIN &&
+      (lastRecoveryAttemptWallMs <= 0L || now - lastRecoveryAttemptWallMs >= MIN_RESTART_COOLDOWN_MS)
+
+  @Synchronized
+  fun transition(next: BleAcquisitionStrategy, now: Long, reason: String) {
+    if (strategy == next) return
+    val previous = strategy
+    accumulateCurrentMode(now)
+    strategy = next
+    strategySinceWallMs = now
+    lastStrategyReason = reason
+    transitionCount++
+    ValidationEventLog.record("ACQUISITION_STRATEGY_CHANGED", "${previous.name}->${next.name}:$reason", now = now)
+  }
+''', "policy getters/transition")
+policy = must_replace(policy,
+'''  @Synchronized
+  fun updateCohortHealth(next: BodyFinderCohortHealth) {
+    if (next == BodyFinderCohortHealth.BF_COHORT_STALLED && cohortHealth != BodyFinderCohortHealth.BF_COHORT_STALLED) {
+      cohortStallCount++
+    }
+    cohortHealth = next
+  }
+''',
