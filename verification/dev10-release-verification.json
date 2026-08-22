@@ -1,0 +1,21 @@
+{
+  "schema_version": 1,
+  "release": "dev-10",
+  "version": "0.2.0-experimental.10",
+  "published_at": "2026-08-22T02:21:05Z",
+  "release_url": "https://github.com/Trochez/body_finder-RuView_WiFi-Mat/releases/tag/dev-10",
+  "target_commitish": "54625d0a09693565905d8d0732269c222b5607cc",
+  "asset_count": 43,
+  "mandatory_asset_count": 19,
+  "missing_mandatory_assets": [],
+  "sha256sums_verified": true,
+  "sha256sums_file_sha256": "1cf10b8c7baf40ceaa2a9508b863d04454bf0cc184e144814c44581b6fd28620",
+  "manifest_verified": true,
+  "android_universal_size_bytes": 61250893,
+  "android_aab_size_bytes": 42869331,
+  "android_legacy_size_bytes": 20331,
+  "linux_tar_size_bytes": 479199,
+  "linux_deb_size_bytes": 413332,
+  "windows_zip_size_bytes": 369263,
+  "ios_simulator_zip_size_bytes": 12899026
+}
