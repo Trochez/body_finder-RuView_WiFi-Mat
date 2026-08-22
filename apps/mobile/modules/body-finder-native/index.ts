@@ -7,10 +7,13 @@ export type NativeApi = {
   updateLocalState(baseline: number | null, sigma: number | null, scanning: boolean): boolean;
   updatePublishedGeometry(publish: boolean, geometryJson: string | null): boolean;
   updateGeometryState(geometryState: string): boolean;
+  updateValidationTruthJson(truthJson: string): boolean;
   updateAppVisibility(visibility: string): boolean;
   startValidationRun(): string;
   endValidationRun(): boolean;
   getValidationRunJson(): string;
+  getCompletedValidationRunsSummaryJson(): string;
+  selectValidationRun(runId: string): boolean;
   getCalibrationSnapshotJson(): string;
   startFabric(nodeId: string | null, displayName: string | null, sessionId: string | null): Promise<boolean>;
   stopFabric(): boolean;

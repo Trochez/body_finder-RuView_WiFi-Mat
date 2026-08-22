@@ -24,10 +24,7 @@ import {
 } from './src/autogeometry';
 import { diagnoseGeometryGraph } from './src/geometryDiagnostics';
 import { applyReciprocalFusion } from './src/rangeFusion';
-
-const BUILD = '0.2.0-experimental.10';
-const REPORT_VERSION = 12;
-const HUMAN_SCANNING_ENABLED = false;
+import { BUILD, REPORT_VERSION, HUMAN_SCANNING_ENABLED, RELEASE } from './src/version';
 
 const T = {
   en: {
@@ -37,7 +34,7 @@ const T = {
     peers: 'nodes', share: 'Share complete test JSON', empty: 'Keep the target area empty while calibrating.',
     network: 'OPEN / UNTRUSTED FIELD NETWORK', relative: 'POSITION RELATIVE TO THIS DEVICE', geometry: 'SENSOR GEOMETRY',
     estimating: 'Estimating automatically…', positioned: 'nodes positioned', residual: 'solver residual', condition: 'graph condition',
-    noTarget: 'Human scanning remains intentionally blocked until the experimental.10 validation-integrity gate is reviewed. This build validates sensor geometry acquisition continuity only.',
+    noTarget: 'Human scanning remains intentionally blocked until the experimental.11 validation-integrity gate is reviewed. This build validates sensor geometry acquisition continuity only.',
     confidence: 'human confidence', uncertainty: 'position uncertainty',
     evidence: 'Evidence: connected-Wi-Fi RSSI disturbance (not CSI). Sensor metric coordinates require validated pairwise ranging.',
     unresolved: 'unresolved nodes are intentionally not placed on the radar', startRun: 'Start validation run', endRun: 'End validation run',
@@ -49,7 +46,7 @@ const T = {
     peers: 'nodos', share: 'Compartir JSON completo de prueba', empty: 'Mantén vacía el área objetivo durante la calibración.',
     network: 'RED DE CAMPO ABIERTA / NO CONFIABLE', relative: 'POSICIÓN RELATIVA A ESTE DISPOSITIVO', geometry: 'GEOMETRÍA DE SENSORES',
     estimating: 'Estimando automáticamente…', positioned: 'nodos posicionados', residual: 'residual del solver', condition: 'condición del grafo',
-    noTarget: 'El escaneo humano permanece bloqueado intencionalmente hasta revisar el gate de continuidad de adquisición BLE de experimental.9. Esta build valida únicamente la continuidad de adquisición de la geometría de sensores.',
+    noTarget: 'El escaneo humano permanece bloqueado intencionalmente hasta revisar el gate de continuidad de adquisición BLE de experimental.11. Esta build valida únicamente la continuidad de adquisición de la geometría de sensores.',
     confidence: 'confianza humana', uncertainty: 'incertidumbre de posición',
     evidence: 'Evidencia: perturbación RSSI de Wi‑Fi conectado (no CSI). Las coordenadas métricas requieren ranging entre nodos validado.',
     unresolved: 'los nodos no resueltos no se colocan artificialmente en el radar', startRun: 'Iniciar corrida de validación', endRun: 'Finalizar corrida de validación',
@@ -104,6 +101,8 @@ export default function App() {
   const [error, setError] = useState<string | null>(null);
   const [visualPositions, setVisualPositions] = useState<Record<string, VisualPosition>>({});
   const [validationRun, setValidationRun] = useState<any>(null);
+  const [validationNotice, setValidationNotice] = useState<string | null>(null);
+  const validationActionLock = useRef(false);
   const visualFrame = useRef<string | null>(null);
   const tx = T[lang];
 
@@ -156,6 +155,25 @@ export default function App() {
 
   useEffect(() => { try { BodyFinderNative.updateGeometryState(geometryState); } catch {} }, [geometryState]);
 
+  const validationTruth = useMemo(() => ({
+    geometry,
+    locally_computed_geometry: computedGeometry,
+    fused_range_observations: geometryNodes.flatMap(node => node.ranges ?? []),
+    graph_diagnostics: graphDiagnostics,
+    reciprocal_fusion: fused.diagnostics,
+    measurement_health: {
+      health: graphDiagnostics.measurement_health,
+      physical_confidence: graphDiagnostics.physical_confidence,
+      fresh_metric_edge_count: graphDiagnostics.fresh_metric_edge_count,
+      holdover_metric_edge_count: graphDiagnostics.holdover_metric_edge_count,
+      geometry_temporal_quality: graphDiagnostics.geometry_temporal_quality,
+    },
+  }), [geometry, computedGeometry, geometryNodes, graphDiagnostics, fused.diagnostics]);
+
+  useEffect(() => {
+    try { BodyFinderNative.updateValidationTruthJson(JSON.stringify(validationTruth)); } catch {}
+  }, [validationTruth]);
+
   useEffect(() => {
     const elected = Boolean(local?.node_id && coordinator === local.node_id);
     try { BodyFinderNative.updatePublishedGeometry(elected, elected && computedGeometry ? JSON.stringify(computedGeometry) : null); } catch {}
@@ -202,10 +220,30 @@ export default function App() {
     } catch (cause: any) { setError(String(cause?.message ?? cause)); } finally { setCalibrating(false); }
   }
 
-  function toggleValidationRun() {
+  function refreshValidationState() {
+    const fresh = JSON.parse(BodyFinderNative.getDiagnosticsJson());
+    setDiagnostics(fresh);
+    setValidationRun(fresh?.validation_run ?? null);
+    return fresh;
+  }
+
+  function selectValidationRun(runId: string) {
     try {
-      if (validationRun?.active) BodyFinderNative.endValidationRun();
-      else {
+      if (BodyFinderNative.selectValidationRun(runId)) refreshValidationState();
+    } catch (cause: any) { setError(String(cause?.message ?? cause)); }
+  }
+
+  function toggleValidationRun() {
+    if (validationActionLock.current) return;
+    validationActionLock.current = true;
+    try {
+      if (validationRun?.active) {
+        try { BodyFinderNative.updateValidationTruthJson(JSON.stringify(validationTruth)); } catch {}
+        BodyFinderNative.endValidationRun();
+        setValidationNotice(lang === 'es' ? 'Corrida finalizada y congelada.' : 'Run completed and frozen.');
+      } else {
+        const retained = Array.isArray(diagnostics?.completed_validation_runs_summary) ? diagnostics.completed_validation_runs_summary.length : 0;
+        if (retained > 0) setValidationNotice(lang === 'es' ? 'La corrida completada anterior se conservará en el historial.' : 'The previous completed run will be preserved in history.');
         const result = BodyFinderNative.startValidationRun();
         if (typeof result === 'string' && result.startsWith('VALIDATION_ENVIRONMENT_INVALID:')) {
           const reason = result.split(':').slice(1).join(':');
@@ -213,10 +251,9 @@ export default function App() {
           return;
         }
       }
-      const fresh = JSON.parse(BodyFinderNative.getDiagnosticsJson());
-      setDiagnostics(fresh);
-      setValidationRun(fresh?.validation_run ?? null);
+      refreshValidationState();
     } catch (cause: any) { setError(String(cause?.message ?? cause)); }
+    finally { setTimeout(() => { validationActionLock.current = false; }, 600); }
   }
 
   async function share() {
@@ -226,6 +263,7 @@ export default function App() {
     try {
       freshDiagnostics = JSON.parse(BodyFinderNative.getDiagnosticsJson());
       if (freshDiagnostics?.validation_run?.active) {
+        try { BodyFinderNative.updateValidationTruthJson(JSON.stringify(validationTruth)); } catch {}
         BodyFinderNative.endValidationRun();
         autoFinalizedValidationRun = true;
         freshDiagnostics = JSON.parse(BodyFinderNative.getDiagnosticsJson());
@@ -239,12 +277,15 @@ export default function App() {
       generated_at: new Date().toISOString(), app: 'Body Finder – RuView', build: BUILD, protocol_version: 2,
       truth: 'LIVE_DEVICE_CAPABILITIES__VALIDATED_COARSE_BLE_METRIC_0P5_TO_5M__BOUNDED_HOLDOVER__ADAPTIVE_FILTERED_PRIMARY_WITH_BF_COHORT_RECOVERY__RANGING_MANAGER_BLE_YIELD__RECIPROCAL_FUSION__AUTOGEOMETRY_EXPERIMENTAL_NOT_RESCUE_VALIDATED',
       manual_geometry_override: false, human_scanning_enabled: HUMAN_SCANNING_ENABLED,
+      human_localization_validated: RELEASE.humanLocalizationValidated, rescue_use_validated: RELEASE.rescueUseValidated,
       export_auto_finalized_validation_run: autoFinalizedValidationRun,
       node_id: local?.node_id ?? null, capabilities: caps,
       ble_diagnostics: freshDiagnostics?.ble_diagnostics ?? null,
       fabric_diagnostics: freshDiagnostics?.fabric_diagnostics ?? null,
       lifecycle_diagnostics: freshDiagnostics?.lifecycle_diagnostics ?? null,
+      selected_validation_run_id: freshDiagnostics?.selected_validation_run_id ?? null,
       validation_run: freshDiagnostics?.validation_run ?? null,
+      completed_validation_runs_summary: freshDiagnostics?.completed_validation_runs_summary ?? [],
       calibration_snapshot: calibrationSnapshot,
       local, peers, coordinator_node_id: coordinator, geometry_source: geometrySelection.source, geometry,
       locally_computed_geometry: computedGeometry, graph_diagnostics: graphDiagnostics,
@@ -267,9 +308,9 @@ export default function App() {
       },
       range_observations: nodes.flatMap(node => node.ranges ?? []), estimate_array_frame: arrayTarget,
       estimate_relative_to_this_device: target,
-      instructions: 'Return both exports and screenshots from the 5-minute experimental.10 validation-integrity run plus the 3-minute post-End immutability interval. Do not change calibration, minSamples, freshness, holdover or solver settings. Human scanning remains blocked until acquisition continuity is accepted.',
+      instructions: 'Return both exports and screenshots from the 5-minute experimental.11 validation-integrity run plus the 3-minute post-End immutability interval. Do not change calibration, minSamples, freshness, holdover or solver settings. Human scanning remains blocked until acquisition continuity is accepted.',
     };
-    await Share.share({ message: JSON.stringify(payload, null, 2), title: 'Body Finder experimental.10 validation integrity result' });
+    await Share.share({ message: JSON.stringify(payload, null, 2), title: 'Body Finder experimental.11 validation integrity result' });
   }
 
   const scale = 18;
@@ -318,9 +359,14 @@ export default function App() {
             <Text style={s.text}>{tx.uncertainty}: {target.uncertainty_percent.toFixed(0)}% · ±{target.error_radius_95_m.toFixed(1)} m (95%)</Text><Text style={s.muted}>{tx.evidence}</Text></View>
             : <View style={s.card}><Text style={s.text}>{tx.noTarget}</Text></View>}
           <View style={s.card}><Text style={s.h2}>Validation run</Text><Text style={s.text}>run: {validationRun?.run_id ?? '—'} · active: {String(Boolean(validationRun?.active))}</Text>
-            <Text style={s.text}>elapsed: {validationRun?.elapsed_ms ?? 0} ms · frozen: {String(Boolean(validationRun?.snapshot_frozen))} · peer expiry Δ: {validationRun?.peer_expire_delta ?? 0} · rebind Δ: {validationRun?.address_rebind_delta ?? 0}</Text>
+            <Text style={s.text}>elapsed: {validationRun?.elapsed_ms ?? 0} ms · frozen: {String(Boolean(validationRun?.snapshot_frozen))} · schema: {validationRun?.snapshot_schema_version ?? RELEASE.snapshotSchemaVersion}</Text>
+            <Text style={s.text}>ended: {validationRun?.ended_wall_ms ?? '—'} · retained: {diagnostics?.completed_validation_runs_summary?.length ?? 0}/5 · selected: {diagnostics?.selected_validation_run_id?.slice?.(-8) ?? '—'}</Text>
+            <Text style={s.text}>peer expiry Δ: {validationRun?.peer_expire_delta ?? 0} · rebind Δ: {validationRun?.address_rebind_delta ?? 0}</Text>
             <Text style={s.text}>peer: {formatPct(validationRun?.all_peer_uptime_percent)} · fresh metric: {formatPct(validationRun?.fresh_metric_range_uptime_percent)} · usable metric: {formatPct(validationRun?.usable_metric_range_uptime_percent)}</Text>
-            <Text style={s.text}>holdover share: {formatPct(validationRun?.holdover_metric_uptime_percent)} · 2D: {formatPct(validationRun?.geometry_2d_uptime_percent)}</Text><Text style={s.text}>recovery attempts Δ: {validationRun?.recovery_attempt_delta ?? 0} · suppressed Δ: {validationRun?.restart_suppressed_delta ?? 0} · cohort stalls Δ: {validationRun?.cohort_stall_delta ?? 0}</Text></View>
+            <Text style={s.text}>holdover share: {formatPct(validationRun?.holdover_metric_uptime_percent)} · 2D: {formatPct(validationRun?.geometry_2d_uptime_percent)}</Text><Text style={s.text}>recovery attempts Δ: {validationRun?.recovery_attempt_delta ?? 0} · suppressed Δ: {validationRun?.restart_suppressed_delta ?? 0} · cohort stalls Δ: {validationRun?.cohort_stall_delta ?? 0}</Text>
+            {validationNotice && <Text style={s.muted}>{validationNotice}</Text>}
+            {Array.isArray(diagnostics?.completed_validation_runs_summary) && diagnostics.completed_validation_runs_summary.map((run: any) => <Pressable key={run.run_id} style={s.btnAlt} onPress={() => selectValidationRun(run.run_id)}><Text style={s.btnText}>{run.run_id.slice(0, 8)} · {Math.round((run.elapsed_ms ?? 0) / 1000)}s · frozen {String(run.snapshot_frozen)}</Text></Pressable>)}
+          </View>
           <Pressable style={s.btnTest} onPress={toggleValidationRun}><Text style={s.btnText}>{validationRun?.active ? tx.endRun : tx.startRun}</Text></Pressable>
           <Text style={s.muted}>{tx.empty}</Text>
           <Pressable disabled={calibrating} style={s.btn} onPress={calibrate}><Text style={s.btnText}>{calibrating ? 'CALIBRATING…' : tx.calibrate}</Text></Pressable>
@@ -333,11 +379,11 @@ export default function App() {
             <Text style={s.text}>Node geometry: AUTO ONLY — manual override disabled</Text><Text style={s.text}>Geometry authority: {geometrySelection.source}</Text>
             <Text style={s.text}>BLE RSSI: validated COARSE profile android-ble-lab-v1 only inside 0.5–5.0 m. Profile parameters are frozen from dev-6.</Text>
             <Text style={s.text}>Continuity: fresh metric estimates may enter a bounded 10 s HOLDOVER when samples briefly disappear; sigma increases with age and hard expiry removes the edge.</Text>
-            <Text style={s.text}>Acquisition: experimental.10 uses manufacturer-filtered LOW_LATENCY scanning as FILTERED_PRIMARY. CALLBACK_TYPE_ALL_MATCHES is only the Android callback setting inside the filtered scan; the no-filter path is bounded UNFILTERED_RECOVERY only.</Text>
+            <Text style={s.text}>Acquisition: experimental.11 uses manufacturer-filtered LOW_LATENCY scanning as FILTERED_PRIMARY. CALLBACK_TYPE_ALL_MATCHES is only the Android callback setting inside the filtered scan; the no-filter path is bounded UNFILTERED_RECOVERY only.</Text>
             <Text style={s.text}>API36+: repeated RangingManager close/no-result churn enters a bounded BLE-acquisition yield; only a real platform distance resets system-ranging failures.</Text>
             <Text style={s.text}>RSSI 127 and other invalid values are filtered before the valid queue and are counted separately for diagnostics.</Text>
             <Text style={s.text}>Reciprocal A↔B BLE observations are inverse-variance fused before the solver; REJECT never enters geometry.</Text>
-            <Text style={s.text}>Human scanning: BLOCKED until the experimental.10 validation-integrity gate is reviewed.</Text>
+            <Text style={s.text}>Human scanning: BLOCKED until the experimental.11 validation-integrity gate is reviewed.</Text>
             <Text style={s.text}>Graph condition is not physical accuracy. CSI remains unsupported unless a verified adapter is loaded.</Text></View>
           <Pressable style={s.btnTest} onPress={toggleValidationRun}><Text style={s.btnText}>{validationRun?.active ? tx.endRun : tx.startRun}</Text></Pressable>
           {[

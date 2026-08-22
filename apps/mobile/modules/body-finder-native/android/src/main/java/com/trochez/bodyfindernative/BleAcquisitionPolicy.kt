@@ -35,7 +35,7 @@ enum class BodyFinderCohortHealth {
 }
 
 /**
- * Acquisition-only policy for experimental.9.
+ * Acquisition-only policy for experimental.11.
  *
  * Physical ranging truth is frozen: android-ble-lab-v1, minSamples=3,
  * freshness=5s, holdover=10s, sigma aging and solver rules are unchanged.
@@ -78,6 +78,10 @@ internal object BleAcquisitionPolicy {
   @Volatile private var filteredAccumulatedMs: Long = 0L
   @Volatile private var unfilteredAccumulatedMs: Long = 0L
   private val recoveryAttemptWallMs = ConcurrentLinkedDeque<Long>()
+  private val recoveryGenerationCounter = AtomicLong(0)
+  @Volatile private var activeRecoveryGeneration: Long? = null
+  private val recoverySuccessGeneration = AtomicLong(0)
+  private val recoveryFailureGeneration = AtomicLong(0)
 
   fun reset(now: Long = System.currentTimeMillis()) {
     strategy = BleAcquisitionStrategy.FILTERED_PRIMARY
@@ -96,6 +100,10 @@ internal object BleAcquisitionPolicy {
     filteredAccumulatedMs = 0
     unfilteredAccumulatedMs = 0
     recoveryAttemptWallMs.clear()
+    recoveryGenerationCounter.set(0)
+    activeRecoveryGeneration = null
+    recoverySuccessGeneration.set(0)
+    recoveryFailureGeneration.set(0)
   }
 
   fun currentStrategy(): BleAcquisitionStrategy = strategy
@@ -109,6 +117,8 @@ internal object BleAcquisitionPolicy {
   fun restartSuppressedCount(): Long = restartSuppressedCount
   fun recoveryAttemptCount(): Long = recoveryAttemptCountTotal
   fun lastStrategyReason(): String = lastStrategyReason
+  fun activeRecoveryGeneration(): Long? = activeRecoveryGeneration
+  fun currentRecoveryGeneration(): Long = activeRecoveryGeneration ?: recoveryGenerationCounter.get()
   @Synchronized fun recoveryAttemptsInWindow(now: Long): Int {
     while (true) {
       val first = recoveryAttemptWallMs.peekFirst() ?: break
@@ -127,15 +137,19 @@ internal object BleAcquisitionPolicy {
     lastStrategyReason = reason
     transitionCount++
     ValidationEventLog.record("ACQUISITION_STRATEGY_CHANGED", "$reason:${next.name}", now = now)
+    if (next == BleAcquisitionStrategy.FILTERED_PRIMARY || next == BleAcquisitionStrategy.FAILED_SAFE) {
+      activeRecoveryGeneration = null
+    }
   }
 
   @Synchronized
-  fun updateCohortHealth(next: BodyFinderCohortHealth) {
-    if (next == BodyFinderCohortHealth.BF_COHORT_STALLED && cohortHealth != BodyFinderCohortHealth.BF_COHORT_STALLED) {
-      cohortStallCount++
-      ValidationEventLog.record("BF_COHORT_STALLED", "GLOBAL_HEALTHY_BF_STALE", now = System.currentTimeMillis())
-    }
+  fun updateCohortHealth(next: BodyFinderCohortHealth, now: Long = System.currentTimeMillis()) {
+    val previous = cohortHealth
     cohortHealth = next
+    if (next == BodyFinderCohortHealth.BF_COHORT_STALLED && previous != BodyFinderCohortHealth.BF_COHORT_STALLED) {
+      cohortStallCount++
+      ValidationEventLog.record("BF_COHORT_STALLED", "GLOBAL_HEALTHY_BF_STALE", now = now)
+    }
   }
 
   @Synchronized
@@ -147,12 +161,12 @@ internal object BleAcquisitionPolicy {
     }
     if (lastRecoveryAttemptWallMs > 0 && now - lastRecoveryAttemptWallMs < MIN_RESTART_COOLDOWN_MS) {
       restartSuppressedCount++
-      ValidationEventLog.record("RECOVERY_SUPPRESSED_COOLDOWN", "MIN_RESTART_COOLDOWN")
+      ValidationEventLog.record("RECOVERY_SUPPRESSED_COOLDOWN", "MIN_RESTART_COOLDOWN", now = now)
       return false
     }
     if (recoveryAttemptWallMs.size >= MAX_RECOVERY_ATTEMPTS_PER_5MIN) {
       restartSuppressedCount++
-      ValidationEventLog.record("RECOVERY_SUPPRESSED_MAX_ATTEMPTS", "MAX_RECOVERY_ATTEMPTS_PER_5MIN")
+      ValidationEventLog.record("RECOVERY_SUPPRESSED_MAX_ATTEMPTS", "MAX_RECOVERY_ATTEMPTS_PER_5MIN", now = now)
       return false
     }
     return true
@@ -162,15 +176,20 @@ internal object BleAcquisitionPolicy {
   fun beginRecovery(now: Long, reason: String) {
     recoveryAttemptCountTotal++
     recoveryAttemptWallMs.addLast(now)
-    ValidationEventLog.record("RECOVERY_REQUESTED", reason, now = now)
-    lastRecoveryAttemptWallMs = now
+    val generation = recoveryGenerationCounter.incrementAndGet()
+    activeRecoveryGeneration = generation
     recoveryStartedWallMs = now
-    transition(BleAcquisitionStrategy.UNFILTERED_RECOVERY, now, reason)
+    lastRecoveryAttemptWallMs = now
     cohortHealth = BodyFinderCohortHealth.BF_COHORT_RECOVERING
+    ValidationEventLog.record("RECOVERY_REQUESTED", reason, now = now)
+    transition(BleAcquisitionStrategy.UNFILTERED_RECOVERY, now, reason)
   }
 
   @Synchronized
   fun noteRecoverySuccess(now: Long) {
+    val generation = activeRecoveryGeneration ?: return
+    if (recoverySuccessGeneration.get() == generation) return
+    recoverySuccessGeneration.set(generation)
     val start = recoveryStartedWallMs
     if (start != null) lastRecoveryLatencyMs = max(0L, now - start)
     cohortRecoveryCount++
@@ -179,9 +198,12 @@ internal object BleAcquisitionPolicy {
   }
 
   @Synchronized
-  fun noteRecoveryFailure() {
+  fun noteRecoveryFailure(now: Long = System.currentTimeMillis()) {
+    val generation = activeRecoveryGeneration ?: return
+    if (recoveryFailureGeneration.get() == generation) return
+    recoveryFailureGeneration.set(generation)
     cohortRecoveryFailureCount++
-    ValidationEventLog.record("RECOVERY_FAILURE", "RECOVERY_WINDOW_EXPIRED")
+    ValidationEventLog.record("RECOVERY_FAILURE", "RECOVERY_WINDOW_EXPIRED", now = now)
     recoveryStartedWallMs = null
   }
 
@@ -279,6 +301,8 @@ internal data class BleAcquisitionCounterSnapshot(
   val gapGt10sCount: Long,
   val filteredCallbackCount: Long = 0,
   val unfilteredCallbackCount: Long = 0,
+  val recoveryParticipationCount: Long = 0,
+  val firstCallbackAfterRecoveryCount: Long = 0,
 )
 
 internal class BleAcquisitionStats {
@@ -297,10 +321,21 @@ internal class BleAcquisitionStats {
   private val gapGt5sCount = AtomicLong(0)
   private val gapGt10sCount = AtomicLong(0)
   private val recentIntervalsMs = ConcurrentLinkedDeque<Long>()
-  private val peerRecoveryCount = AtomicLong(0)
-  private val lastPeerRecoveryLatencyMs = AtomicLong(0)
+  private val recoveryParticipationCount = AtomicLong(0)
+  private val firstCallbackAfterRecoveryCount = AtomicLong(0)
+  private val lastRecoveryGenerationSeen = AtomicLong(0)
+  private val lastFirstValidRecoveryGeneration = AtomicLong(0)
+  private val lastRecoveryCallbackLatencyMs = AtomicLong(0)
   @Volatile private var lastCallbackStrategy: String? = null
   @Volatile private var lastValidCallbackStrategy: String? = null
+
+  private fun markGeneration(slot: AtomicLong, generation: Long): Boolean {
+    while (true) {
+      val previous = slot.get()
+      if (previous == generation) return false
+      if (slot.compareAndSet(previous, generation)) return true
+    }
+  }
 
   fun record(now: Long, validRssi: Boolean, strategy: BleAcquisitionStrategy = BleAcquisitionPolicy.currentStrategy()) {
     firstCallbackWallMs.compareAndSet(0L, now)
@@ -311,6 +346,15 @@ internal class BleAcquisitionStats {
     if (validRssi) {
       validCallbackCount.incrementAndGet()
       lastValidCallbackStrategy = strategy.name
+      if (strategy == BleAcquisitionStrategy.UNFILTERED_RECOVERY) {
+        val generation = BleAcquisitionPolicy.activeRecoveryGeneration()
+        if (generation != null) {
+          if (markGeneration(lastRecoveryGenerationSeen, generation)) recoveryParticipationCount.incrementAndGet()
+          if (markGeneration(lastFirstValidRecoveryGeneration, generation)) firstCallbackAfterRecoveryCount.incrementAndGet()
+          val started = BleAcquisitionPolicy.recoveryStartedMs()
+          if (started != null) lastRecoveryCallbackLatencyMs.set(max(0L, now - started))
+        }
+      }
     } else invalidCallbackCount.incrementAndGet()
     if (previous <= 0L) return
     val interval = max(0L, now - previous)
@@ -322,7 +366,7 @@ internal class BleAcquisitionStats {
     }
     if (interval > BleAcquisitionPolicy.GAP_1S_MS) gapGt1sCount.incrementAndGet()
     if (interval > BleAcquisitionPolicy.GAP_2S_MS) gapGt2sCount.incrementAndGet()
-    if (interval > BleAcquisitionPolicy.GAP_5S_MS) { gapGt5sCount.incrementAndGet(); peerRecoveryCount.incrementAndGet(); lastPeerRecoveryLatencyMs.set(interval) }
+    if (interval > BleAcquisitionPolicy.GAP_5S_MS) gapGt5sCount.incrementAndGet()
     if (interval > BleAcquisitionPolicy.GAP_10S_MS) gapGt10sCount.incrementAndGet()
     recentIntervalsMs.addLast(interval)
     while (recentIntervalsMs.size > BleAcquisitionPolicy.MAX_INTERVAL_SAMPLES) recentIntervalsMs.pollFirst()
@@ -332,6 +376,7 @@ internal class BleAcquisitionStats {
     callbackCount.get(), validCallbackCount.get(), invalidCallbackCount.get(),
     gapGt1sCount.get(), gapGt2sCount.get(), gapGt5sCount.get(), gapGt10sCount.get(),
     filteredCallbackCount.get(), unfilteredCallbackCount.get(),
+    recoveryParticipationCount.get(), firstCallbackAfterRecoveryCount.get(),
   )
 
   private fun percentile(values: List<Long>, p: Double): Any {
@@ -352,13 +397,14 @@ internal class BleAcquisitionStats {
     val rateHz: Any = if (first == null) JSONObject.NULL else callbackCount.get().toDouble() * 1000.0 / durationMs.toDouble()
     val validRateHz: Any = if (first == null) JSONObject.NULL else validCallbackCount.get().toDouble() * 1000.0 / durationMs.toDouble()
     val snap = snapshot()
-    fun delta(current: Long, previous: Long?): Long = (current - (previous ?: current)).coerceAtLeast(0L)
+    fun delta(current: Long, previous: Long?): Long = (current - (previous ?: 0L)).coerceAtLeast(0L)
     return JSONObject()
       .put("acquisition_health", BleAcquisitionPolicy.health(snap.callbackCount, currentGap, valid5s, valid8s))
       .put("first_callback_wall_ms", first ?: JSONObject.NULL)
       .put("last_callback_wall_ms", last ?: JSONObject.NULL)
       .put("current_gap_ms", currentGap ?: JSONObject.NULL)
       .put("callback_count", snap.callbackCount)
+      .put("lifetime_callback_count", snap.callbackCount)
       .put("valid_rssi_callback_count", snap.validCallbackCount)
       .put("invalid_rssi_callback_count", snap.invalidCallbackCount)
       .put("callback_rate_hz", rateHz)
@@ -371,6 +417,10 @@ internal class BleAcquisitionStats {
       .put("gap_gt_2s_count", snap.gapGt2sCount)
       .put("gap_gt_5s_count", snap.gapGt5sCount)
       .put("gap_gt_10s_count", snap.gapGt10sCount)
+      .put("lifetime_gap_gt_1s_count", snap.gapGt1sCount)
+      .put("lifetime_gap_gt_2s_count", snap.gapGt2sCount)
+      .put("lifetime_gap_gt_5s_count", snap.gapGt5sCount)
+      .put("lifetime_gap_gt_10s_count", snap.gapGt10sCount)
       .put("last_callback_strategy", lastCallbackStrategy ?: JSONObject.NULL)
       .put("last_valid_callback_strategy", lastValidCallbackStrategy ?: JSONObject.NULL)
       .put("callbacks_filtered_mode", snap.filteredCallbackCount)
@@ -382,10 +432,17 @@ internal class BleAcquisitionStats {
       .put("run_gap_gt_2s_delta", delta(snap.gapGt2sCount, baseline?.gapGt2sCount))
       .put("run_gap_gt_5s_delta", delta(snap.gapGt5sCount, baseline?.gapGt5sCount))
       .put("run_gap_gt_10s_delta", delta(snap.gapGt10sCount, baseline?.gapGt10sCount))
+      .put("run_filtered_callback_delta", delta(snap.filteredCallbackCount, baseline?.filteredCallbackCount))
+      .put("run_unfiltered_callback_delta", delta(snap.unfilteredCallbackCount, baseline?.unfilteredCallbackCount))
       .put("run_callbacks_filtered_delta", delta(snap.filteredCallbackCount, baseline?.filteredCallbackCount))
       .put("run_callbacks_unfiltered_delta", delta(snap.unfilteredCallbackCount, baseline?.unfilteredCallbackCount))
+      .put("run_recovery_participation_count", delta(snap.recoveryParticipationCount, baseline?.recoveryParticipationCount))
+      .put("run_first_callback_after_recovery_count", delta(snap.firstCallbackAfterRecoveryCount, baseline?.firstCallbackAfterRecoveryCount))
+      .put("last_recovery_generation_seen", lastRecoveryGenerationSeen.get().takeIf { it > 0 } ?: JSONObject.NULL)
+      .put("last_recovery_callback_latency_ms", lastRecoveryCallbackLatencyMs.get().takeIf { it > 0 } ?: JSONObject.NULL)
       .put("peer_stall_count", snap.gapGt5sCount)
-      .put("peer_recovery_count", peerRecoveryCount.get())
-      .put("peer_recovery_latency_ms", lastPeerRecoveryLatencyMs.get().takeIf { it > 0 } ?: JSONObject.NULL)
+      .put("peer_recovery_count", snap.recoveryParticipationCount)
+      .put("peer_recovery_semantics", "RECOVERY_GENERATION_PARTICIPATION")
+      .put("peer_recovery_latency_ms", lastRecoveryCallbackLatencyMs.get().takeIf { it > 0 } ?: JSONObject.NULL)
   }
 }

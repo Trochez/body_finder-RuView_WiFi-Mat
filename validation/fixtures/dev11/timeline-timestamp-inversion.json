@@ -1,0 +1,20 @@
+{
+  "events": [
+    {
+      "seq": 1,
+      "wall_ms": 1000,
+      "elapsed_ms": 0,
+      "type": "BF_COHORT_STALLED",
+      "cohort_health": "BF_COHORT_STALLED",
+      "recovery_generation": null
+    },
+    {
+      "seq": 2,
+      "wall_ms": 999,
+      "elapsed_ms": 0,
+      "type": "RECOVERY_REQUESTED",
+      "cohort_health": "BF_COHORT_RECOVERING",
+      "recovery_generation": 1
+    }
+  ]
+}

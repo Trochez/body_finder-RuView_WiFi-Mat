@@ -1,0 +1,8 @@
+{
+  "peer": {
+    "lifetime_gap_gt_5s_count": 9,
+    "run_gap_gt_5s_delta": 0,
+    "run_recovery_participation_count": 1,
+    "peer_recovery_count": 1
+  }
+}

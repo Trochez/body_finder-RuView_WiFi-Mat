@@ -58,7 +58,10 @@ private data class RebindEvent(
   val reason: String,
 )
 
+private data class CompletedValidationRun(val runId: String, val snapshotJson: String)
+
 private object ValidationRuntime {
+  const val MAX_COMPLETED_VALIDATION_RUNS = 5
   @Volatile var runId: String? = null
   @Volatile var startedWallMs: Long? = null
   @Volatile var endedWallMs: Long? = null
@@ -89,10 +92,13 @@ private object ValidationRuntime {
   @Volatile private var baselineRangingReal: Long = 0
   @Volatile private var baselineRangingClose: Long = 0
   @Volatile private var baselineEventSeq: Long = 0
-  @Volatile private var completedSnapshotJson: String? = null
+  @Volatile private var validationTruthJson: String = "{}"
+  @Volatile private var selectedCompletedRunId: String? = null
+  private val completedRuns = java.util.ArrayDeque<CompletedValidationRun>()
 
   @Synchronized
   fun start(now: Long, peerExpire: Long, rebind: Long, scanRestart: Long, tx: Long, rx: Long): String {
+    if (runId != null && endedWallMs == null) return runId!!
     val id = UUID.randomUUID().toString()
     runId = id
     startedWallMs = now
@@ -118,22 +124,18 @@ private object ValidationRuntime {
     baselineCohortRecoveryFailures = BleAcquisitionPolicy.cohortRecoveryFailureCount()
     baselineRecoveryAttempts = BleAcquisitionPolicy.recoveryAttemptCount()
     baselineRestartSuppressed = BleAcquisitionPolicy.restartSuppressedCount()
-    val r = if (Build.VERSION.SDK_INT >= 36) SystemRangingApi36.counterSnapshot() else SystemRangingCounterSnapshot(0,0,0)
-    baselineRangingYield=r.yieldTransitions; baselineRangingReal=r.realDistanceResults; baselineRangingClose=r.closeFailures
+    val r = if (Build.VERSION.SDK_INT >= 36) SystemRangingApi36.counterSnapshot() else SystemRangingCounterSnapshot(0, 0, 0)
+    baselineRangingYield = r.yieldTransitions
+    baselineRangingReal = r.realDistanceResults
+    baselineRangingClose = r.closeFailures
     baselineEventSeq = ValidationEventLog.currentSeq()
-    completedSnapshotJson = null
+    validationTruthJson = "{}"
     ValidationEventLog.record("VALIDATION_RUN_STARTED", id, now = now)
     return id
   }
 
   @Synchronized
-  fun observe(
-    now: Long,
-    activePeerCount: Int,
-    evidenceReadyPeerCount: Int,
-    freshMetricReadyPeerCount: Int,
-    usableMetricReadyPeerCount: Int,
-  ) {
+  fun observe(now: Long, activePeerCount: Int, evidenceReadyPeerCount: Int, freshMetricReadyPeerCount: Int, usableMetricReadyPeerCount: Int) {
     if (runId == null || endedWallMs != null) return
     val previous = lastObserveWallMs ?: now
     val dt = (now - previous).coerceIn(0L, 5_000L)
@@ -147,25 +149,67 @@ private object ValidationRuntime {
   }
 
   @Synchronized
-  fun end(now: Long, peerExpire:Long, rebind:Long, scanRestart:Long, tx:Long, rx:Long, acquisitionState:JSONObject, perPeer:JSONArray, systemRanging:JSONObject) {
+  fun updateTruth(json: String) {
     if (runId == null || endedWallMs != null) return
-    endedWallMs = now; lastObserveWallMs = now
-    ValidationEventLog.record("VALIDATION_RUN_ENDED", runId ?: "", now = now)
-    val base = liveDiagnostics(now,peerExpire,rebind,scanRestart,tx,rx)
-    val timeline=ValidationEventLog.snapshotSince(baselineEventSeq, startedWallMs ?: now)
-    val events=timeline.optJSONArray("events") ?: JSONArray(); var stallsDuringYield=0
-    for(i in 0 until events.length()){ val e=events.optJSONObject(i) ?: continue; if(e.optString("type")=="BF_COHORT_STALLED" && e.optBoolean("ranging_yield_active")) stallsDuringYield++ }
-    base.put("snapshot_frozen",true).put("snapshot_schema_version",1).put("acquisition_state_at_end",acquisitionState).put("per_peer",perPeer).put("system_ranging_at_end",systemRanging)
-      .put("events",events).put("event_timeline_total_count",timeline.optInt("event_timeline_total_count")).put("event_timeline_truncated",timeline.optBoolean("event_timeline_truncated"))
-      .put("cohort_stall_while_ranging_yield_count",stallsDuringYield)
-    completedSnapshotJson=base.toString()
+    validationTruthJson = try { JSONObject(json).toString() } catch (_: Throwable) { "{}" }
   }
 
   @Synchronized
-  fun updateGeometry(state: String) {
-    geometryState = state
+  fun end(now: Long, peerExpire: Long, rebind: Long, scanRestart: Long, tx: Long, rx: Long, acquisitionState: JSONObject, perPeer: JSONArray, systemRanging: JSONObject) {
+    val id = runId ?: return
+    if (endedWallMs != null) return
+    endedWallMs = now
+    lastObserveWallMs = now
+    ValidationEventLog.record("VALIDATION_RUN_ENDED", id, now = now)
+    val base = liveDiagnostics(now, peerExpire, rebind, scanRestart, tx, rx)
+    val timeline = ValidationEventLog.snapshotSince(baselineEventSeq, startedWallMs ?: now)
+    val events = timeline.optJSONArray("events") ?: JSONArray()
+    var stallsDuringYield = 0
+    for (i in 0 until events.length()) {
+      val e = events.optJSONObject(i) ?: continue
+      if (e.optString("type") == "BF_COHORT_STALLED" && e.optBoolean("ranging_yield_active")) stallsDuringYield++
+    }
+    val truth = try { JSONObject(validationTruthJson) } catch (_: Throwable) { JSONObject() }
+    val environment = JSONObject()
+      .put("valid", environmentViolationCount == 0L)
+      .put("violation_count", environmentViolationCount)
+      .put("first_violation_wall_ms", firstEnvironmentViolationWallMs ?: JSONObject.NULL)
+      .put("violation_types", if (environmentViolationTypes.isBlank()) JSONArray() else JSONArray(environmentViolationTypes.split(',')))
+    val counters = JSONObject()
+      .put("peer_expire_delta", base.optLong("peer_expire_delta"))
+      .put("address_rebind_delta", base.optLong("address_rebind_delta"))
+      .put("scan_restart_delta", base.optLong("scan_restart_delta"))
+      .put("tx_packets_delta", base.optLong("tx_packets_delta"))
+      .put("rx_packets_delta", base.optLong("rx_packets_delta"))
+      .put("recovery_attempt_delta", base.optLong("recovery_attempt_delta"))
+      .put("cohort_stall_delta", base.optLong("cohort_stall_delta"))
+    base
+      .put("snapshot_frozen", true)
+      .put("snapshot_schema_version", 2)
+      .put("environment", environment)
+      .put("validation_counters", counters)
+      .put("acquisition_state_at_end", acquisitionState)
+      .put("per_peer_at_end", perPeer)
+      .put("per_peer", perPeer)
+      .put("system_ranging_at_end", systemRanging)
+      .put("events", events)
+      .put("event_timeline_total_count", timeline.optInt("event_timeline_total_count"))
+      .put("event_timeline_truncated", timeline.optBoolean("event_timeline_truncated"))
+      .put("cohort_stall_while_ranging_yield_count", stallsDuringYield)
+      .put("geometry_at_end", truth.opt("geometry") ?: JSONObject.NULL)
+      .put("locally_computed_geometry_at_end", truth.opt("locally_computed_geometry") ?: JSONObject.NULL)
+      .put("fused_range_observations_at_end", truth.opt("fused_range_observations") ?: JSONArray())
+      .put("graph_diagnostics_at_end", truth.opt("graph_diagnostics") ?: JSONObject.NULL)
+      .put("reciprocal_fusion_at_end", truth.opt("reciprocal_fusion") ?: JSONObject.NULL)
+      .put("measurement_health_at_end", truth.opt("measurement_health") ?: JSONObject.NULL)
+    val frozen = CompletedValidationRun(id, base.toString())
+    completedRuns.addLast(frozen)
+    while (completedRuns.size > MAX_COMPLETED_VALIDATION_RUNS) completedRuns.removeFirst()
+    selectedCompletedRunId = id
   }
 
+  @Synchronized
+  fun updateGeometry(state: String) { geometryState = state }
 
   @Synchronized
   fun recordEnvironmentViolation(now: Long, issues: List<String>) {
@@ -175,14 +219,7 @@ private object ValidationRuntime {
     environmentViolationTypes = (environmentViolationTypes.split(',').filter { it.isNotBlank() } + issues).distinct().joinToString(",")
   }
 
-  private fun liveDiagnostics(
-    now: Long,
-    peerExpire: Long,
-    rebind: Long,
-    scanRestart: Long,
-    tx: Long,
-    rx: Long,
-  ): JSONObject {
+  private fun liveDiagnostics(now: Long, peerExpire: Long, rebind: Long, scanRestart: Long, tx: Long, rx: Long): JSONObject {
     val start = startedWallMs
     val effectiveEnd = endedWallMs ?: now
     val elapsed = if (start == null) 0L else max(0L, effectiveEnd - start)
@@ -192,7 +229,7 @@ private object ValidationRuntime {
       .put("run_id", runId ?: JSONObject.NULL)
       .put("started_wall_ms", start ?: JSONObject.NULL)
       .put("ended_wall_ms", endedWallMs ?: JSONObject.NULL)
-      .put("snapshot_wall_ms", now)
+      .put("snapshot_wall_ms", effectiveEnd)
       .put("snapshot_elapsed_ms", elapsed)
       .put("elapsed_ms", elapsed)
       .put("app_visibility", appVisibility)
@@ -219,15 +256,46 @@ private object ValidationRuntime {
       .put("cohort_recovery_failure_delta", (BleAcquisitionPolicy.cohortRecoveryFailureCount() - baselineCohortRecoveryFailures).coerceAtLeast(0))
       .put("recovery_attempt_delta", (BleAcquisitionPolicy.recoveryAttemptCount() - baselineRecoveryAttempts).coerceAtLeast(0))
       .put("restart_suppressed_delta", (BleAcquisitionPolicy.restartSuppressedCount() - baselineRestartSuppressed).coerceAtLeast(0))
-      .put("ranging_yield_transition_delta", ((if(Build.VERSION.SDK_INT>=36) SystemRangingApi36.counterSnapshot().yieldTransitions else 0)-baselineRangingYield).coerceAtLeast(0))
-      .put("ranging_real_result_delta", ((if(Build.VERSION.SDK_INT>=36) SystemRangingApi36.counterSnapshot().realDistanceResults else 0)-baselineRangingReal).coerceAtLeast(0))
-      .put("ranging_close_failure_delta", ((if(Build.VERSION.SDK_INT>=36) SystemRangingApi36.counterSnapshot().closeFailures else 0)-baselineRangingClose).coerceAtLeast(0))
+      .put("ranging_yield_transition_delta", ((if (Build.VERSION.SDK_INT >= 36) SystemRangingApi36.counterSnapshot().yieldTransitions else 0) - baselineRangingYield).coerceAtLeast(0))
+      .put("ranging_real_result_delta", ((if (Build.VERSION.SDK_INT >= 36) SystemRangingApi36.counterSnapshot().realDistanceResults else 0) - baselineRangingReal).coerceAtLeast(0))
+      .put("ranging_close_failure_delta", ((if (Build.VERSION.SDK_INT >= 36) SystemRangingApi36.counterSnapshot().closeFailures else 0) - baselineRangingClose).coerceAtLeast(0))
       .put("snapshot_frozen", false)
-      .put("snapshot_schema_version", 1)
+      .put("snapshot_schema_version", 2)
   }
 
   @Synchronized
-  fun diagnostics(now:Long,peerExpire:Long,rebind:Long,scanRestart:Long,tx:Long,rx:Long):JSONObject = completedSnapshotJson?.let { JSONObject(it) } ?: liveDiagnostics(now,peerExpire,rebind,scanRestart,tx,rx)
+  fun diagnostics(now: Long, peerExpire: Long, rebind: Long, scanRestart: Long, tx: Long, rx: Long): JSONObject {
+    if (runId != null && endedWallMs == null) return liveDiagnostics(now, peerExpire, rebind, scanRestart, tx, rx)
+    val selected = selectedCompletedRunId?.let { wanted -> completedRuns.firstOrNull { it.runId == wanted } }
+      ?: completedRuns.lastOrNull()
+    return selected?.let { JSONObject(it.snapshotJson) } ?: liveDiagnostics(now, peerExpire, rebind, scanRestart, tx, rx)
+  }
+
+  @Synchronized
+  fun completedRunsSummary(): JSONArray {
+    val out = JSONArray()
+    completedRuns.forEach { run ->
+      val j = JSONObject(run.snapshotJson)
+      out.put(JSONObject()
+        .put("run_id", run.runId)
+        .put("started_wall_ms", j.opt("started_wall_ms"))
+        .put("ended_wall_ms", j.opt("ended_wall_ms"))
+        .put("elapsed_ms", j.optLong("elapsed_ms"))
+        .put("snapshot_frozen", j.optBoolean("snapshot_frozen"))
+        .put("snapshot_schema_version", j.optInt("snapshot_schema_version")))
+    }
+    return out
+  }
+
+  @Synchronized
+  fun selectRun(id: String): Boolean {
+    if (runId != null && endedWallMs == null) return false
+    if (completedRuns.none { it.runId == id }) return false
+    selectedCompletedRunId = id
+    return true
+  }
+
+  @Synchronized fun selectedRunId(): String? = selectedCompletedRunId ?: completedRuns.lastOrNull()?.runId
 }
 
 private object FabricRuntime {
@@ -414,6 +482,10 @@ class BodyFinderNativeModule : Module() {
       ValidationRuntime.updateGeometry(geometryState)
       true
     }
+    Function("updateValidationTruthJson") { truthJson: String ->
+      ValidationRuntime.updateTruth(truthJson)
+      true
+    }
     Function("updateAppVisibility") { visibility: String ->
       ValidationRuntime.appVisibility = visibility
       true
@@ -442,6 +514,12 @@ class BodyFinderNativeModule : Module() {
     Function("getValidationRunJson") {
       val ctx = appContext.reactContext ?: return@Function "{}"
       validationRunDiagnostics(ctx).toString()
+    }
+    Function("getCompletedValidationRunsSummaryJson") {
+      ValidationRuntime.completedRunsSummary().toString()
+    }
+    Function("selectValidationRun") { selectedRunId: String ->
+      ValidationRuntime.selectRun(selectedRunId)
     }
     Function("getCalibrationSnapshotJson") {
       calibrationSnapshot().toString()
@@ -782,7 +860,7 @@ class BodyFinderNativeModule : Module() {
   private fun maintainAdaptiveScanner(ctx: Context, now: Long) {
     val global = globalScannerHealth(now)
     var cohort = bodyFinderCohortHealth(now)
-    BleAcquisitionPolicy.updateCohortHealth(cohort)
+    BleAcquisitionPolicy.updateCohortHealth(cohort, now)
 
     if (global == GlobalBleScannerHealth.GLOBAL_SCANNER_STALLED) {
       if (now - FabricRuntime.lastScanRestartWallMs >= BleAcquisitionPolicy.MIN_RESTART_COOLDOWN_MS) {
@@ -807,7 +885,7 @@ class BodyFinderNativeModule : Module() {
           BleAcquisitionPolicy.noteRecoverySuccess(now)
           restartScannerWithStrategy(now, BleAcquisitionStrategy.FILTERED_RECOVERY_PROBE, "BF_COHORT_RECOVERED")
         } else if (now - started >= BleAcquisitionPolicy.RECOVERY_UNFILTERED_WINDOW_MS) {
-          BleAcquisitionPolicy.noteRecoveryFailure()
+          BleAcquisitionPolicy.noteRecoveryFailure(now)
           restartScannerWithStrategy(now, BleAcquisitionStrategy.FILTERED_RECOVERY_PROBE, "RECOVERY_WINDOW_EXPIRED")
         }
       }
@@ -957,13 +1035,13 @@ class BodyFinderNativeModule : Module() {
       return
     }
     FabricRuntime.bodyFinderScanResults.incrementAndGet()
-    if(BleAcquisitionPolicy.currentStrategy()==BleAcquisitionStrategy.UNFILTERED_RECOVERY) ValidationEventLog.record("FIRST_VALID_BF_CALLBACK_AFTER_RECOVERY","BODY_FINDER_CALLBACK",now=now)
-    FabricRuntime.lastBodyFinderScanResultWallMs = now
+        FabricRuntime.lastBodyFinderScanResultWallMs = now
     FabricRuntime.bleLastSeenWallMsByIdentity[id] = now
     FabricRuntime.bleSeenCountByIdentity.computeIfAbsent(id) { AtomicLong(0) }.incrementAndGet()
     FabricRuntime.bleScanState = "ACTIVE_PEER_SEEN"
 
     val validRssi = BleRangeEstimator.isValidBleRssi(result.rssi.toDouble())
+    if (validRssi && BleAcquisitionPolicy.currentStrategy() == BleAcquisitionStrategy.UNFILTERED_RECOVERY) ValidationEventLog.record("FIRST_VALID_BF_CALLBACK_AFTER_RECOVERY", "BODY_FINDER_CALLBACK", now = now)
     FabricRuntime.acquisitionStatsByIdentity.computeIfAbsent(id) { BleAcquisitionStats() }.record(now, validRssi, BleAcquisitionPolicy.currentStrategy())
 
     val advertisedTx = result.scanRecord?.txPowerLevel?.takeIf { it in -100..20 } ?: Int.MIN_VALUE
@@ -1426,6 +1504,8 @@ class BodyFinderNativeModule : Module() {
       .put("ble_diagnostics", bleDiagnostics(ctx, now))
       .put("fabric_diagnostics", fabricDiagnostics(now))
       .put("lifecycle_diagnostics", lifecycleDiagnostics(ctx))
+      .put("selected_validation_run_id", ValidationRuntime.selectedRunId() ?: JSONObject.NULL)
+      .put("completed_validation_runs_summary", ValidationRuntime.completedRunsSummary())
       .put("validation_run", validationRunDiagnostics(ctx, now))
   }
 
