@@ -1,0 +1,46 @@
+name: Verify dev-11 published release
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - 'VERIFY_DEV11_RELEASE_TRIGGER.txt'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  verify:
+    if: github.event_name == 'workflow_dispatch' || github.head_ref == 'verify/dev11'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with: { ref: main }
+      - name: Download and verify dev-11
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euxo pipefail
+          rm -rf published && mkdir published
+          gh release download dev-11 --dir published
+          (cd published && sha256sum --check SHA256SUMS)
+          python3 - <<'PY'
+          import json, pathlib
+          d=pathlib.Path('published')
+          required=['body-finder-ruview-universal.apk','body-finder-ruview.aab','body-finder-ruview-legacy-minsdk21.apk','body-finder-node-linux-x86_64.tar.gz','body-finder-node-linux-x86_64.deb','body-finder-node-windows-x86_64.zip','body-finder-ruview-ios-simulator.zip','ANDROID_DEV11_FINAL_ACCEPTANCE_RETEST.md','IMPLEMENTATION_PLAN_POST_DEV10_DEV11_RELEASE.md','validation-run-snapshot-v2.schema.json','validation-snapshot-v2-regression-fixtures.zip','recovery-timeline-regression-fixtures.zip','peer-telemetry-regression-fixtures.zip','geometry-at-end-regression-fixtures.zip','body-finder-validation-tools.zip','release-manifest.json','capability-matrix.json','ble-range-calibration-profiles.json','ble-range-calibration-schema.json','protocol-version.txt','model-manifest.json','ruvview-upstream-lock.json','SBOM.spdx.json','SHA256SUMS','release-verification.json']
+          missing=[x for x in required if not (d/x).is_file() or (d/x).stat().st_size==0]
+          assert not missing, missing
+          m=json.load(open(d/'release-manifest.json'))
+          v=json.load(open(d/'release-verification.json'))
+          assert m['release']=='dev-11' and m['version']=='0.2.0-experimental.11'
+          assert m['protocol_version']==2 and m['validation_snapshot_schema_version']==2
+          assert m['completed_validation_run_history'] is True and m['completed_validation_run_history_limit']==5
+          assert m['recovery_generation_enabled'] is True and m['recovery_first_callback_exactly_once'] is True
+          assert m['per_peer_run_scoped_telemetry'] is True and m['geometry_snapshot_at_end'] is True
+          assert m['ble_metric_rssi_at_1m_dbm']==-69.19 and m['ble_metric_path_loss_exponent']==3.62
+          assert m['human_scanning_enabled'] is False and m['human_localization_validated'] is False and m['rescue_use_validated'] is False
+          assert v['published_release_verifier']=='PASS' and v['sha256sums_verified'] is True
+          print('PASS published dev-11 release verifier')
+          PY
