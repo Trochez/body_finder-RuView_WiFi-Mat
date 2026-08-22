@@ -1,0 +1,53 @@
+name: Bootstrap dev11 implementation
+
+on:
+  push:
+    branches: [feat/dev11-post-validation-integrity]
+    paths:
+      - 'DEV11_BOOTSTRAP_TRIGGER.txt'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: bootstrap-dev11
+  cancel-in-progress: false
+
+jobs:
+  implement:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: feat/dev11-post-validation-integrity
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Apply complete dev11 implementation
+        shell: bash
+        run: |
+          set -euxo pipefail
+          python3 scripts/dev11_bootstrap.py
+          python3 -m json.tool apps/mobile/app.json >/dev/null
+          python3 -m json.tool protocol/schemas/validation-run-snapshot-v2.json >/dev/null
+          python3 validation/android/check_recovery_timeline_contract.py
+          python3 validation/android/check_peer_telemetry_semantics.py
+          python3 validation/android/check_geometry_snapshot_contract.py
+          python3 validation/android/check_validation_snapshot_v2_contract.py
+          python3 validation/android/check_version_truth_contract.py
+          python3 validation/android/check_dev11_frozen_truth_contract.py
+          python3 -m py_compile validation/analysis/compare_validation_snapshots.py validation/analysis/validate_recovery_timeline.py validation/analysis/validate_peer_semantics.py validation/analysis/validate_geometry_snapshot.py validation/analysis/dev11_accuracy_report.py
+      - name: Commit implementation
+        shell: bash
+        run: |
+          set -euxo pipefail
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git add -A
+          if git diff --cached --quiet; then
+            echo 'No implementation changes to commit.'
+          else
+            git commit -m 'feat: implement dev-11 validation integrity release'
+            git push origin HEAD:feat/dev11-post-validation-integrity
+          fi
