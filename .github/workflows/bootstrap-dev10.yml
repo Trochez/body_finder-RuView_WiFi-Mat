@@ -30,11 +30,13 @@ jobs:
           python3 validation/android/check_acquisition_truth_contract.py
           python3 -m json.tool protocol/schemas/validation-run-snapshot-v1.json >/dev/null
           python3 -m json.tool validation/fixtures/validation-snapshot/dev9-post-end-drift.json >/dev/null
-      - name: Commit implementation and remove bootstrap
+      - name: Commit code, tests and docs only
         shell: bash
         run: |
           set -euxo pipefail
-          rm -f scripts/maintenance/dev10_core_00.txt scripts/maintenance/dev10_core_01.txt scripts/maintenance/dev10_core_02.txt scripts/maintenance/apply_dev10_core.py .github/workflows/bootstrap-dev10.yml
+          git checkout HEAD -- .github/workflows
+          rm -f scripts/maintenance/dev10_core_00.txt scripts/maintenance/dev10_core_01.txt scripts/maintenance/dev10_core_02.txt scripts/maintenance/apply_dev10_core.py scripts/maintenance/dev10_patch_part_00.txt
+          find . -type d -name __pycache__ -prune -exec rm -rf {} +
           git config user.name github-actions[bot]
           git config user.email 41898282+github-actions[bot]@users.noreply.github.com
           git add -A
