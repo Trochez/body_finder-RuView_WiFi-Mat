@@ -29,7 +29,9 @@ jobs:
           grep -q 'UNFILTERED_RECOVERY' apps/mobile/modules/body-finder-native/android/src/main/java/com/trochez/bodyfindernative/BleAcquisitionPolicy.kt
           grep -q 'MAX_RECOVERY_ATTEMPTS_PER_5MIN = 3' apps/mobile/modules/body-finder-native/android/src/main/java/com/trochez/bodyfindernative/BleAcquisitionPolicy.kt
           grep -q 'MIN_RESTART_COOLDOWN_MS = 30_000L' apps/mobile/modules/body-finder-native/android/src/main/java/com/trochez/bodyfindernative/BleAcquisitionPolicy.kt
-          grep -q 'HOLDOVER_MAX_MS = 10_000L' apps/mobile/modules/body-finder-native/android/src/main/java/com/trochez/bodyfindernative/BleRangeEstimator.kt
+          grep -q 'HOLDOVER_MAX_MS = 10_000L' apps/mobile/modules/body-finder-native/android/src/main/java/com/trochez/bodyfindernative/BleContinuityPolicy.kt
+          grep -q 'FRESH_MS = 5_000L' apps/mobile/modules/body-finder-native/android/src/main/java/com/trochez/bodyfindernative/BleContinuityPolicy.kt
+          grep -q 'SIGMA_AGING_M_PER_S = 0.15' apps/mobile/modules/body-finder-native/android/src/main/java/com/trochez/bodyfindernative/BleContinuityPolicy.kt
           python3 validation/android/check_android_ranging_contract.py
           python3 validation/android/check_ble_range_accuracy_contract.py
           python3 validation/android/check_ble_continuity_contract.py
