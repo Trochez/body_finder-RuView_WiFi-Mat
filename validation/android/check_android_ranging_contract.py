@@ -1,9 +1,8 @@
 #!/usr/bin/env python3
 """Static acceptance checks for Android BLE/ranging plumbing.
 
-Experimental.10 preserves the validated COARSE metric/continuity contracts while
-keeping manufacturer-filtered scanning as primary, bounded unfiltered recovery,
-and adding immutable validation-run provenance.
+Experimental.11 preserves the validated COARSE metric/continuity contracts while
+adding completed-run integrity, causal recovery provenance and frozen geometry truth.
 """
 from pathlib import Path
 import json
@@ -15,6 +14,7 @@ NATIVE = ROOT / "apps/mobile/modules/body-finder-native/android/src/main/java/co
 ACQUISITION = ROOT / "apps/mobile/modules/body-finder-native/android/src/main/java/com/trochez/bodyfindernative/BleAcquisitionPolicy.kt"
 SYSTEM = ROOT / "apps/mobile/modules/body-finder-native/android/src/main/java/com/trochez/bodyfindernative/SystemRangingApi36.kt"
 APP = ROOT / "apps/mobile/App.tsx"
+VERSION = ROOT / "apps/mobile/src/version.ts"
 
 def require(condition: bool, message: str) -> None:
     if not condition:
@@ -29,6 +29,7 @@ native = NATIVE.read_text(encoding="utf-8")
 acquisition = ACQUISITION.read_text(encoding="utf-8")
 system = SYSTEM.read_text(encoding="utf-8")
 app = APP.read_text(encoding="utf-8")
+version = VERSION.read_text(encoding="utf-8")
 for token in ["ScanSettings.SCAN_MODE_LOW_LATENCY","setReportDelay(REPORT_DELAY_MS)","bodyFinderScanResults","binding_state","sample_count_5s","valid_rssi_sample_count_5s","invalid_rssi_sample_count_5s","last_sample_age_ms","address_fingerprint","fallback_evidence_ready","metric_range_ready","range_temporal_state","ADVERTISEMENT_NOT_SEEN","INSUFFICIENT_VALID_SAMPLES","fabric_diagnostics","peer_expire_count","manual_geometry_override"]:
     require(token in native or token in acquisition or token in app, f"missing diagnostic/behavior token {token}")
 require("startFilteredScan" in acquisition, "filtered primary scan missing")
@@ -57,8 +58,9 @@ require("last_close_reason" in system, "system close reason diagnostics missing"
 require("result_count" in system, "system result count diagnostics missing")
 require("CIRCUIT_BREAKER_FAILURES" in system, "bounded failure circuit breaker missing")
 require("BLE_ACQUISITION_YIELD" in system, "API36 BLE-acquisition yield missing")
-for token in ["getDiagnosticsJson","BLE / ranging diagnostics","Fabric diagnostics","ble_diagnostics","fabric_diagnostics","0.2.0-experimental.10","report_version: REPORT_VERSION"]:
+for token in ["getDiagnosticsJson","BLE / ranging diagnostics","Fabric diagnostics","ble_diagnostics","fabric_diagnostics","report_version: REPORT_VERSION"]:
     require(token in app or token in native, f"mobile report/Expert token missing: {token}")
+require("0.2.0-experimental.11" in version, "dev11 version truth missing")
 for forbidden in ["SET MEASURED POSITION", "Guardar posición", "Set position"]:
     require(forbidden not in app, f"manual geometry UI reintroduced: {forbidden}")
-print("Android ranging experimental.10 adaptive acquisition/validation-integrity contract: PASS")
+print("Android ranging experimental.11 adaptive acquisition/validation-integrity contract: PASS")
