@@ -2,11 +2,13 @@ name: Bootstrap dev10 implementation
 on:
   push:
     branches: [feat/dev10-validation-integrity]
+  pull_request:
+    branches: [main]
   workflow_dispatch:
 permissions:
   contents: write
 concurrency:
-  group: bootstrap-dev10
+  group: bootstrap-dev10-${{ github.ref }}
   cancel-in-progress: true
 jobs:
   apply:
