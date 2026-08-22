@@ -2,6 +2,8 @@ name: Bootstrap dev10 implementation
 on:
   push:
     branches: [main]
+  pull_request:
+    branches: [main]
 permissions:
   contents: write
 concurrency:
