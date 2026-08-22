@@ -1,0 +1,1 @@
+Verify all published dev-10 release assets, SHA256SUMS and release-manifest integrity.
