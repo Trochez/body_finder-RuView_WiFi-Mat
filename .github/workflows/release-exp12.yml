@@ -1,0 +1,275 @@
+name: Dev Release experimental.12
+
+on:
+  push:
+    branches: [release/dev12]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release-exp12
+  cancel-in-progress: false
+
+jobs:
+  bootstrap:
+    runs-on: ubuntu-latest
+    outputs:
+      changed: ${{ steps.apply.outputs.changed }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: release/dev12
+          fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with: { python-version: '3.12' }
+      - id: apply
+        shell: bash
+        run: |
+          set -euxo pipefail
+          python3 scripts/dev12_bootstrap.py
+          python3 scripts/dev12_fixup.py
+          if git diff --quiet; then
+            echo 'changed=false' >> "$GITHUB_OUTPUT"
+          else
+            git config user.name github-actions[bot]
+            git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+            git add -A
+            git commit -m 'dev12: implement per-peer starvation recovery and JSON-only diagnostics'
+            git push origin HEAD:release/dev12
+            echo 'changed=true' >> "$GITHUB_OUTPUT"
+          fi
+
+  requirements:
+    needs: bootstrap
+    if: needs.bootstrap.outputs.changed == 'false'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with: { ref: release/dev12 }
+      - uses: actions/setup-python@v5
+        with: { python-version: '3.12' }
+      - name: Contract and frozen-truth gates
+        shell: bash
+        run: |
+          set -euxo pipefail
+          python3 validation/android/check_dev12_contract.py
+          python3 validation/android/check_android_ranging_contract.py
+          python3 validation/android/check_ble_range_accuracy_contract.py
+          python3 validation/android/check_ble_continuity_contract.py
+          python3 validation/android/check_ble_acquisition_contract.py
+          python3 validation/android/check_ble_adaptive_acquisition_contract.py
+          python3 validation/android/check_validation_snapshot_v2_contract.py
+          python3 validation/android/check_recovery_timeline_contract.py
+          python3 validation/android/check_geometry_snapshot_contract.py
+          grep -q '0.2.0-experimental.12' apps/mobile/src/version.ts
+          grep -q 'reportVersion: 14' apps/mobile/src/version.ts
+          grep -q 'humanScanningEnabled: false' apps/mobile/src/version.ts
+          grep -q 'Screenshots are not acceptance evidence' DEV12_FROZEN_TRUTH.md
+          test -s docs/TESTING_DEV12.md
+
+  linux-x86_64:
+    needs: requirements
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with: { ref: release/dev12 }
+      - uses: dtolnay/rust-toolchain@stable
+      - run: cargo test --workspace
+      - run: cargo build --release -p body-finder-node
+      - shell: bash
+        run: |
+          mkdir -p dist/pkg dist/deb/usr/bin dist/deb/DEBIAN
+          cp target/release/body-finder-node dist/pkg/body-finder-node
+          cp target/release/body-finder-node dist/deb/usr/bin/body-finder-node
+          chmod +x dist/pkg/body-finder-node dist/deb/usr/bin/body-finder-node
+          tar -C dist/pkg -czf dist/body-finder-node-linux-x86_64.tar.gz body-finder-node
+          printf '%s\n' 'Package: body-finder-node' 'Version: 0.2.0~experimental12' 'Section: science' 'Priority: optional' 'Architecture: amd64' 'Maintainer: Trochez' 'Description: Body Finder RuView dev12 node' > dist/deb/DEBIAN/control
+          dpkg-deb --build dist/deb dist/body-finder-node-linux-x86_64.deb
+          rm -rf dist/pkg dist/deb
+      - uses: actions/upload-artifact@v4
+        with: { name: release-linux-exp12, path: dist/* }
+
+  windows-x86_64:
+    needs: requirements
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+        with: { ref: release/dev12 }
+      - uses: dtolnay/rust-toolchain@stable
+      - run: cargo test --workspace
+      - run: cargo build --release -p body-finder-node
+      - shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force dist\win | Out-Null
+          Copy-Item target\release\body-finder-node.exe dist\win\body-finder-node.exe
+          Compress-Archive dist\win\body-finder-node.exe dist\body-finder-node-windows-x86_64.zip
+      - uses: actions/upload-artifact@v4
+        with: { name: release-windows-exp12, path: dist/* }
+
+  android:
+    needs: requirements
+    runs-on: ubuntu-latest
+    defaults:
+      run: { working-directory: apps/mobile }
+    steps:
+      - uses: actions/checkout@v4
+        with: { ref: release/dev12 }
+      - uses: actions/setup-node@v4
+        with: { node-version: '20' }
+      - uses: actions/setup-java@v4
+        with: { distribution: temurin, java-version: '17' }
+      - run: npm install --package-lock-only
+      - run: npm ci
+      - run: npx tsc --noEmit
+      - run: CI=1 npx expo prebuild --platform android --clean
+      - run: chmod +x android/gradlew
+      - run: ./gradlew assembleRelease bundleRelease --stacktrace
+        working-directory: apps/mobile/android
+      - shell: bash
+        run: |
+          mkdir -p ../../dist
+          cp android/app/build/outputs/apk/release/*.apk ../../dist/BodyFinder-dev12-universal.apk
+          cp android/app/build/outputs/bundle/release/*.aab ../../dist/BodyFinder-dev12.aab
+          test -s ../../dist/BodyFinder-dev12-universal.apk
+      - uses: actions/upload-artifact@v4
+        with: { name: release-android-exp12, path: dist/* }
+
+  android-legacy:
+    needs: requirements
+    runs-on: ubuntu-latest
+    defaults:
+      run: { working-directory: apps/android-legacy }
+    steps:
+      - uses: actions/checkout@v4
+        with: { ref: release/dev12 }
+      - uses: actions/setup-java@v4
+        with: { distribution: temurin, java-version: '17' }
+      - uses: gradle/actions/setup-gradle@v4
+        with: { gradle-version: '8.10.2' }
+      - shell: bash
+        run: |
+          mkdir -p "$HOME/.android"
+          keytool -genkeypair -keystore "$HOME/.android/debug.keystore" -storepass android -alias androiddebugkey -keypass android -dname 'CN=Android Debug,O=Android,C=US' -keyalg RSA -keysize 2048 -validity 10000
+      - run: gradle :app:assembleRelease --stacktrace
+      - shell: bash
+        run: |
+          mkdir -p ../../dist
+          cp app/build/outputs/apk/release/*.apk ../../dist/BodyFinder-dev12-legacy-minsdk21.apk
+      - uses: actions/upload-artifact@v4
+        with: { name: release-android-legacy-exp12, path: dist/* }
+
+  ios-simulator:
+    needs: requirements
+    runs-on: macos-latest
+    defaults:
+      run: { working-directory: apps/mobile }
+    steps:
+      - uses: actions/checkout@v4
+        with: { ref: release/dev12 }
+      - uses: actions/setup-node@v4
+        with: { node-version: '20' }
+      - run: npm install --package-lock-only
+      - run: npm ci
+      - run: npx tsc --noEmit
+      - run: CI=1 npx expo prebuild --platform ios --clean
+      - run: pod install
+        working-directory: apps/mobile/ios
+      - shell: bash
+        working-directory: apps/mobile/ios
+        run: |
+          set -euxo pipefail
+          W=$(find . -maxdepth 1 -name '*.xcworkspace' -print -quit); test -n "$W"
+          xcodebuild -workspace "$W" -scheme BodyFinderRuView -configuration Release -sdk iphonesimulator -destination 'generic/platform=iOS Simulator' -derivedDataPath build CODE_SIGNING_ALLOWED=NO build
+          APP=$(find build/Build/Products -type d -name '*.app' -print -quit); test -n "$APP"
+          mkdir -p "$GITHUB_WORKSPACE/dist"
+          ditto -c -k --sequesterRsrc --keepParent "$APP" "$GITHUB_WORKSPACE/dist/BodyFinder-dev12-ios-simulator.zip"
+      - uses: actions/upload-artifact@v4
+        with: { name: release-ios-exp12, path: dist/* }
+
+  release:
+    needs: [requirements, linux-x86_64, windows-x86_64, android, android-legacy, ios-simulator]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: release/dev12
+          fetch-depth: 0
+      - uses: actions/download-artifact@v4
+        with: { pattern: release-*-exp12, path: dist, merge-multiple: true }
+      - name: Package JSON-only acceptance kit
+        shell: bash
+        run: |
+          set -euxo pipefail
+          SHA=$(git rev-parse HEAD); echo "SOURCE_SHA=$SHA" >> "$GITHUB_ENV"
+          cp docs/TESTING_DEV12.md dist/TESTING_DEV12.md
+          cp DEV12_FROZEN_TRUTH.md dist/DEV12_FROZEN_TRUTH.md
+          mkdir -p dist/validators
+          cp validation/analysis/validate_dev12_hard_gates.py validation/analysis/validate_snapshot_immutability.py validation/analysis/validate_timeline_causality.py validation/analysis/validate_peer_semantics.py validation/analysis/validate_peer_starvation_recovery.py validation/analysis/validate_geometry_snapshot.py validation/analysis/calculate_accuracy_report.py validation/analysis/validate_release_manifest.py validation/analysis/build_acceptance_report.py dist/validators/
+          (cd dist/validators && zip -r ../validators-dev12.zip .); rm -rf dist/validators
+          (cd validation/fixtures && zip -r "$GITHUB_WORKSPACE/dist/fixtures-dev12.zip" dev12 dev11)
+          cat > dist/release-manifest.json <<EOF
+          {
+            "schema_version": 12,
+            "release": "dev-12",
+            "version": "0.2.0-experimental.12",
+            "commit_sha": "$SHA",
+            "protocol_version": 2,
+            "report_version": 14,
+            "validation_snapshot_schema_version": 2,
+            "evidence_mode": "JSON_AUTHORITATIVE_NO_SCREENSHOTS_REQUIRED",
+            "profile_id": "android-ble-lab-v1",
+            "ble_metric_rssi_at_1m_dbm": -69.19,
+            "ble_metric_path_loss_exponent": 3.62,
+            "ble_metric_valid_distance_min_m": 0.5,
+            "ble_metric_valid_distance_max_m": 5.0,
+            "ble_metric_min_samples": 3,
+            "ble_fresh_ms": 5000,
+            "ble_holdover_max_ms": 10000,
+            "ble_hard_expiry_ms": 10000,
+            "ble_sigma_aging_m_per_s": 0.15,
+            "ble_primary_strategy": "FILTERED_PRIMARY",
+            "ble_recovery_strategy": "UNFILTERED_RECOVERY",
+            "peer_starvation_persistence_ms": 6000,
+            "ble_restart_cooldown_ms": 30000,
+            "ble_max_recovery_attempts_per_5min": 3,
+            "android_api36_ble_yield_ms": 120000,
+            "physical_confidence": "COARSE",
+            "human_scanning_enabled": false,
+            "human_localization_validated": false,
+            "rescue_use_validated": false
+          }
+          EOF
+          python3 validation/analysis/validate_release_manifest.py dist/release-manifest.json
+          printf '2\n' > dist/protocol-version.txt
+          (cd dist && find . -maxdepth 1 -type f ! -name SHA256SUMS.txt -printf '%f\0' | sort -z | xargs -0 sha256sum > SHA256SUMS.txt)
+          (cd dist && sha256sum --check SHA256SUMS.txt)
+          for f in BodyFinder-dev12-universal.apk BodyFinder-dev12.aab BodyFinder-dev12-legacy-minsdk21.apk body-finder-node-linux-x86_64.tar.gz body-finder-node-linux-x86_64.deb body-finder-node-windows-x86_64.zip BodyFinder-dev12-ios-simulator.zip TESTING_DEV12.md validators-dev12.zip fixtures-dev12.zip release-manifest.json SHA256SUMS.txt; do test -s "dist/$f"; done
+      - name: Publish dev-12 prerelease
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euxo pipefail
+          if gh release view dev-12 >/dev/null 2>&1; then gh release delete dev-12 -y --cleanup-tag; fi
+          printf '%s\n\n%s\n' 'dev-12 adds starvation-aware per-peer BLE recovery with one shared recovery arbiter and target-peer causal success.' 'Testing/acceptance evidence is JSON-authoritative; screenshots are not required. Start with TESTING_DEV12.md.' > /tmp/notes.md
+          gh release create dev-12 --target "$SOURCE_SHA" --prerelease --title 'Body Finder – RuView dev-12 — per-peer recovery & JSON evidence' --notes-file /tmp/notes.md
+          gh release upload dev-12 dist/* --clobber
+      - name: Verify published assets
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          rm -rf published && mkdir published
+          gh release download dev-12 --dir published
+          (cd published && sha256sum --check SHA256SUMS.txt)
+          python3 - <<'PY'
+          import json,pathlib
+          d=pathlib.Path('published'); m=json.load(open(d/'release-manifest.json'))
+          required=['BodyFinder-dev12-universal.apk','BodyFinder-dev12.aab','BodyFinder-dev12-legacy-minsdk21.apk','body-finder-node-linux-x86_64.tar.gz','body-finder-node-linux-x86_64.deb','body-finder-node-windows-x86_64.zip','BodyFinder-dev12-ios-simulator.zip','TESTING_DEV12.md','validators-dev12.zip','fixtures-dev12.zip','release-manifest.json','SHA256SUMS.txt']
+          assert all((d/x).is_file() and (d/x).stat().st_size for x in required)
+          assert m['evidence_mode']=='JSON_AUTHORITATIVE_NO_SCREENSHOTS_REQUIRED'
+          pathlib.Path('release-verification.json').write_text(json.dumps({'release':'dev-12','commit_sha':m['commit_sha'],'sha256_verified':True,'mandatory_assets_verified':True,'json_only_evidence':True,'result':'PASS'},indent=2)+'\n')
+          PY
+          gh release upload dev-12 release-verification.json --clobber
