@@ -1,1 +1,1 @@
-trigger dev-14 release 2026-08-25T02:03-05:00 after npm lock bootstrap fix
+trigger dev-14 release 2026-08-25T02:14-05:00 after manifest frozen-truth fix
