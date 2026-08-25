@@ -181,7 +181,34 @@ jobs:
           TS=$(date -u +%Y-%m-%dT%H:%M:%SZ)
           python3 - <<PY
           import json
-          json.dump({'schema_version':14,'release':'dev-14','version':'0.2.0-experimental.14','commit_sha':'$SHA','build_timestamp':'$TS','protocol_version':2,'validation_snapshot_schema_version':3,'screenshots_required_for_acceptance':False,'json_evidence_self_contained':True,'automatic_geometry':True,'manual_node_coordinates_required':False,'ble_metric_profile':'android-ble-lab-v1','ble_filtered_recovery_probe_ms':15000,'ble_filtered_recovery_probe_exit_target_ms':14500,'recovery_generation_atomic':True,'targeted_first_valid_required':True,'human_scanning_enabled':False,'human_localization_validated':False,'rescue_use_validated':False},open('dist/release-manifest.json','w'),indent=2)
+          json.dump({
+            'schema_version':14,
+            'release':'dev-14',
+            'version':'0.2.0-experimental.14',
+            'commit_sha':'$SHA',
+            'build_timestamp':'$TS',
+            'protocol_version':2,
+            'validation_snapshot_schema_version':3,
+            'screenshots_required_for_acceptance':False,
+            'json_evidence_self_contained':True,
+            'automatic_geometry':True,
+            'manual_node_coordinates_required':False,
+            'ble_metric_profile':'android-ble-lab-v1',
+            'ble_metric_min_samples':3,
+            'ble_fresh_ms':5000,
+            'ble_holdover_max_ms':10000,
+            'ble_hard_expiry_ms':10000,
+            'ble_recovery_unfiltered_window_ms':10000,
+            'ble_filtered_recovery_probe_ms':15000,
+            'ble_filtered_recovery_probe_exit_target_ms':14500,
+            'ble_restart_cooldown_ms':30000,
+            'ble_max_recovery_attempts_per_5min':3,
+            'recovery_generation_atomic':True,
+            'targeted_first_valid_required':True,
+            'human_scanning_enabled':False,
+            'human_localization_validated':False,
+            'rescue_use_validated':False
+          },open('dist/release-manifest.json','w'),indent=2)
           PY
       - name: SBOM
         uses: anchore/sbom-action@v0
