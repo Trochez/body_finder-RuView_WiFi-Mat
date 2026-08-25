@@ -13,5 +13,9 @@ old_schema="""env=schema['properties']['environment']; req=env.setdefault('requi
 new_schema="""env=schema['properties']['environment']\nenv.setdefault('properties',{}).update({\n    'total_background_ms': {'type':'integer','minimum':0},\n    'max_background_interval_ms': {'type':'integer','minimum':0},\n    'foreground_transition_count': {'type':'integer','minimum':0},\n    'unresolved_violation_count': {'type':'integer','minimum':0},\n    'environment_violation_events': {'type':'array'},\n})\n# Keep these dev14 additions optional: schema v3 must remain backward-compatible with dev13 snapshots.\nwrite('protocol/schemas/validation-run-snapshot-v3.json',json.dumps(schema,indent=2)+'\\n')"""
 if old_schema not in s: raise SystemExit('schema compatibility anchor missing')
 s=s.replace(old_schema,new_schema,1)
+old_release="write('.github/workflows/release-exp14.yml',y)"
+new_release="write('docs/generated-release-exp14.yml',y)\n# The validated YAML is installed into .github/workflows by the GitHub connector, because the Actions token cannot update workflow files."
+if old_release not in s: raise SystemExit('release workflow output anchor missing')
+s=s.replace(old_release,new_release,1)
 p.write_text(s)
-print('apply_dev14 anchor/report/schema hotfix PASS')
+print('apply_dev14 anchor/report/schema/workflow hotfix PASS')
