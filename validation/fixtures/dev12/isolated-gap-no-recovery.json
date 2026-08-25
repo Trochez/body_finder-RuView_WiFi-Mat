@@ -1,0 +1,7 @@
+{
+  "scenario": "isolated_5s_gap",
+  "expected": {
+    "peer_health_state": "PEER_SPARSE",
+    "recovery_requested": false
+  }
+}

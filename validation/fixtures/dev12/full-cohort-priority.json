@@ -1,0 +1,6 @@
+{
+  "scenario": "peer_starvation_and_full_cohort_stall",
+  "expected": {
+    "winner": "FULL_COHORT_STALL"
+  }
+}

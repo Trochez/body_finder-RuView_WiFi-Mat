@@ -1,0 +1,33 @@
+{
+  "scenario": "target_returns",
+  "events": [
+    {
+      "type": "RECOVERY_REQUESTED",
+      "recovery_generation": 1,
+      "trigger_kind": "PEER_STARVATION",
+      "trigger_peer_id": "P2",
+      "peer_id": "P2",
+      "seq": 1,
+      "wall_ms": 1,
+      "elapsed_from_run_start_ms": 1
+    },
+    {
+      "type": "FIRST_VALID_BF_CALLBACK_AFTER_RECOVERY",
+      "recovery_generation": 1,
+      "trigger_kind": "PEER_STARVATION",
+      "peer_id": "P2",
+      "seq": 2,
+      "wall_ms": 2,
+      "elapsed_from_run_start_ms": 2
+    },
+    {
+      "type": "RECOVERY_SUCCESS",
+      "recovery_generation": 1,
+      "trigger_kind": "PEER_STARVATION",
+      "peer_id": "P2",
+      "seq": 3,
+      "wall_ms": 3,
+      "elapsed_from_run_start_ms": 3
+    }
+  ]
+}

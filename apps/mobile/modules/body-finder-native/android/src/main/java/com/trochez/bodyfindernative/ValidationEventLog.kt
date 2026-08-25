@@ -17,6 +17,8 @@ internal data class ValidationEvent(
   val rangingState: String,
   val yieldActive: Boolean,
   val recoveryGeneration: Long?,
+  val peerId: String?,
+  val triggerKind: String?,
 )
 
 internal object ValidationEventLog {
@@ -38,10 +40,17 @@ internal object ValidationEventLog {
   fun currentSeq(): Long = seq.get()
 
   @Synchronized
-  fun record(type: String, reason: String = "", now: Long = System.currentTimeMillis()) {
+  fun record(
+    type: String,
+    reason: String = "",
+    now: Long = System.currentTimeMillis(),
+    peerId: String? = null,
+    triggerKind: String? = null,
+  ) {
     val generation = BleAcquisitionPolicy.activeRecoveryGeneration()
     if (type == "FIRST_VALID_BF_CALLBACK_AFTER_RECOVERY") {
       val g = generation ?: return
+      if (!BleAcquisitionPolicy.recoveryCallbackEligible(peerId)) return
       if (firstCallbackRecordedGeneration == g) return
       firstCallbackRecordedGeneration = g
     }
@@ -54,7 +63,8 @@ internal object ValidationEventLog {
         seq.incrementAndGet(), eventNow, type, reason,
         BleAcquisitionPolicy.currentStrategy().name,
         BleAcquisitionPolicy.currentCohortHealth().name,
-        rs, y, generation,
+        rs, y, generation, peerId,
+        triggerKind ?: BleAcquisitionPolicy.activeRecoveryTriggerKind()?.name,
       )
     )
     while (q.size > MAX_RUNTIME) q.pollFirst()
@@ -79,6 +89,9 @@ internal object ValidationEventLog {
           .put("system_ranging_state", e.rangingState)
           .put("ranging_yield_active", e.yieldActive)
           .put("recovery_generation", e.recoveryGeneration ?: JSONObject.NULL)
+          .put("peer_id", e.peerId ?: JSONObject.NULL)
+          .put("trigger_kind", e.triggerKind ?: JSONObject.NULL)
+          .put("trigger_peer_id", if (e.triggerKind == RecoveryTriggerKind.PEER_STARVATION.name) (e.peerId ?: JSONObject.NULL) else JSONObject.NULL)
       )
     }
     return JSONObject()

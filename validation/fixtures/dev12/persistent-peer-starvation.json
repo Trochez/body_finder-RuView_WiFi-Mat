@@ -1,0 +1,8 @@
+{
+  "scenario": "udp_active_ble_starved_6s",
+  "expected": {
+    "peer_health_state": "PEER_STARVED",
+    "trigger_kind": "PEER_STARVATION",
+    "recovery_requested": true
+  }
+}

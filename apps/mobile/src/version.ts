@@ -1,8 +1,8 @@
 export const RELEASE = Object.freeze({
-  build: '0.2.0-experimental.11',
-  reportVersion: 13,
-  versionCode: 11,
-  releaseIteration: 'experimental.11',
+  build: '0.2.0-experimental.12',
+  reportVersion: 14,
+  versionCode: 12,
+  releaseIteration: 'experimental.12',
   protocolVersion: 2,
   snapshotSchemaVersion: 2,
   humanScanningEnabled: false,

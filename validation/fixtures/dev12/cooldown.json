@@ -1,0 +1,6 @@
+{
+  "scenario": "recovery_before_30s",
+  "expected": {
+    "suppressed": true
+  }
+}

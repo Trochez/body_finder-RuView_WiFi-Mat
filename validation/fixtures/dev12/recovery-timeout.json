@@ -1,0 +1,7 @@
+{
+  "scenario": "target_never_returns",
+  "expected": {
+    "terminal": "RECOVERY_FAILURE",
+    "invented_metric_range": false
+  }
+}

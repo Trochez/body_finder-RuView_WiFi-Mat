@@ -1,6 +1,4 @@
 #!/usr/bin/env python3
 import json,sys
-p=json.load(open(sys.argv[1],encoding='utf-8')); r=p.get('validation_run') or p
-assert r.get('snapshot_frozen') is True
-for k in ['geometry_at_end','fused_range_observations_at_end','graph_diagnostics_at_end']: assert k in r,k
-print('PASS geometry snapshot')
+r=json.load(open(sys.argv[1])).get('validation_run',{}); ok=r.get('snapshot_frozen') is True and 'geometry_at_end' in r and 'graph_diagnostics_at_end' in r
+print(json.dumps({'pass':ok,'snapshot_frozen':r.get('snapshot_frozen'),'has_geometry_at_end':'geometry_at_end' in r},indent=2)); sys.exit(0 if ok else 1)

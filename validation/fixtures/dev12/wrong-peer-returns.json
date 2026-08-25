@@ -1,0 +1,8 @@
+{
+  "scenario": "wrong_peer_returns",
+  "expected": {
+    "recovery_success": false,
+    "target_peer": "P2",
+    "callback_peer": "P1"
+  }
+}

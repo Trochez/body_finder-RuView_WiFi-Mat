@@ -1,0 +1,7 @@
+{
+  "scenario": "attempt_4_inside_5min",
+  "expected": {
+    "suppressed": true,
+    "max_attempts": 3
+  }
+}

@@ -34,7 +34,7 @@ const T = {
     peers: 'nodes', share: 'Share complete test JSON', empty: 'Keep the target area empty while calibrating.',
     network: 'OPEN / UNTRUSTED FIELD NETWORK', relative: 'POSITION RELATIVE TO THIS DEVICE', geometry: 'SENSOR GEOMETRY',
     estimating: 'Estimating automatically…', positioned: 'nodes positioned', residual: 'solver residual', condition: 'graph condition',
-    noTarget: 'Human scanning remains intentionally blocked until the experimental.11 validation-integrity gate is reviewed. This build validates sensor geometry acquisition continuity only.',
+    noTarget: 'Human scanning remains intentionally blocked until the experimental.12 validation-integrity gate is reviewed. This build validates sensor geometry acquisition continuity only.',
     confidence: 'human confidence', uncertainty: 'position uncertainty',
     evidence: 'Evidence: connected-Wi-Fi RSSI disturbance (not CSI). Sensor metric coordinates require validated pairwise ranging.',
     unresolved: 'unresolved nodes are intentionally not placed on the radar', startRun: 'Start validation run', endRun: 'End validation run',
@@ -46,7 +46,7 @@ const T = {
     peers: 'nodos', share: 'Compartir JSON completo de prueba', empty: 'Mantén vacía el área objetivo durante la calibración.',
     network: 'RED DE CAMPO ABIERTA / NO CONFIABLE', relative: 'POSICIÓN RELATIVA A ESTE DISPOSITIVO', geometry: 'GEOMETRÍA DE SENSORES',
     estimating: 'Estimando automáticamente…', positioned: 'nodos posicionados', residual: 'residual del solver', condition: 'condición del grafo',
-    noTarget: 'El escaneo humano permanece bloqueado intencionalmente hasta revisar el gate de continuidad de adquisición BLE de experimental.11. Esta build valida únicamente la continuidad de adquisición de la geometría de sensores.',
+    noTarget: 'El escaneo humano permanece bloqueado intencionalmente hasta revisar el gate de continuidad de adquisición BLE de experimental.12. Esta build valida únicamente la continuidad de adquisición de la geometría de sensores.',
     confidence: 'confianza humana', uncertainty: 'incertidumbre de posición',
     evidence: 'Evidencia: perturbación RSSI de Wi‑Fi conectado (no CSI). Las coordenadas métricas requieren ranging entre nodos validado.',
     unresolved: 'los nodos no resueltos no se colocan artificialmente en el radar', startRun: 'Iniciar corrida de validación', endRun: 'Finalizar corrida de validación',
@@ -275,7 +275,12 @@ export default function App() {
     const payload = {
       report_version: REPORT_VERSION,
       generated_at: new Date().toISOString(), app: 'Body Finder – RuView', build: BUILD, protocol_version: 2,
-      truth: 'LIVE_DEVICE_CAPABILITIES__VALIDATED_COARSE_BLE_METRIC_0P5_TO_5M__BOUNDED_HOLDOVER__ADAPTIVE_FILTERED_PRIMARY_WITH_BF_COHORT_RECOVERY__RANGING_MANAGER_BLE_YIELD__RECIPROCAL_FUSION__AUTOGEOMETRY_EXPERIMENTAL_NOT_RESCUE_VALIDATED',
+      truth: 'LIVE_DEVICE_CAPABILITIES__VALIDATED_COARSE_BLE_METRIC_0P5_TO_5M__BOUNDED_HOLDOVER__ADAPTIVE_FILTERED_PRIMARY_WITH_FULL_COHORT_AND_PER_PEER_STARVATION_RECOVERY__RANGING_MANAGER_BLE_YIELD__RECIPROCAL_FUSION__AUTOGEOMETRY_EXPERIMENTAL_NOT_RESCUE_VALIDATED',
+      evidence_contract: {
+        schema: 'dev12-self-contained-json-evidence-v1', screenshots_required: false, json_self_contained: true,
+        required_external_input: 'ground_truth_distances_only_for_accuracy_report',
+        diagnostic_source: 'this JSON export',
+      },
       manual_geometry_override: false, human_scanning_enabled: HUMAN_SCANNING_ENABLED,
       human_localization_validated: RELEASE.humanLocalizationValidated, rescue_use_validated: RELEASE.rescueUseValidated,
       export_auto_finalized_validation_run: autoFinalizedValidationRun,
@@ -283,6 +288,8 @@ export default function App() {
       ble_diagnostics: freshDiagnostics?.ble_diagnostics ?? null,
       fabric_diagnostics: freshDiagnostics?.fabric_diagnostics ?? null,
       lifecycle_diagnostics: freshDiagnostics?.lifecycle_diagnostics ?? null,
+      validation_preflight: freshDiagnostics?.validation_preflight ?? null,
+      diagnostic_contract: freshDiagnostics?.diagnostic_contract ?? null,
       selected_validation_run_id: freshDiagnostics?.selected_validation_run_id ?? null,
       validation_run: freshDiagnostics?.validation_run ?? null,
       completed_validation_runs_summary: freshDiagnostics?.completed_validation_runs_summary ?? [],
@@ -308,9 +315,18 @@ export default function App() {
       },
       range_observations: nodes.flatMap(node => node.ranges ?? []), estimate_array_frame: arrayTarget,
       estimate_relative_to_this_device: target,
-      instructions: 'Return both exports and screenshots from the 5-minute experimental.11 validation-integrity run plus the 3-minute post-End immutability interval. Do not change calibration, minSamples, freshness, holdover or solver settings. Human scanning remains blocked until acquisition continuity is accepted.',
+      self_diagnostic: {
+        acceptance_duration_eligible: Boolean(freshDiagnostics?.validation_run?.acceptance_duration_eligible),
+        environment_valid: Boolean(freshDiagnostics?.validation_run?.environment_valid),
+        snapshot_frozen: Boolean(freshDiagnostics?.validation_run?.snapshot_frozen),
+        usable_metric_gate_pass: typeof freshDiagnostics?.validation_run?.usable_metric_range_uptime_percent === 'number' && freshDiagnostics.validation_run.usable_metric_range_uptime_percent >= 90,
+        geometry_2d_gate_pass: typeof freshDiagnostics?.validation_run?.geometry_2d_uptime_percent === 'number' && freshDiagnostics.validation_run.geometry_2d_uptime_percent >= 90,
+        peer_expire_gate_pass: freshDiagnostics?.validation_run?.peer_expire_delta === 0,
+        recovery_budget_gate_pass: typeof freshDiagnostics?.validation_run?.recovery_attempt_delta === 'number' && freshDiagnostics.validation_run.recovery_attempt_delta <= 3,
+      },
+      instructions: 'Return the exported JSON files only. Screenshots are not required for dev-12 evidence. Use >=330 s for acceptance; short runs remain diagnostic only. Do not change calibration, minSamples, freshness, holdover or solver settings. Human scanning remains blocked.',
     };
-    await Share.share({ message: JSON.stringify(payload, null, 2), title: 'Body Finder experimental.11 validation integrity result' });
+    await Share.share({ message: JSON.stringify(payload, null, 2), title: 'Body Finder experimental.12 self-contained validation result' });
   }
 
   const scale = 18;
@@ -359,7 +375,7 @@ export default function App() {
             <Text style={s.text}>{tx.uncertainty}: {target.uncertainty_percent.toFixed(0)}% · ±{target.error_radius_95_m.toFixed(1)} m (95%)</Text><Text style={s.muted}>{tx.evidence}</Text></View>
             : <View style={s.card}><Text style={s.text}>{tx.noTarget}</Text></View>}
           <View style={s.card}><Text style={s.h2}>Validation run</Text><Text style={s.text}>run: {validationRun?.run_id ?? '—'} · active: {String(Boolean(validationRun?.active))}</Text>
-            <Text style={s.text}>elapsed: {validationRun?.elapsed_ms ?? 0} ms · frozen: {String(Boolean(validationRun?.snapshot_frozen))} · schema: {validationRun?.snapshot_schema_version ?? RELEASE.snapshotSchemaVersion}</Text>
+            <Text style={s.text}>elapsed: {validationRun?.elapsed_ms ?? 0} ms · acceptance ≥300s: {String(Boolean(validationRun?.acceptance_duration_eligible))} · frozen: {String(Boolean(validationRun?.snapshot_frozen))} · schema: {validationRun?.snapshot_schema_version ?? RELEASE.snapshotSchemaVersion}</Text>
             <Text style={s.text}>ended: {validationRun?.ended_wall_ms ?? '—'} · retained: {diagnostics?.completed_validation_runs_summary?.length ?? 0}/5 · selected: {diagnostics?.selected_validation_run_id?.slice?.(-8) ?? '—'}</Text>
             <Text style={s.text}>peer expiry Δ: {validationRun?.peer_expire_delta ?? 0} · rebind Δ: {validationRun?.address_rebind_delta ?? 0}</Text>
             <Text style={s.text}>peer: {formatPct(validationRun?.all_peer_uptime_percent)} · fresh metric: {formatPct(validationRun?.fresh_metric_range_uptime_percent)} · usable metric: {formatPct(validationRun?.usable_metric_range_uptime_percent)}</Text>
@@ -379,17 +395,17 @@ export default function App() {
             <Text style={s.text}>Node geometry: AUTO ONLY — manual override disabled</Text><Text style={s.text}>Geometry authority: {geometrySelection.source}</Text>
             <Text style={s.text}>BLE RSSI: validated COARSE profile android-ble-lab-v1 only inside 0.5–5.0 m. Profile parameters are frozen from dev-6.</Text>
             <Text style={s.text}>Continuity: fresh metric estimates may enter a bounded 10 s HOLDOVER when samples briefly disappear; sigma increases with age and hard expiry removes the edge.</Text>
-            <Text style={s.text}>Acquisition: experimental.11 uses manufacturer-filtered LOW_LATENCY scanning as FILTERED_PRIMARY. CALLBACK_TYPE_ALL_MATCHES is only the Android callback setting inside the filtered scan; the no-filter path is bounded UNFILTERED_RECOVERY only.</Text>
+            <Text style={s.text}>Acquisition: experimental.12 uses manufacturer-filtered LOW_LATENCY scanning as FILTERED_PRIMARY. CALLBACK_TYPE_ALL_MATCHES is only the Android callback setting inside the filtered scan; the no-filter path is bounded UNFILTERED_RECOVERY only.</Text>
             <Text style={s.text}>API36+: repeated RangingManager close/no-result churn enters a bounded BLE-acquisition yield; only a real platform distance resets system-ranging failures.</Text>
             <Text style={s.text}>RSSI 127 and other invalid values are filtered before the valid queue and are counted separately for diagnostics.</Text>
             <Text style={s.text}>Reciprocal A↔B BLE observations are inverse-variance fused before the solver; REJECT never enters geometry.</Text>
-            <Text style={s.text}>Human scanning: BLOCKED until the experimental.11 validation-integrity gate is reviewed.</Text>
+            <Text style={s.text}>Human scanning: BLOCKED until the experimental.12 validation-integrity gate is reviewed.</Text>
             <Text style={s.text}>Graph condition is not physical accuracy. CSI remains unsupported unless a verified adapter is loaded.</Text></View>
           <Pressable style={s.btnTest} onPress={toggleValidationRun}><Text style={s.btnText}>{validationRun?.active ? tx.endRun : tx.startRun}</Text></Pressable>
           {[
             ['Measurement health', { measurement_health: graphDiagnostics.measurement_health, physical_confidence: physicalConfidence, geometry_temporal_quality: graphDiagnostics.geometry_temporal_quality, fresh_metric_edge_count: graphDiagnostics.fresh_metric_edge_count, holdover_metric_edge_count: graphDiagnostics.holdover_metric_edge_count, oldest_metric_edge_age_ms: graphDiagnostics.oldest_metric_edge_age_ms, metric_edge_pairs: graphDiagnostics.metric_edge_pairs, proximity_only_sample_count: proximityCount, out_of_domain_sample_count: graphDiagnostics.out_of_domain_sample_count, native_invalid_rssi_total_count: diagnostics?.ble_diagnostics?.invalid_rssi_total_count ?? 0, reciprocal_disagreement_count: graphDiagnostics.reciprocal_disagreement_count }],
             ['Reciprocal fusion', fused.diagnostics],
-            ['Validation run', diagnostics?.validation_run ?? null], ['Lifecycle / power diagnostics', diagnostics?.lifecycle_diagnostics ?? null],
+            ['Validation preflight', diagnostics?.validation_preflight ?? null], ['Validation run', diagnostics?.validation_run ?? null], ['Lifecycle / power diagnostics', diagnostics?.lifecycle_diagnostics ?? null],
             ['BLE / ranging diagnostics', diagnostics?.ble_diagnostics ?? null], ['Fabric diagnostics', diagnostics?.fabric_diagnostics ?? null],
             ['Geometry solution', geometry], ['Locally computed geometry', computedGeometry], ['Graph diagnostics / temporal quality', graphDiagnostics],
             ['Raw range / proximity observations', nodes.flatMap(node => node.ranges ?? [])], ['Fused geometry observations', geometryNodes.flatMap(node => node.ranges ?? [])], ['Capabilities', caps], ['Local node', local], ['Peers', peers],
