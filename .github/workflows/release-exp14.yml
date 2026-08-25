@@ -81,7 +81,9 @@ jobs:
         with: {node-version: '20'}
       - uses: actions/setup-java@v4
         with: {distribution: temurin, java-version: '17'}
-      - run: npm ci
+      - name: Materialize deterministic npm lock for CI
+        run: npm install --package-lock-only --ignore-scripts --no-audit --no-fund
+      - run: npm ci --no-audit --no-fund
       - run: npx tsc --noEmit
       - run: CI=1 npx expo prebuild --platform android --clean
       - run: chmod +x android/gradlew && ./android/gradlew -p android testReleaseUnitTest assembleRelease bundleRelease --stacktrace
@@ -90,6 +92,9 @@ jobs:
           cp android/app/build/outputs/apk/release/*.apk ../../dist/body-finder-ruview-universal.apk
           cp ../../dist/body-finder-ruview-universal.apk ../../dist/BodyFinder-dev14-universal.apk
           cp android/app/build/outputs/bundle/release/*.aab ../../dist/body-finder-ruview.aab
+          test -s ../../dist/body-finder-ruview-universal.apk
+          test -s ../../dist/BodyFinder-dev14-universal.apk
+          test -s ../../dist/body-finder-ruview.aab
       - uses: actions/upload-artifact@v4
         with: {name: dev14-android, path: 'dist/*'}
 
@@ -109,6 +114,7 @@ jobs:
           gradle :app:testReleaseUnitTest :app:assembleRelease --stacktrace
           mkdir -p ../../dist
           cp app/build/outputs/apk/release/*.apk ../../dist/body-finder-ruview-legacy-minsdk21.apk
+          test -s ../../dist/body-finder-ruview-legacy-minsdk21.apk
       - uses: actions/upload-artifact@v4
         with: {name: dev14-android-legacy, path: 'dist/*'}
 
@@ -120,7 +126,11 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with: {node-version: '20'}
-      - run: npm ci && npx tsc --noEmit && CI=1 npx expo prebuild --platform ios --clean
+      - name: Materialize deterministic npm lock for CI
+        run: npm install --package-lock-only --ignore-scripts --no-audit --no-fund
+      - run: npm ci --no-audit --no-fund
+      - run: npx tsc --noEmit
+      - run: CI=1 npx expo prebuild --platform ios --clean
       - run: pod install
         working-directory: apps/mobile/ios
       - shell: bash
@@ -128,8 +138,10 @@ jobs:
         run: |
           set -euxo pipefail
           W=$(find . -maxdepth 1 -name '*.xcworkspace' -print -quit)
+          test -n "$W"
           xcodebuild -workspace "$W" -scheme BodyFinderRuView -configuration Release -sdk iphonesimulator -destination 'generic/platform=iOS Simulator' -derivedDataPath build CODE_SIGNING_ALLOWED=NO build
           A=$(find build/Build/Products -type d -name '*.app' -print -quit)
+          test -n "$A"
           mkdir -p "$GITHUB_WORKSPACE/dist"
           ditto -c -k --sequesterRsrc --keepParent "$A" "$GITHUB_WORKSPACE/dist/body-finder-ruview-ios-simulator.zip"
       - uses: actions/upload-artifact@v4
