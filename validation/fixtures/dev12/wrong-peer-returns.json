@@ -1,0 +1,8 @@
+{
+  "case": "wrong_peer",
+  "trigger_peer_id": "P2",
+  "callbacks": [
+    "P1"
+  ],
+  "expected": "NO_SUCCESS"
+}

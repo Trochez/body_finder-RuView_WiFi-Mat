@@ -1,0 +1,9 @@
+{
+  "case": "target_returns",
+  "trigger_peer_id": "P2",
+  "callbacks": [
+    "P1",
+    "P2"
+  ],
+  "expected": "SUCCESS_ON_P2"
+}

@@ -17,6 +17,7 @@ import android.net.wifi.WifiManager
 import android.os.Build
 import android.os.PowerManager
 import android.os.SystemClock
+import android.view.WindowManager
 import expo.modules.kotlin.modules.Module
 import expo.modules.kotlin.modules.ModuleDefinition
 import org.json.JSONArray
@@ -87,6 +88,10 @@ private object ValidationRuntime {
   @Volatile private var baselineCohortRecoveries: Long = 0
   @Volatile private var baselineCohortRecoveryFailures: Long = 0
   @Volatile private var baselineRecoveryAttempts: Long = 0
+  @Volatile private var baselinePeerStarvation: Long = 0
+  @Volatile private var baselinePeerStarvationRequests: Long = 0
+  @Volatile private var baselinePeerStarvationSuccesses: Long = 0
+  @Volatile private var baselinePeerStarvationFailures: Long = 0
   @Volatile private var baselineRestartSuppressed: Long = 0
   @Volatile private var baselineRangingYield: Long = 0
   @Volatile private var baselineRangingReal: Long = 0
@@ -123,6 +128,8 @@ private object ValidationRuntime {
     baselineCohortRecoveries = BleAcquisitionPolicy.cohortRecoveryCount()
     baselineCohortRecoveryFailures = BleAcquisitionPolicy.cohortRecoveryFailureCount()
     baselineRecoveryAttempts = BleAcquisitionPolicy.recoveryAttemptCount()
+    val ps=PeerStarvationRecovery.counters()
+    baselinePeerStarvation=ps[1]; baselinePeerStarvationRequests=ps[2]; baselinePeerStarvationSuccesses=ps[3]; baselinePeerStarvationFailures=ps[4]
     baselineRestartSuppressed = BleAcquisitionPolicy.restartSuppressedCount()
     val r = if (Build.VERSION.SDK_INT >= 36) SystemRangingApi36.counterSnapshot() else SystemRangingCounterSnapshot(0, 0, 0)
     baselineRangingYield = r.yieldTransitions
@@ -183,6 +190,10 @@ private object ValidationRuntime {
       .put("rx_packets_delta", base.optLong("rx_packets_delta"))
       .put("recovery_attempt_delta", base.optLong("recovery_attempt_delta"))
       .put("cohort_stall_delta", base.optLong("cohort_stall_delta"))
+      .put("peer_starvation_delta", base.optLong("peer_starvation_delta"))
+      .put("peer_starvation_recovery_request_delta", base.optLong("peer_starvation_recovery_request_delta"))
+      .put("peer_starvation_recovery_success_delta", base.optLong("peer_starvation_recovery_success_delta"))
+      .put("peer_starvation_recovery_failure_delta", base.optLong("peer_starvation_recovery_failure_delta"))
     base
       .put("snapshot_frozen", true)
       .put("snapshot_schema_version", 2)
@@ -232,6 +243,8 @@ private object ValidationRuntime {
       .put("snapshot_wall_ms", effectiveEnd)
       .put("snapshot_elapsed_ms", elapsed)
       .put("elapsed_ms", elapsed)
+      .put("acceptance_minimum_ms", 300000L)
+      .put("acceptance_duration_eligible", elapsed >= 300000L)
       .put("app_visibility", appVisibility)
       .put("current_geometry_state", geometryState)
       .put("peer_expire_delta", (peerExpire - baselinePeerExpire).coerceAtLeast(0))
@@ -255,6 +268,10 @@ private object ValidationRuntime {
       .put("cohort_recovery_delta", (BleAcquisitionPolicy.cohortRecoveryCount() - baselineCohortRecoveries).coerceAtLeast(0))
       .put("cohort_recovery_failure_delta", (BleAcquisitionPolicy.cohortRecoveryFailureCount() - baselineCohortRecoveryFailures).coerceAtLeast(0))
       .put("recovery_attempt_delta", (BleAcquisitionPolicy.recoveryAttemptCount() - baselineRecoveryAttempts).coerceAtLeast(0))
+      .put("peer_starvation_delta", (PeerStarvationRecovery.counters()[1]-baselinePeerStarvation).coerceAtLeast(0))
+      .put("peer_starvation_recovery_request_delta", (PeerStarvationRecovery.counters()[2]-baselinePeerStarvationRequests).coerceAtLeast(0))
+      .put("peer_starvation_recovery_success_delta", (PeerStarvationRecovery.counters()[3]-baselinePeerStarvationSuccesses).coerceAtLeast(0))
+      .put("peer_starvation_recovery_failure_delta", (PeerStarvationRecovery.counters()[4]-baselinePeerStarvationFailures).coerceAtLeast(0))
       .put("restart_suppressed_delta", (BleAcquisitionPolicy.restartSuppressedCount() - baselineRestartSuppressed).coerceAtLeast(0))
       .put("ranging_yield_transition_delta", ((if (Build.VERSION.SDK_INT >= 36) SystemRangingApi36.counterSnapshot().yieldTransitions else 0) - baselineRangingYield).coerceAtLeast(0))
       .put("ranging_real_result_delta", ((if (Build.VERSION.SDK_INT >= 36) SystemRangingApi36.counterSnapshot().realDistanceResults else 0) - baselineRangingReal).coerceAtLeast(0))
@@ -343,6 +360,7 @@ private object FabricRuntime {
   val bleSeenCountByIdentity = ConcurrentHashMap<String, AtomicLong>()
   val acquisitionStatsByIdentity = ConcurrentHashMap<String, BleAcquisitionStats>()
   val validationAcquisitionBaselineByIdentity = ConcurrentHashMap<String, BleAcquisitionCounterSnapshot>()
+  val validationStarvationBaselineByPeer = ConcurrentHashMap<String, LongArray>()
   val addressRebindCountByIdentity = ConcurrentHashMap<String, AtomicLong>()
   val lastRebindWallMsByIdentity = ConcurrentHashMap<String, Long>()
   val rebindEvents = ConcurrentLinkedDeque<RebindEvent>()
@@ -401,6 +419,7 @@ private object FabricRuntime {
     bleSeenCountByIdentity.clear()
     acquisitionStatsByIdentity.clear()
     validationAcquisitionBaselineByIdentity.clear()
+    validationStarvationBaselineByPeer.clear()
     invalidRssiEventsByIdentity.clear()
     invalidRssiCountByIdentity.clear()
     lastValidRssiWallMsByIdentity.clear()
@@ -414,6 +433,8 @@ private object FabricRuntime {
 
   fun snapshotAcquisitionForValidation() {
     validationAcquisitionBaselineByIdentity.clear()
+    validationStarvationBaselineByPeer.clear()
+    peers.values.forEach { pair -> try { val id=JSONObject(pair.first).optString("node_id"); if(id.isNotBlank()) validationStarvationBaselineByPeer[id]=PeerStarvationRecovery.peerCounters(id) } catch(_:Throwable){} }
     acquisitionStatsByIdentity.forEach { (identity, stats) ->
       validationAcquisitionBaselineByIdentity[identity] = stats.snapshot()
     }
@@ -496,6 +517,7 @@ class BodyFinderNativeModule : Module() {
       if (issues.isNotEmpty()) return@Function "VALIDATION_ENVIRONMENT_INVALID:${issues.joinToString(",")}"
       val now = System.currentTimeMillis()
       FabricRuntime.snapshotAcquisitionForValidation()
+      keepValidationScreenAwake(true)
       ValidationRuntime.start(
         now,
         FabricRuntime.peerExpireCount.get(),
@@ -509,6 +531,7 @@ class BodyFinderNativeModule : Module() {
       val ctx = appContext.reactContext ?: return@Function false
       val now=System.currentTimeMillis()
       ValidationRuntime.end(now,FabricRuntime.peerExpireCount.get(),FabricRuntime.totalRebinds(),FabricRuntime.scanRestartCount.get(),FabricRuntime.txPackets.get(),FabricRuntime.rxPackets.get(),acquisitionProvenance(now),peerBleDiagnostics(now),if(Build.VERSION.SDK_INT>=36) SystemRangingApi36.diagnostics(now) else JSONObject().put("state","UNSUPPORTED"))
+      keepValidationScreenAwake(false)
       true
     }
     Function("getValidationRunJson") {
@@ -547,6 +570,7 @@ class BodyFinderNativeModule : Module() {
     Function("stopFabric") {
       val ctx = appContext.reactContext
       if (ctx != null) stopFieldService(ctx.applicationContext)
+      keepValidationScreenAwake(false)
       FabricRuntime.stop()
       true
     }
@@ -562,6 +586,11 @@ class BodyFinderNativeModule : Module() {
       val ctx = appContext.reactContext ?: return@Function "{}"
       advertisement(ctx).toString()
     }
+  }
+
+  private fun keepValidationScreenAwake(enable:Boolean){
+    val a=appContext.currentActivity ?: return
+    a.runOnUiThread { if(enable) a.window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON) else a.window.clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON) }
   }
 
   private fun probe(state: String, detail: String) = JSONObject().put("state", state).put("detail", detail)
@@ -826,6 +855,37 @@ class BodyFinderNativeModule : Module() {
     } catch (_: Throwable) { false }
   }
 
+  private fun peerStarvationCandidate(now:Long):String? {
+    if(globalScannerHealth(now)!=GlobalBleScannerHealth.GLOBAL_SCANNER_HEALTHY) return null
+    for(pair in FabricRuntime.peers.values){
+      try{
+        val peer=JSONObject(pair.first); val peerId=peer.optString("node_id"); val identity=peer.optString("ble_identity")
+        if(peerId.isBlank()||identity.isBlank()||identity=="null") continue
+        val fabricSeen=FabricRuntime.peerLastSeenWallMs[peerId] ?: pair.second
+        val fabricActive=now-fabricSeen<=PEER_EXPIRY_MS
+        val bound=FabricRuntime.bleAddressByIdentity.containsKey(identity) || FabricRuntime.lastValidRssiWallMsByIdentity.containsKey(identity)
+        val valid5=validSamples(identity,now,RANGE_FRESHNESS_MS).size
+        val last=FabricRuntime.lastValidRssiWallMsByIdentity[identity]
+        val age=last?.let{max(0L,now-it)}
+        val d=PeerStarvationRecovery.observe(peerId,now,fabricActive,bound,true,valid5,age,BleAcquisitionPolicy.activeRecoveryGeneration()!=null)
+        if(d.state==PeerHealthState.PEER_STARVED && d.requestRecovery) return peerId
+      }catch(_:Throwable){}
+    }
+    return null
+  }
+
+  private fun targetRecoverySatisfied(now:Long):Boolean {
+    val started=BleAcquisitionPolicy.recoveryStartedMs() ?: return false
+    val target=BleAcquisitionPolicy.lastRecoveryTriggerPeerId()
+    if(BleAcquisitionPolicy.lastRecoveryTriggerKind()!=RecoveryTriggerKind.PEER_STARVATION || target==null) return recentKnownPeerCount(now)>0 && FabricRuntime.lastBodyFinderScanResultWallMs?.let{it>=started}==true
+    val pair=FabricRuntime.peers.values.firstOrNull{ try{JSONObject(it.first).optString("node_id")==target}catch(_:Throwable){false} } ?: return false
+    val identity=try{JSONObject(pair.first).optString("ble_identity")}catch(_:Throwable){return false}
+    val last=FabricRuntime.lastValidRssiWallMsByIdentity[identity] ?: return false
+    if(last<started) return false
+    BleAcquisitionPolicy.noteValidCallback(target,last)
+    return true
+  }
+
   private fun bodyFinderCohortHealth(now: Long): BodyFinderCohortHealth {
     if (!FabricRuntime.bleScanning) return BodyFinderCohortHealth.BF_COHORT_UNAVAILABLE
     val expected = expectedKnownPeerCount()
@@ -873,14 +933,20 @@ class BodyFinderNativeModule : Module() {
       BleAcquisitionStrategy.FILTERED_PRIMARY -> {
         if (cohort == BodyFinderCohortHealth.BF_COHORT_STALLED) {
           if (BleAcquisitionPolicy.canStartRecovery(now)) {
-            BleAcquisitionPolicy.beginRecovery(now, "BF_COHORT_STALLED")
+            BleAcquisitionPolicy.beginRecovery(now, "BF_COHORT_STALLED", RecoveryTriggerKind.FULL_COHORT_STALL, null)
             restartScannerWithStrategy(now, BleAcquisitionStrategy.UNFILTERED_RECOVERY, "BF_COHORT_STALLED")
           } else if(BleAcquisitionPolicy.recoveryAttemptsInWindow(now)>=BleAcquisitionPolicy.MAX_RECOVERY_ATTEMPTS_PER_5MIN) BleAcquisitionPolicy.markFailedSafe(now,"MAX_RECOVERY_ATTEMPTS")
+        } else {
+          val starved=peerStarvationCandidate(now)
+          if(starved!=null && BleAcquisitionPolicy.canStartRecovery(now)){
+            BleAcquisitionPolicy.beginRecovery(now,"PEER_STARVATION",RecoveryTriggerKind.PEER_STARVATION,starved)
+            restartScannerWithStrategy(now,BleAcquisitionStrategy.UNFILTERED_RECOVERY,"PEER_STARVATION:$starved")
+          }
         }
       }
       BleAcquisitionStrategy.UNFILTERED_RECOVERY -> {
         val started = BleAcquisitionPolicy.recoveryStartedMs() ?: now
-        val recovered = recentKnownPeerCount(now) > 0 && FabricRuntime.lastBodyFinderScanResultWallMs?.let { it >= started } == true
+        val recovered = targetRecoverySatisfied(now)
         if (recovered) {
           BleAcquisitionPolicy.noteRecoverySuccess(now)
           restartScannerWithStrategy(now, BleAcquisitionStrategy.FILTERED_RECOVERY_PROBE, "BF_COHORT_RECOVERED")
@@ -893,7 +959,7 @@ class BodyFinderNativeModule : Module() {
         cohort = bodyFinderCohortHealth(now)
         if (cohort == BodyFinderCohortHealth.BF_COHORT_STALLED) {
           if (BleAcquisitionPolicy.canStartRecovery(now)) {
-            BleAcquisitionPolicy.beginRecovery(now, "PROBE_STALLED")
+            BleAcquisitionPolicy.beginRecovery(now, "PROBE_STALLED", RecoveryTriggerKind.FULL_COHORT_STALL, null)
             restartScannerWithStrategy(now, BleAcquisitionStrategy.UNFILTERED_RECOVERY, "PROBE_STALLED")
           } else {
             BleAcquisitionPolicy.transition(BleAcquisitionStrategy.COOLDOWN, now, "RECOVERY_COOLDOWN")
@@ -1368,6 +1434,19 @@ class BodyFinderNativeModule : Module() {
           put("last_valid_sigma_m", cached?.sigmaM ?: JSONObject.NULL)
           put("range_estimate", estimate?.toJson() ?: JSONObject.NULL)
           put("acquisition", acquisitionStats?.diagnostics(now, validFresh.size, validRetained.size, effectiveBaseline) ?: JSONObject.NULL)
+          val starvation=PeerStarvationRecovery.diagnostics(peerId)
+          val ps=PeerStarvationRecovery.peerCounters(peerId); val pb=FabricRuntime.validationStarvationBaselineByPeer[peerId] ?: longArrayOf(0,0,0,0)
+          put("peer_health_state",starvation.optString("peer_health_state"))
+          put("starvation_candidate_since_wall_ms",starvation.opt("starvation_candidate_since_wall_ms"))
+          put("starvation_since_wall_ms",starvation.opt("starvation_since_wall_ms"))
+          put("starvation_count",ps[0])
+          put("starvation_recovery_participation_count",ps[1])
+          put("last_starvation_recovery_generation",starvation.opt("last_starvation_recovery_generation"))
+          put("last_starvation_recovery_latency_ms",starvation.opt("last_starvation_recovery_latency_ms"))
+          put("run_starvation_count",(ps[0]-pb[0]).coerceAtLeast(0))
+          put("run_starvation_recovery_participation_count",(ps[1]-pb[1]).coerceAtLeast(0))
+          put("run_starvation_recovery_success_count",(ps[2]-pb[2]).coerceAtLeast(0))
+          put("run_starvation_recovery_failure_count",(ps[3]-pb[3]).coerceAtLeast(0))
           put("address_rebind_count", identity?.let { FabricRuntime.addressRebindCountByIdentity[it]?.get() } ?: 0)
           put("blocking_reason", blocker ?: JSONObject.NULL)
         })
@@ -1482,6 +1561,25 @@ class BodyFinderNativeModule : Module() {
     put("peers", peers)
   }
 
+  private fun preflightDiagnostics(ctx:Context,now:Long):JSONObject {
+    val issues=validationEnvironmentIssues(ctx)
+    val manager=ctx.getSystemService(Context.BLUETOOTH_SERVICE) as? BluetoothManager
+    val expected=expectedKnownPeerCount()
+    return JSONObject()
+      .put("valid",issues.isEmpty() && expected>=2 && BleAcquisitionPolicy.currentStrategy()==BleAcquisitionStrategy.FILTERED_PRIMARY)
+      .put("bluetooth_on",manager?.adapter?.isEnabled==true)
+      .put("battery_saver_off",(ctx.getSystemService(Context.POWER_SERVICE) as? PowerManager)?.isPowerSaveMode!=true)
+      .put("screen_on",(ctx.getSystemService(Context.POWER_SERVICE) as? PowerManager)?.isInteractive==true)
+      .put("app_foreground",ValidationRuntime.appVisibility=="active")
+      .put("foreground_service_running",FieldServiceState.state=="RUNNING")
+      .put("expected_ble_peer_count",expected)
+      .put("logical_strategy",BleAcquisitionPolicy.currentStrategy().name)
+      .put("scan_filter_mode","MANUFACTURER_FILTERED")
+      .put("hardware_filter_count",if(BleAcquisitionPolicy.currentStrategy()==BleAcquisitionStrategy.UNFILTERED_RECOVERY) 0 else 1)
+      .put("location_service_enabled",locationServiceEnabled(ctx) ?: JSONObject.NULL)
+      .put("issues",JSONArray(issues))
+  }
+
   private fun validationRunDiagnostics(ctx: Context, now: Long = System.currentTimeMillis()): JSONObject {
     if (ValidationRuntime.runId != null && ValidationRuntime.endedWallMs == null) {
       ValidationRuntime.recordEnvironmentViolation(now, validationEnvironmentIssues(ctx))
@@ -1501,6 +1599,19 @@ class BodyFinderNativeModule : Module() {
     val usableMetricReady = metricReadyCount(now)
     ValidationRuntime.observe(now, FabricRuntime.peers.size, evidenceReady, freshMetricReady, usableMetricReady)
     return JSONObject()
+      .put("schema_version",14)
+      .put("release","dev-12")
+      .put("build","0.2.0-experimental.12")
+      .put("protocol_version",2)
+      .put("device",deviceReport(ctx))
+      .put("preflight",preflightDiagnostics(ctx,now))
+      .put("release_truth",JSONObject()
+        .put("profile_id","android-ble-lab-v1").put("rssi_at_1m_dbm",-69.19).put("path_loss_exponent",3.62)
+        .put("min_samples_for_range",3).put("fresh_ms",5000).put("holdover_max_ms",10000).put("hard_expiry_ms",10000)
+        .put("valid_distance_min_m",0.5).put("valid_distance_max_m",5.0).put("primary_acquisition","FILTERED_PRIMARY")
+        .put("recovery_acquisition","UNFILTERED_RECOVERY").put("restart_cooldown_ms",30000).put("max_recoveries_per_5min",3)
+        .put("physical_confidence","COARSE"))
+      .put("safety_truth",JSONObject().put("human_scanning_enabled",false).put("human_localization_validated",false).put("rescue_use_validated",false))
       .put("ble_diagnostics", bleDiagnostics(ctx, now))
       .put("fabric_diagnostics", fabricDiagnostics(now))
       .put("lifecycle_diagnostics", lifecycleDiagnostics(ctx))

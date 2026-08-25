@@ -1,0 +1,7 @@
+{
+  "case": "pixel7_dev11",
+  "usable_metric_range_uptime_percent": 88.83,
+  "cohort_stall_delta": 0,
+  "recovery_attempt_delta": 0,
+  "expected": "PEER_STARVATION_RECOVERY"
+}

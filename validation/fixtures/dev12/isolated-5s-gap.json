@@ -1,0 +1,6 @@
+{
+  "case": "isolated_gap",
+  "gap_ms": 5500,
+  "persistent_ms": 0,
+  "expected": "PEER_SPARSE_NO_RECOVERY"
+}

@@ -35,7 +35,7 @@ enum class BodyFinderCohortHealth {
 }
 
 /**
- * Acquisition-only policy for experimental.11.
+ * Acquisition-only policy for experimental.12.
  *
  * Physical ranging truth is frozen: android-ble-lab-v1, minSamples=3,
  * freshness=5s, holdover=10s, sigma aging and solver rules are unchanged.
@@ -75,6 +75,12 @@ internal object BleAcquisitionPolicy {
   @Volatile private var recoveryStartedWallMs: Long? = null
   @Volatile private var lastRecoveryLatencyMs: Long? = null
   @Volatile private var lastRecoveryAttemptWallMs: Long = 0L
+  @Volatile private var lastRecoveryTriggerKind: RecoveryTriggerKind? = null
+  @Volatile private var lastRecoveryTriggerPeerId: String? = null
+  @Volatile private var firstValidCallbackGeneration: Long = 0L
+  @Volatile private var peerStarvationRecoveryRequestCount: Long = 0L
+  @Volatile private var peerStarvationRecoverySuccessCount: Long = 0L
+  @Volatile private var peerStarvationRecoveryFailureCount: Long = 0L
   @Volatile private var filteredAccumulatedMs: Long = 0L
   @Volatile private var unfilteredAccumulatedMs: Long = 0L
   private val recoveryAttemptWallMs = ConcurrentLinkedDeque<Long>()
@@ -97,6 +103,13 @@ internal object BleAcquisitionPolicy {
     recoveryStartedWallMs = null
     lastRecoveryLatencyMs = null
     lastRecoveryAttemptWallMs = 0
+    lastRecoveryTriggerKind = null
+    lastRecoveryTriggerPeerId = null
+    firstValidCallbackGeneration = 0L
+    peerStarvationRecoveryRequestCount = 0L
+    peerStarvationRecoverySuccessCount = 0L
+    peerStarvationRecoveryFailureCount = 0L
+    PeerStarvationRecovery.reset()
     filteredAccumulatedMs = 0
     unfilteredAccumulatedMs = 0
     recoveryAttemptWallMs.clear()
@@ -119,6 +132,8 @@ internal object BleAcquisitionPolicy {
   fun lastStrategyReason(): String = lastStrategyReason
   fun activeRecoveryGeneration(): Long? = activeRecoveryGeneration
   fun currentRecoveryGeneration(): Long = activeRecoveryGeneration ?: recoveryGenerationCounter.get()
+  fun lastRecoveryTriggerKind(): RecoveryTriggerKind? = lastRecoveryTriggerKind
+  fun lastRecoveryTriggerPeerId(): String? = lastRecoveryTriggerPeerId
   @Synchronized fun recoveryAttemptsInWindow(now: Long): Int {
     while (true) {
       val first = recoveryAttemptWallMs.peekFirst() ?: break
@@ -173,16 +188,32 @@ internal object BleAcquisitionPolicy {
   }
 
   @Synchronized
-  fun beginRecovery(now: Long, reason: String) {
+  fun beginRecovery(now: Long, reason: String, triggerKind: RecoveryTriggerKind = RecoveryTriggerKind.FULL_COHORT_STALL, triggerPeerId: String? = null) {
+    if (activeRecoveryGeneration != null) return
     recoveryAttemptCountTotal++
     recoveryAttemptWallMs.addLast(now)
     val generation = recoveryGenerationCounter.incrementAndGet()
     activeRecoveryGeneration = generation
     recoveryStartedWallMs = now
     lastRecoveryAttemptWallMs = now
+    lastRecoveryTriggerKind = triggerKind
+    lastRecoveryTriggerPeerId = triggerPeerId
+    firstValidCallbackGeneration = 0L
     cohortHealth = BodyFinderCohortHealth.BF_COHORT_RECOVERING
-    ValidationEventLog.record("RECOVERY_REQUESTED", reason, now = now)
+    if (triggerKind == RecoveryTriggerKind.PEER_STARVATION && triggerPeerId != null) { peerStarvationRecoveryRequestCount++; PeerStarvationRecovery.noteRecoveryRequested(triggerPeerId,generation) }
+    ValidationEventLog.record("RECOVERY_REQUESTED", reason, now = now, peerId=triggerPeerId, recoveryGeneration=generation, triggerKind=triggerKind.name)
     transition(BleAcquisitionStrategy.UNFILTERED_RECOVERY, now, reason)
+  }
+
+  @Synchronized
+  fun noteValidCallback(peerId: String, now: Long): Boolean {
+    val generation=activeRecoveryGeneration ?: return false
+    val target=lastRecoveryTriggerPeerId
+    if(lastRecoveryTriggerKind==RecoveryTriggerKind.PEER_STARVATION && target!=peerId) return false
+    if(firstValidCallbackGeneration==generation) return false
+    firstValidCallbackGeneration=generation
+    ValidationEventLog.record("FIRST_VALID_BF_CALLBACK_AFTER_RECOVERY","TARGET_VALID_CALLBACK",now=now,peerId=peerId,recoveryGeneration=generation,triggerKind=lastRecoveryTriggerKind?.name)
+    return true
   }
 
   @Synchronized
@@ -193,7 +224,9 @@ internal object BleAcquisitionPolicy {
     val start = recoveryStartedWallMs
     if (start != null) lastRecoveryLatencyMs = max(0L, now - start)
     cohortRecoveryCount++
-    ValidationEventLog.record("RECOVERY_SUCCESS", "FIRST_VALID_BF_CALLBACK", now = now)
+    val peer=lastRecoveryTriggerPeerId
+    if(lastRecoveryTriggerKind==RecoveryTriggerKind.PEER_STARVATION && peer!=null){ peerStarvationRecoverySuccessCount++; PeerStarvationRecovery.noteRecoverySuccess(peer,lastRecoveryLatencyMs) }
+    ValidationEventLog.record("RECOVERY_SUCCESS", "FIRST_VALID_BF_CALLBACK", now = now, peerId=peer, recoveryGeneration=generation, triggerKind=lastRecoveryTriggerKind?.name)
     recoveryStartedWallMs = null
   }
 
@@ -203,7 +236,10 @@ internal object BleAcquisitionPolicy {
     if (recoveryFailureGeneration.get() == generation) return
     recoveryFailureGeneration.set(generation)
     cohortRecoveryFailureCount++
-    ValidationEventLog.record("RECOVERY_FAILURE", "RECOVERY_WINDOW_EXPIRED", now = now)
+    val peer=lastRecoveryTriggerPeerId
+    val latency=recoveryStartedWallMs?.let{max(0L,now-it)}
+    if(lastRecoveryTriggerKind==RecoveryTriggerKind.PEER_STARVATION && peer!=null){ peerStarvationRecoveryFailureCount++; PeerStarvationRecovery.noteRecoveryFailure(peer,latency) }
+    ValidationEventLog.record("RECOVERY_FAILURE", "RECOVERY_WINDOW_EXPIRED", now = now, peerId=peer, recoveryGeneration=generation, triggerKind=lastRecoveryTriggerKind?.name)
     recoveryStartedWallMs = null
   }
 
@@ -269,6 +305,15 @@ internal object BleAcquisitionPolicy {
     .put("recovery_started_wall_ms", recoveryStartedWallMs ?: JSONObject.NULL)
     .put("restart_suppressed_by_cooldown_count", restartSuppressedCount)
     .put("recovery_attempt_count", recoveryAttemptCountTotal)
+    .put("last_recovery_trigger_kind", lastRecoveryTriggerKind?.name ?: JSONObject.NULL)
+    .put("last_recovery_trigger_peer_id", lastRecoveryTriggerPeerId ?: JSONObject.NULL)
+    .put("peer_starvation_candidate_count", PeerStarvationRecovery.counters()[0])
+    .put("peer_starvation_count", PeerStarvationRecovery.counters()[1])
+    .put("peer_starvation_recovery_request_count", peerStarvationRecoveryRequestCount)
+    .put("peer_starvation_recovery_success_count", peerStarvationRecoverySuccessCount)
+    .put("peer_starvation_recovery_failure_count", peerStarvationRecoveryFailureCount)
+    .put("last_peer_starvation_wall_ms", PeerStarvationRecovery.lastStarvationWallMs ?: JSONObject.NULL)
+    .put("last_peer_starvation_peer_id", PeerStarvationRecovery.lastStarvationPeerId ?: JSONObject.NULL)
     .put("recovery_attempts_in_current_5min_window", recoveryAttemptsInWindow(now))
     .put("filtered_mode_total_ms", filteredTotalMs(now))
     .put("unfiltered_recovery_total_ms", unfilteredTotalMs(now))

@@ -1,0 +1,5 @@
+{
+  "case": "cooldown",
+  "attempt_spacing_ms": 10000,
+  "expected": "SUPPRESSED"
+}

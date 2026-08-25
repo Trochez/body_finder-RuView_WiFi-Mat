@@ -1,0 +1,6 @@
+{
+  "case": "timeout",
+  "trigger_peer_id": "P2",
+  "elapsed_ms": 10001,
+  "expected": "FAILURE_NO_SYNTHETIC_RANGE"
+}

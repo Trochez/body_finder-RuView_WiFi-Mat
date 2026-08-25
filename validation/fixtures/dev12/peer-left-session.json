@@ -1,0 +1,5 @@
+{
+  "case": "peer_left",
+  "fabric_active": false,
+  "expected": "NO_RECOVERY"
+}

@@ -1,0 +1,5 @@
+{
+  "case": "repeated_sparse",
+  "persistent_ms": 6500,
+  "expected": "PEER_STARVED"
+}

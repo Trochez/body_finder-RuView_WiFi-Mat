@@ -1,0 +1,6 @@
+{
+  "case": "rolling_budget",
+  "attempts": 4,
+  "window_ms": 300000,
+  "expected": "ATTEMPT4_SUPPRESSED"
+}

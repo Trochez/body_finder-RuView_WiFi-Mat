@@ -1,0 +1,7 @@
+{
+  "case": "udp_active_ble_starved",
+  "fabric_active": true,
+  "valid_samples_5s": 1,
+  "persistent_ms": 7000,
+  "expected": "PEER_STARVED_RECOVERY"
+}
