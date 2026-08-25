@@ -1,0 +1,83 @@
+name: Dev15 validation tooling telemetry bootstrap
+
+on:
+  push:
+    branches: [main]
+    paths: ['DEV15_BOOTSTRAP_TRIGGER.txt']
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  apply:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+          fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+      - id: materialize
+        continue-on-error: true
+        run: |
+          set -euxo pipefail
+          python3 -m py_compile scripts/apply_dev15_android_release.py scripts/generate_dev15_fixtures.py
+          python3 scripts/apply_dev15_android_release.py
+          python3 scripts/generate_dev15_fixtures.py
+      - id: gates
+        if: steps.materialize.outcome == 'success'
+        continue-on-error: true
+        run: |
+          set -euxo pipefail
+          python3 -m py_compile validation/analysis/dev15_validation.py validation/analysis/validate_dev15_acceptance.py validation/analysis/validate_dev15_hard_gates.py validation/analysis/build_acceptance_report.py validation/analysis/calculate_accuracy_report.py validation/analysis/test_dev15_tooling.py validation/android/check_dev15_frozen_truth_contract.py
+          python3 validation/android/check_dev15_frozen_truth_contract.py
+          python3 validation/analysis/test_dev15_tooling.py
+          python3 -m json.tool protocol/schemas/validation-run-snapshot-v3.json >/dev/null
+          grep -q '0.2.0-experimental.15' apps/mobile/src/version.ts
+          grep -q 'reportVersion: 17' apps/mobile/src/version.ts
+          grep -q '"versionCode": 15' apps/mobile/app.json
+          grep -q '"releaseIteration": "experimental.15"' apps/mobile/app.json
+          grep -q 'pub const PROTOCOL_VERSION: u16 = 2;' crates/body-finder-core/src/lib.rs
+          test -s DEV15_FROZEN_TRUTH.md
+          test -s docs/TESTING_DEV15.md
+          test -s .github/workflows/release-exp15.yml
+          test -s validation/ground-truth/GROUND_TRUTH_TEMPLATE.json
+          git diff --exit-code HEAD -- calibration apps/mobile/src/autogeometry.ts apps/mobile/src/rangeFusion.ts apps/mobile/modules/body-finder-native/android/src/main/java/com/trochez/bodyfindernative/BleContinuityPolicy.kt apps/mobile/modules/body-finder-native/android/src/main/java/com/trochez/bodyfindernative/BleRangeEstimator.kt apps/mobile/modules/body-finder-native/android/src/main/java/com/trochez/bodyfindernative/SystemRangingApi36.kt protocol/schemas/validation-run-snapshot-v3.json
+          (cd apps/mobile && npm install --package-lock-only --ignore-scripts --no-audit --no-fund && npm ci --no-audit --no-fund && npx tsc --noEmit)
+          cargo test --workspace
+      - name: Commit dev15 implementation
+        if: steps.materialize.outcome == 'success' && steps.gates.outcome == 'success'
+        run: |
+          set -euxo pipefail
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git add apps validation scripts docs DEV15_FROZEN_TRUTH.md RELEASE_DEV15_TRIGGER.txt .github/workflows/release-exp15.yml
+          if ! git diff --cached --quiet; then git commit -m 'feat: implement dev15 validation tooling telemetry'; fi
+      - name: Record bootstrap result
+        if: always()
+        env:
+          MATERIALIZE: ${{ steps.materialize.outcome }}
+          GATES: ${{ steps.gates.outcome }}
+        run: |
+          set -euxo pipefail
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          python3 -c "import json,os,pathlib; ok=os.environ.get('MATERIALIZE')=='success' and os.environ.get('GATES')=='success'; pathlib.Path('DEV15_BOOTSTRAP_RESULT.json').write_text(json.dumps({'pass':ok,'materialize':os.environ.get('MATERIALIZE'),'gates':os.environ.get('GATES'),'run_id':os.environ.get('GITHUB_RUN_ID'),'sha':os.environ.get('GITHUB_SHA')},indent=2)+'\n')"
+          git add DEV15_BOOTSTRAP_RESULT.json
+          if ! git diff --cached --quiet; then git commit -m 'ci: record dev15 bootstrap result'; fi
+          git push origin HEAD:main
+      - name: Enforce success
+        if: always()
+        env:
+          MATERIALIZE: ${{ steps.materialize.outcome }}
+          GATES: ${{ steps.gates.outcome }}
+        run: |
+          test "$MATERIALIZE" = success
+          test "$GATES" = success
