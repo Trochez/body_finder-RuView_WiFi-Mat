@@ -22,13 +22,18 @@ jobs:
       - uses: actions/setup-python@v5
         with: { python-version: '3.12' }
       - uses: dtolnay/rust-toolchain@stable
-      - name: Apply dev14 plan
+      - id: materialize
+        name: Apply dev14 plan
+        continue-on-error: true
         shell: bash
         run: |
           set -euxo pipefail
           python3 -m py_compile scripts/apply_dev14.py
           python3 scripts/apply_dev14.py
-      - name: Deterministic dev14 gates
+      - id: gates
+        name: Deterministic dev14 gates
+        if: steps.materialize.outcome == 'success'
+        continue-on-error: true
         shell: bash
         run: |
           set -euxo pipefail
@@ -50,6 +55,7 @@ jobs:
           grep -qi 'No screenshots are required' docs/TESTING_DEV14.md
           test -s .github/workflows/release-exp14.yml
       - name: Commit dev14 implementation
+        if: steps.materialize.outcome == 'success' && steps.gates.outcome == 'success'
         shell: bash
         run: |
           set -euxo pipefail
@@ -58,5 +64,31 @@ jobs:
           git add apps validation protocol docs DEV14_FROZEN_TRUTH.md .github/workflows/release-exp14.yml scripts/apply_dev14.py
           if ! git diff --cached --quiet; then
             git commit -m 'feat: implement dev14 recovery atomicity and lifecycle evidence'
-            git push origin HEAD:main
           fi
+      - name: Persist bootstrap result
+        if: always()
+        shell: bash
+        env:
+          MATERIALIZE: ${{ steps.materialize.outcome }}
+          GATES: ${{ steps.gates.outcome }}
+        run: |
+          set -euxo pipefail
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          python3 - <<'PY'
+          import json,os,pathlib
+          ok=os.environ.get('MATERIALIZE')=='success' and os.environ.get('GATES')=='success'
+          pathlib.Path('DEV14_BOOTSTRAP_RESULT.json').write_text(json.dumps({'pass':ok,'materialize':os.environ.get('MATERIALIZE'),'gates':os.environ.get('GATES'),'run_id':os.environ.get('GITHUB_RUN_ID'),'sha':os.environ.get('GITHUB_SHA')},indent=2)+'\n')
+          PY
+          git add DEV14_BOOTSTRAP_RESULT.json
+          if ! git diff --cached --quiet; then git commit -m "ci: record dev14 bootstrap result"; fi
+          git push origin HEAD:main
+      - name: Enforce bootstrap success
+        if: always()
+        shell: bash
+        env:
+          MATERIALIZE: ${{ steps.materialize.outcome }}
+          GATES: ${{ steps.gates.outcome }}
+        run: |
+          test "$MATERIALIZE" = success
+          test "$GATES" = success
