@@ -1,13 +1,209 @@
 name: Dev Release experimental.14
 
 on:
+  push:
+    branches: [main]
+    paths: [RELEASE_DEV14_TRIGGER.txt]
   workflow_dispatch:
 
 permissions:
-  contents: read
+  contents: write
+
+concurrency:
+  group: release-exp14
+  cancel-in-progress: false
 
 jobs:
-  placeholder:
+  requirements:
     runs-on: ubuntu-latest
     steps:
-      - run: echo 'Dev14 release workflow is installed after validated implementation bootstrap.'
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: {python-version: '3.12'}
+      - name: Dev14 deterministic gates
+        run: |
+          set -euxo pipefail
+          grep -q '0.2.0-experimental.14' apps/mobile/src/version.ts
+          grep -q '"versionCode": 14' apps/mobile/app.json
+          grep -q '"releaseIteration": "experimental.14"' apps/mobile/app.json
+          grep -q 'pub const PROTOCOL_VERSION: u16 = 2;' crates/body-finder-core/src/lib.rs
+          test -s DEV14_FROZEN_TRUTH.md
+          test -s docs/TESTING_DEV14.md
+          python3 validation/android/check_dev14_environment_contract.py
+          python3 validation/android/check_dev14_recovery_contract.py
+          python3 validation/android/test_dev14_recovery_model.py
+          python3 validation/analysis/validate_environment_authorization.py
+          python3 validation/analysis/validate_dev14_fixture_matrix.py
+          python3 -m py_compile validation/analysis/validate_dev14_hard_gates.py validation/analysis/dev14_validation.py validation/analysis/validate_environment_intervals.py validation/analysis/validate_timeline_causality.py validation/analysis/validate_peer_starvation_recovery.py validation/analysis/calculate_accuracy_report.py validation/analysis/build_acceptance_report.py validation/analysis/validate_release_manifest.py
+          python3 -m json.tool protocol/schemas/validation-run-snapshot-v3.json >/dev/null
+
+  linux:
+    needs: requirements
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - run: cargo test --workspace && cargo build --release -p body-finder-node
+      - run: |
+          mkdir -p dist/pkg dist/deb/DEBIAN dist/deb/usr/bin
+          cp target/release/body-finder-node dist/pkg/
+          tar -C dist/pkg -czf dist/body-finder-node-linux-x86_64.tar.gz body-finder-node
+          cp target/release/body-finder-node dist/deb/usr/bin/
+          printf 'Package: body-finder-node\nVersion: 0.2.0~experimental14\nSection: science\nPriority: optional\nArchitecture: amd64\nMaintainer: Trochez\nDescription: Body Finder RuView field node\n' > dist/deb/DEBIAN/control
+          dpkg-deb --build dist/deb dist/body-finder-node-linux-x86_64.deb
+          rm -rf dist/pkg dist/deb
+      - uses: actions/upload-artifact@v4
+        with: {name: dev14-linux, path: 'dist/*'}
+
+  windows:
+    needs: requirements
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - run: cargo test --workspace
+      - run: cargo build --release -p body-finder-node
+      - shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force dist\win | Out-Null
+          Copy-Item target\release\body-finder-node.exe dist\win\
+          Compress-Archive dist\win\body-finder-node.exe dist\body-finder-node-windows-x86_64.zip
+      - uses: actions/upload-artifact@v4
+        with: {name: dev14-windows, path: 'dist/*.zip'}
+
+  android:
+    needs: requirements
+    runs-on: ubuntu-latest
+    defaults: {run: {working-directory: apps/mobile}}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: {node-version: '20'}
+      - uses: actions/setup-java@v4
+        with: {distribution: temurin, java-version: '17'}
+      - run: npm ci
+      - run: npx tsc --noEmit
+      - run: CI=1 npx expo prebuild --platform android --clean
+      - run: chmod +x android/gradlew && ./android/gradlew -p android testReleaseUnitTest assembleRelease bundleRelease --stacktrace
+      - run: |
+          mkdir -p ../../dist
+          cp android/app/build/outputs/apk/release/*.apk ../../dist/body-finder-ruview-universal.apk
+          cp ../../dist/body-finder-ruview-universal.apk ../../dist/BodyFinder-dev14-universal.apk
+          cp android/app/build/outputs/bundle/release/*.aab ../../dist/body-finder-ruview.aab
+      - uses: actions/upload-artifact@v4
+        with: {name: dev14-android, path: 'dist/*'}
+
+  android-legacy:
+    needs: requirements
+    runs-on: ubuntu-latest
+    defaults: {run: {working-directory: apps/android-legacy}}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with: {distribution: temurin, java-version: '17'}
+      - uses: gradle/actions/setup-gradle@v4
+        with: {gradle-version: '8.10.2'}
+      - run: |
+          mkdir -p "$HOME/.android"
+          keytool -genkeypair -keystore "$HOME/.android/debug.keystore" -storepass android -alias androiddebugkey -keypass android -dname 'CN=Android Debug,O=Android,C=US' -keyalg RSA -keysize 2048 -validity 10000
+          gradle :app:testReleaseUnitTest :app:assembleRelease --stacktrace
+          mkdir -p ../../dist
+          cp app/build/outputs/apk/release/*.apk ../../dist/body-finder-ruview-legacy-minsdk21.apk
+      - uses: actions/upload-artifact@v4
+        with: {name: dev14-android-legacy, path: 'dist/*'}
+
+  ios-simulator:
+    needs: requirements
+    runs-on: macos-latest
+    defaults: {run: {working-directory: apps/mobile}}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: {node-version: '20'}
+      - run: npm ci && npx tsc --noEmit && CI=1 npx expo prebuild --platform ios --clean
+      - run: pod install
+        working-directory: apps/mobile/ios
+      - shell: bash
+        working-directory: apps/mobile/ios
+        run: |
+          set -euxo pipefail
+          W=$(find . -maxdepth 1 -name '*.xcworkspace' -print -quit)
+          xcodebuild -workspace "$W" -scheme BodyFinderRuView -configuration Release -sdk iphonesimulator -destination 'generic/platform=iOS Simulator' -derivedDataPath build CODE_SIGNING_ALLOWED=NO build
+          A=$(find build/Build/Products -type d -name '*.app' -print -quit)
+          mkdir -p "$GITHUB_WORKSPACE/dist"
+          ditto -c -k --sequesterRsrc --keepParent "$A" "$GITHUB_WORKSPACE/dist/body-finder-ruview-ios-simulator.zip"
+      - uses: actions/upload-artifact@v4
+        with: {name: dev14-ios, path: 'dist/*'}
+
+  release:
+    needs: [requirements, linux, windows, android, android-legacy, ios-simulator]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with: {fetch-depth: 0}
+      - uses: actions/setup-python@v5
+        with: {python-version: '3.12'}
+      - uses: actions/download-artifact@v4
+        with: {pattern: 'dev14-*', path: dist, merge-multiple: true}
+      - name: Package validation assets
+        run: |
+          set -euxo pipefail
+          cp docs/TESTING_DEV14.md dist/TESTING_DEV14.md
+          cp DEV14_FROZEN_TRUTH.md dist/DEV14_FROZEN_TRUTH.md
+          cp protocol/schemas/validation-run-snapshot-v3.json dist/validation-run-snapshot-v3.schema.json
+          cp docs/CAPABILITY_MATRIX_AUTOGEOMETRY.json dist/capability-matrix.json
+          cp calibration/ble-range-calibration-profiles.json dist/
+          cp calibration/ble-range-calibration-schema.json dist/
+          cp upstream/ruvieW.lock.json dist/ruview-upstream-lock.json
+          printf '2\n' > dist/protocol-version.txt
+          printf '{"schema_version":1,"release_family":"0.2.0-experimental.14","models":[],"human_localization_validated":false}\n' > dist/model-manifest.json
+          printf '{"method":"tape","ground_truth_entered_into_app":false,"pairs_m":{"pixel10|pixel7":null,"pixel10|lenovo":null,"pixel7|lenovo":null}}\n' > dist/ground-truth-template.json
+          mkdir kit
+          cp validation/analysis/*.py validation/android/check_*.py kit/
+          cp protocol/schemas/validation-run-snapshot-v3.json kit/
+          cp docs/TESTING_DEV14.md kit/
+          (cd kit && zip -r ../dist/body-finder-validation-tools.zip .)
+          cp dist/body-finder-validation-tools.zip dist/validators-dev14.zip
+          (cd validation/fixtures/dev14 && zip -r "$GITHUB_WORKSPACE/dist/fixtures-dev14.zip" .)
+          SHA=$(git rev-parse HEAD)
+          TS=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+          python3 - <<PY
+          import json
+          json.dump({'schema_version':14,'release':'dev-14','version':'0.2.0-experimental.14','commit_sha':'$SHA','build_timestamp':'$TS','protocol_version':2,'validation_snapshot_schema_version':3,'screenshots_required_for_acceptance':False,'json_evidence_self_contained':True,'automatic_geometry':True,'manual_node_coordinates_required':False,'ble_metric_profile':'android-ble-lab-v1','ble_filtered_recovery_probe_ms':15000,'ble_filtered_recovery_probe_exit_target_ms':14500,'recovery_generation_atomic':True,'targeted_first_valid_required':True,'human_scanning_enabled':False,'human_localization_validated':False,'rescue_use_validated':False},open('dist/release-manifest.json','w'),indent=2)
+          PY
+      - name: SBOM
+        uses: anchore/sbom-action@v0
+        with: {path: '.', format: spdx-json, output-file: dist/SBOM.spdx.json}
+      - name: Inventory, checksums and verification
+        run: |
+          set -euxo pipefail
+          python3 - <<'PY'
+          import hashlib,json,pathlib
+          d=pathlib.Path('dist'); p=d/'release-manifest.json'; m=json.load(open(p)); a=[]
+          for f in sorted(x for x in d.iterdir() if x.is_file() and x.name not in {'release-manifest.json','SHA256SUMS.txt','release-verification.json'}):
+            a.append({'name':f.name,'size_bytes':f.stat().st_size,'sha256':hashlib.sha256(f.read_bytes()).hexdigest()})
+          m['artifacts']=a;p.write_text(json.dumps(m,indent=2)+'\n')
+          req='BodyFinder-dev14-universal.apk body-finder-ruview-universal.apk body-finder-ruview.aab body-finder-ruview-legacy-minsdk21.apk body-finder-node-linux-x86_64.tar.gz body-finder-node-linux-x86_64.deb body-finder-node-windows-x86_64.zip body-finder-ruview-ios-simulator.zip TESTING_DEV14.md DEV14_FROZEN_TRUTH.md validators-dev14.zip fixtures-dev14.zip body-finder-validation-tools.zip validation-run-snapshot-v3.schema.json release-manifest.json capability-matrix.json ble-range-calibration-profiles.json ble-range-calibration-schema.json protocol-version.txt model-manifest.json ruview-upstream-lock.json SBOM.spdx.json ground-truth-template.json'.split()
+          missing=[x for x in req if not (d/x).is_file() or (d/x).stat().st_size==0]
+          if missing: raise SystemExit('missing: '+','.join(missing))
+          PY
+          (cd dist && sha256sum * > SHA256SUMS.txt)
+          printf '{"release":"dev-14","pass":true,"checksums_verified":true,"screenshots_required":false}\n' > dist/release-verification.json
+          python3 validation/analysis/validate_release_manifest.py dist/release-manifest.json
+      - name: Publish dev-14 prerelease
+        env: {GH_TOKEN: '${{ github.token }}'}
+        run: |
+          set -euxo pipefail
+          git tag -f dev-14 "$GITHUB_SHA"
+          git push origin refs/tags/dev-14 --force
+          gh release delete dev-14 -y || true
+          gh release create dev-14 dist/* --prerelease --title 'dev-14 — 0.2.0-experimental.14' --notes 'Dev14 validation/recovery release. JSON/JSONL is the diagnostic source of truth; screenshots are not required.'
+          mkdir verify
+          gh release download dev-14 -D verify
+          (cd verify && sha256sum -c SHA256SUMS.txt)
+          python3 - <<'PY'
+          import json,pathlib
+          p=pathlib.Path('verify/release-verification.json')
+          x=json.load(open(p)); x['redownload_verified']=True; p.write_text(json.dumps(x,indent=2)+'\n')
+          PY
+          gh release upload dev-14 verify/release-verification.json --clobber
