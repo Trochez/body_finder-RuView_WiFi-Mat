@@ -12,3 +12,15 @@ android {
     versionName "0.1.0"
   }
 }
+
+// Gradle 9 fails Expo's own release test task when Expo ships test sources but
+// discovers zero executable tests. Keep Body Finder's release build/test graph
+// intact and suppress only that third-party false-positive task.
+gradle.projectsEvaluated {
+  def expoCore = rootProject.findProject(':expo-modules-core')
+  if (expoCore != null) {
+    expoCore.tasks.withType(org.gradle.api.tasks.testing.Test).configureEach {
+      failOnNoDiscoveredTests = false
+    }
+  }
+}
