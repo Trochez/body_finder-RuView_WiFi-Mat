@@ -28,6 +28,7 @@ jobs:
         shell: bash
         run: |
           set -euxo pipefail
+          python3 scripts/hotfix_apply_dev14.py
           python3 -m py_compile scripts/apply_dev14.py
           python3 scripts/apply_dev14.py
       - id: gates
@@ -62,9 +63,7 @@ jobs:
           git config user.name github-actions[bot]
           git config user.email 41898282+github-actions[bot]@users.noreply.github.com
           git add apps validation protocol docs DEV14_FROZEN_TRUTH.md .github/workflows/release-exp14.yml scripts/apply_dev14.py
-          if ! git diff --cached --quiet; then
-            git commit -m 'feat: implement dev14 recovery atomicity and lifecycle evidence'
-          fi
+          if ! git diff --cached --quiet; then git commit -m 'feat: implement dev14 recovery atomicity and lifecycle evidence'; fi
       - name: Persist bootstrap result
         if: always()
         shell: bash
