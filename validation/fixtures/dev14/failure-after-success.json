@@ -1,0 +1,85 @@
+{
+  "expect": {
+    "validator": "timeline",
+    "pass": false,
+    "reason": "TERMINAL_CONTRADICTION"
+  },
+  "snapshot": {
+    "snapshot_schema_version": 3,
+    "snapshot_frozen": true,
+    "run_id": "fixture",
+    "elapsed_ms": 330000,
+    "preflight_at_start": {
+      "ready": true
+    },
+    "environment": {
+      "valid": true,
+      "violation_count": 0,
+      "violation_types": [],
+      "unauthorized_strategy_violation_count": 0,
+      "authorized_strategy_transition_count": 0,
+      "authorized_recovery_interval_count": 0,
+      "total_background_ms": 0,
+      "max_background_interval_ms": 0,
+      "foreground_transition_count": 0,
+      "unresolved_violation_count": 0
+    },
+    "environment_violation_events": [],
+    "validation_counters": {
+      "peer_expire_delta": 0
+    },
+    "usable_metric_range_uptime_percent": 99.0,
+    "geometry_2d_uptime_percent": 99.0,
+    "acquisition_state_at_end": {
+      "recovery_attempts_in_current_5min_window": 1,
+      "filtered_probe_window_ms": 15000,
+      "filtered_probe_exit_target_ms": 14500
+    },
+    "events": [
+      {
+        "seq": 1,
+        "wall_ms": 1000,
+        "elapsed_ms": 1000,
+        "elapsed_from_run_start_ms": 1000,
+        "type": "RECOVERY_REQUESTED",
+        "recovery_generation": 1,
+        "peer_id": "peerA",
+        "trigger_kind": "PEER_STARVATION",
+        "trigger_peer_id": "peerA"
+      },
+      {
+        "seq": 2,
+        "wall_ms": 2000,
+        "elapsed_ms": 2000,
+        "elapsed_from_run_start_ms": 2000,
+        "type": "FIRST_VALID_BF_CALLBACK_AFTER_RECOVERY",
+        "recovery_generation": 1,
+        "peer_id": "peerA",
+        "trigger_kind": "PEER_STARVATION",
+        "trigger_peer_id": "peerA"
+      },
+      {
+        "seq": 3,
+        "wall_ms": 3000,
+        "elapsed_ms": 3000,
+        "elapsed_from_run_start_ms": 3000,
+        "type": "RECOVERY_SUCCESS",
+        "recovery_generation": 1,
+        "peer_id": "peerA",
+        "trigger_kind": "PEER_STARVATION",
+        "trigger_peer_id": "peerA"
+      },
+      {
+        "seq": 4,
+        "wall_ms": 4000,
+        "elapsed_ms": 4000,
+        "elapsed_from_run_start_ms": 4000,
+        "type": "RECOVERY_FAILURE",
+        "recovery_generation": 1,
+        "peer_id": "peerA",
+        "trigger_kind": "PEER_STARVATION",
+        "trigger_peer_id": "peerA"
+      }
+    ]
+  }
+}

@@ -1,0 +1,13 @@
+{
+  "expect": {
+    "validator": "history",
+    "pass": true,
+    "reason": null
+  },
+  "snapshot": {
+    "history_test": true,
+    "long_hash_before": "abc",
+    "long_hash_after": "abc",
+    "short_elapsed_ms": 60000
+  }
+}

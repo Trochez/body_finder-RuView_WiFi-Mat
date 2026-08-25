@@ -1,0 +1,42 @@
+{
+  "expect": {
+    "validator": "environment",
+    "pass": false,
+    "reason": "FILTERED_PROBE_WINDOW_EXPIRED"
+  },
+  "snapshot": {
+    "snapshot_schema_version": 3,
+    "snapshot_frozen": true,
+    "run_id": "fixture",
+    "elapsed_ms": 330000,
+    "preflight_at_start": {
+      "ready": true
+    },
+    "environment": {
+      "valid": false,
+      "violation_count": 1,
+      "violation_types": [
+        "FILTERED_PROBE_WINDOW_EXPIRED"
+      ],
+      "unauthorized_strategy_violation_count": 0,
+      "authorized_strategy_transition_count": 0,
+      "authorized_recovery_interval_count": 0,
+      "total_background_ms": 0,
+      "max_background_interval_ms": 0,
+      "foreground_transition_count": 0,
+      "unresolved_violation_count": 0
+    },
+    "environment_violation_events": [],
+    "validation_counters": {
+      "peer_expire_delta": 0
+    },
+    "usable_metric_range_uptime_percent": 99.0,
+    "geometry_2d_uptime_percent": 99.0,
+    "acquisition_state_at_end": {
+      "recovery_attempts_in_current_5min_window": 1,
+      "filtered_probe_window_ms": 15000,
+      "filtered_probe_exit_target_ms": 14500
+    },
+    "events": []
+  }
+}

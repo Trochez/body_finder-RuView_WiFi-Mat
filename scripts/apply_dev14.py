@@ -230,11 +230,17 @@ old_tail='''    if (!decision.valid) unauthorizedStrategyViolationCount++\n    i
 new_tail='''    if (!decision.valid) unauthorizedStrategyViolationCount++\n    val power = ctx.getSystemService(Context.POWER_SERVICE) as? PowerManager\n    EnvironmentViolationTracker.observe(now, issues, EnvironmentObservation(\n      appVisibility, power?.isInteractive == true, power?.isPowerSaveMode == true,\n      FieldServiceState.state == "RUNNING", FabricRuntime.bleScanning, strategy.name, recoveryGeneration, "ENVIRONMENT_EVALUATION"\n    ))\n    environmentViolationCount = EnvironmentViolationTracker.count()\n    firstEnvironmentViolationWallMs = EnvironmentViolationTracker.firstWallMs()\n    environmentViolationTypes = EnvironmentViolationTracker.types().joinToString(",")'''
 if old_tail not in n: raise SystemExit('environment tail missing')
 n=n.replace(old_tail,new_tail,1)
-# Both evaluation call sites end with trigger peer then closing parenthesis.
-call_old='''        BleAcquisitionPolicy.activeRecoveryGeneration(), BleAcquisitionPolicy.activeRecoveryTriggerKind(), BleAcquisitionPolicy.activeRecoveryTriggerPeerId(),\n      )'''
-call_new='''        BleAcquisitionPolicy.activeRecoveryGeneration(), BleAcquisitionPolicy.activeRecoveryTriggerKind(), BleAcquisitionPolicy.activeRecoveryTriggerPeerId(), ctx,\n      )'''
-if n.count(call_old) < 2: raise SystemExit(f'environment call anchors missing: {n.count(call_old)}')
-n=n.replace(call_old,call_new)
+# Evaluation call sites have different indentation in diagnostics vs worker loop.
+call_patterns = [
+('''        BleAcquisitionPolicy.activeRecoveryGeneration(), BleAcquisitionPolicy.activeRecoveryTriggerKind(), BleAcquisitionPolicy.activeRecoveryTriggerPeerId(),\n      )''','''        BleAcquisitionPolicy.activeRecoveryGeneration(), BleAcquisitionPolicy.activeRecoveryTriggerKind(), BleAcquisitionPolicy.activeRecoveryTriggerPeerId(), ctx,\n      )'''),
+('''              BleAcquisitionPolicy.activeRecoveryGeneration(), BleAcquisitionPolicy.activeRecoveryTriggerKind(), BleAcquisitionPolicy.activeRecoveryTriggerPeerId(),\n            )''','''              BleAcquisitionPolicy.activeRecoveryGeneration(), BleAcquisitionPolicy.activeRecoveryTriggerKind(), BleAcquisitionPolicy.activeRecoveryTriggerPeerId(), ctx,\n            )'''),
+]
+replaced=0
+for a,b in call_patterns:
+    if a in n:
+        n=n.replace(a,b)
+        replaced += 1
+if replaced < 2: raise SystemExit(f'environment call anchors missing: {replaced}')
 # AppState transition provenance.
 old_vis='''    Function("updateAppVisibility") { visibility: String ->\n      ValidationRuntime.appVisibility = visibility\n      true\n    }'''
 new_vis='''    Function("updateAppVisibility") { visibility: String ->\n      val now = System.currentTimeMillis()\n      ValidationRuntime.appVisibility = visibility\n      EnvironmentViolationTracker.noteVisibility(now, visibility)\n      true\n    }'''
@@ -254,9 +260,15 @@ schema['properties']['environment_violation_events']={'type':'array','items':{'t
 schema['properties']['snapshot_identity_sha256']={'type':'string','pattern':'^[0-9a-f]{64}$'}
 schema['properties']['json_self_contained']={'const':True}
 schema['properties']['screenshots_required']={'const':False}
-env=schema['properties']['environment']; req=env.setdefault('required',[])
-for x in ['total_background_ms','max_background_interval_ms','foreground_transition_count','unresolved_violation_count']:
-    if x not in req: req.append(x)
+env=schema['properties']['environment']
+env.setdefault('properties',{}).update({
+    'total_background_ms': {'type':'integer','minimum':0},
+    'max_background_interval_ms': {'type':'integer','minimum':0},
+    'foreground_transition_count': {'type':'integer','minimum':0},
+    'unresolved_violation_count': {'type':'integer','minimum':0},
+    'environment_violation_events': {'type':'array'},
+})
+# Keep these dev14 additions optional: schema v3 must remain backward-compatible with dev13 snapshots.
 write('protocol/schemas/validation-run-snapshot-v3.json',json.dumps(schema,indent=2)+'\n')
 
 # Shared deterministic dev14 validators.
@@ -459,10 +471,11 @@ y=y.replace('''validation/analysis/validate_dev14_hard_gates.py validation/analy
 # Dev13 checker was renamed by migration; create alias checker below.
 y=y.replace("grep -q \"reportVersion: 15\"", "grep -q \"reportVersion: 16\"")
 y=y.replace('''            "ble_filtered_recovery_probe_ms": 15000,''','''            "ble_filtered_recovery_probe_ms": 15000,\n            "ble_filtered_recovery_probe_exit_target_ms": 14500,\n            "recovery_generation_atomic": true,\n            "targeted_first_valid_required": true,\n            "environment_violation_intervals": true,\n            "snapshot_identity_sha256": true,''')
-write('.github/workflows/release-exp14.yml',y)
+write('docs/generated-release-exp14.yml',y)
+# The validated YAML is installed into .github/workflows by the GitHub connector, because the Actions token cannot update workflow files.
 
 # The dev13 environment checker is still useful; make a dev14-named compatible copy with release token migrated.
-checker=read('validation/android/check_dev13_environment_contract.py').replace('dev13','dev14').replace('experimental.13','experimental.14')
+checker=read('validation/android/check_dev13_environment_contract.py').replace('dev13','dev14').replace('experimental.13','experimental.14').replace('reportVersion: 15','reportVersion: 16')
 write('validation/android/check_dev14_environment_contract.py',checker)
 
 print('dev14 implementation materialized')

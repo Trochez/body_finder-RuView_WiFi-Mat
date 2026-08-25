@@ -1,0 +1,12 @@
+{
+  "expect": {
+    "validator": "history",
+    "pass": true,
+    "reason": null
+  },
+  "snapshot": {
+    "history_test": true,
+    "export1_sha256": "abc",
+    "export2_sha256": "abc"
+  }
+}
