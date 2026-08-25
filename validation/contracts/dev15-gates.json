@@ -1,0 +1,22 @@
+{
+  "release": "dev-15",
+  "gates": {
+    "G0": {"owner":"dev15_validation.py","criterion":"schema v3 + frozen + self-contained JSON + screenshots=false","error_family":"SNAPSHOT_OR_EVIDENCE_CONTRACT"},
+    "G1": {"owner":"dev15_validation.py","criterion":"build 0.2.0-experimental.15 + protocol 2","error_family":"VERSION_CONTRACT"},
+    "G2": {"owner":"dev15_validation.py","criterion":"all safety flags remain false","error_family":"SAFETY_CONTRACT_DRIFT"},
+    "G3": {"owner":"dev15_validation.py","criterion":"acceptance long run >=300000 ms and not short","error_family":"LONG_RUN_INELIGIBLE"},
+    "G4": {"owner":"dev15_validation.py","criterion":"preflight ready + FILTERED_PRIMARY + hardware filter","error_family":"PREFLIGHT"},
+    "G5": {"owner":"dev15_validation.py","criterion":"environment valid, intervals coherent, no unauthorized strategy","error_family":"ENVIRONMENT"},
+    "G6": {"owner":"dev15_validation.py","criterion":"usable metric range uptime >=90%","error_family":"USABLE_METRIC_UPTIME_LOW"},
+    "G7": {"owner":"dev15_validation.py","criterion":"2D geometry uptime >=90%","error_family":"GEOMETRY2D_UPTIME_LOW"},
+    "G8": {"owner":"dev15_validation.py","criterion":"peer_expire_delta == 0","error_family":"PEER_EXPIRE_NONZERO"},
+    "G9": {"owner":"dev15_validation.py","criterion":"recovery attempts reconstructed from events <=3 in every rolling 5 min window","error_family":"RECOVERY_BUDGET_EXCEEDED"},
+    "G10": {"owner":"dev15_validation.py","criterion":"one causal terminal per recovery generation","error_family":"RECOVERY_CAUSALITY"},
+    "G11": {"owner":"dev15_validation.py","criterion":"peer starvation FIRST_VALID/SUCCESS target trigger peer","error_family":"RECOVERY_TARGET"},
+    "G12": {"owner":"dev15_validation.py","criterion":"recovery events and global/per-peer counters agree","error_family":"RECOVERY_COUNTER_EVENT_MISMATCH"},
+    "G13": {"owner":"dev15_validation.py","criterion":"filtered probe hard max 15000 ms, exit target 14500 ms reported","error_family":"FILTERED_PROBE"},
+    "G14": {"owner":"dev15_validation.py","criterion":"self-identifying export metadata valid without filename","error_family":"EXPORT_METADATA"},
+    "G15": {"owner":"build_acceptance_report.py","criterion":"LONG_1 == LONG_2 == LONG_POST_SHORT validation_run","error_family":"HISTORY_DRIFT"},
+    "G16": {"owner":"build_acceptance_report.py","criterion":"SHORT is diagnostic, distinct, and never replaces original LONG","error_family":"SHORT_ISOLATION"}
+  }
+}
