@@ -1,4 +1,4 @@
-name: Bootstrap dev-12 implementation
+name: Dev12 validator migration
 
 on:
   push:
@@ -10,12 +10,8 @@ on:
 permissions:
   contents: write
 
-concurrency:
-  group: bootstrap-dev12
-  cancel-in-progress: false
-
 jobs:
-  implement:
+  migrate:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -23,27 +19,48 @@ jobs:
           ref: main
           fetch-depth: 0
       - uses: actions/setup-python@v5
-        with:
-          python-version: '3.12'
-      - name: Reconstruct and apply dev-12 implementation
+        with: { python-version: '3.12' }
+      - name: Migrate inherited validators to explicit dev12 version truth
         shell: bash
         run: |
           set -euxo pipefail
-          mkdir -p scripts
-          cat .dev12-payload/part*.b64 | base64 -d | gzip -dc > scripts/apply_dev12.py
-          echo '83d518e2f0d2bc7dbe477e8f558d53fd24ab58aeb74b824e82b08fa366d3c99f  scripts/apply_dev12.py' | sha256sum -c -
-          python3 -m py_compile scripts/apply_dev12.py
-          python3 scripts/apply_dev12.py
+          python3 - <<'PY'
+          from pathlib import Path
+          root=Path('validation/android')
+          for p in root.glob('check_*.py'):
+              if p.name in {'check_dev11_frozen_truth_contract.py','check_dev12_peer_starvation_contract.py'}:
+                  continue
+              s=p.read_text()
+              s=s.replace('0.2.0-experimental.11','0.2.0-experimental.12')
+              s=s.replace('Experimental.11','Experimental.12')
+              s=s.replace('experimental.11','experimental.12')
+              s=s.replace('dev11 version truth missing','dev12 version truth missing')
+              s=s.replace('reportVersion: 13','reportVersion: 14')
+              if p.name == 'check_version_truth_contract.py':
+                  s=s.replace("cfg['android']['versionCode']==11","cfg['android']['versionCode']==12")
+                  s=s.replace("cfg['extra']['releaseIteration']=='experimental.11'","cfg['extra']['releaseIteration']=='experimental.12'")
+              p.write_text(s)
+          PY
+          python3 validation/android/check_android_ranging_contract.py
+          python3 validation/android/check_ble_range_accuracy_contract.py
+          python3 validation/android/check_ble_continuity_contract.py
+          python3 validation/android/check_ble_acquisition_contract.py
+          python3 validation/android/check_ble_adaptive_acquisition_contract.py
+          python3 validation/android/check_validation_snapshot_contract.py
+          python3 validation/android/check_acquisition_truth_contract.py
+          python3 validation/android/check_validation_snapshot_v2_contract.py
+          python3 validation/android/check_recovery_timeline_contract.py
+          python3 validation/android/check_peer_telemetry_semantics.py
+          python3 validation/android/check_geometry_snapshot_contract.py
+          python3 validation/android/check_version_truth_contract.py
+          python3 validation/android/check_dev11_frozen_truth_contract.py
           python3 validation/android/check_dev12_peer_starvation_contract.py
-          python3 -m py_compile validation/analysis/validate_dev12_hard_gates.py validation/analysis/validate_snapshot_immutability.py validation/analysis/validate_timeline_causality.py validation/analysis/validate_peer_semantics.py validation/analysis/validate_peer_starvation_recovery.py validation/analysis/validate_geometry_snapshot.py validation/analysis/calculate_accuracy_report.py validation/analysis/validate_release_manifest.py validation/analysis/build_acceptance_report.py
-      - name: Commit dev-12 source and validation assets
+      - name: Commit validator migration
         shell: bash
         run: |
           set -euxo pipefail
-          rm -f .github/workflows/ci-exp12.yml .github/workflows/release-exp12.yml
-          find scripts validation -type d -name __pycache__ -prune -exec rm -rf {} + || true
           git config user.name github-actions[bot]
           git config user.email 41898282+github-actions[bot]@users.noreply.github.com
-          git add -A
-          git commit -m 'feat: implement dev12 per-peer starvation recovery and self-contained JSON evidence'
+          git add validation/android
+          git commit -m 'test: migrate inherited Android contracts to dev12 version truth'
           git push origin HEAD:main
