@@ -11,14 +11,14 @@ for t in ['FILTERED_PRIMARY','UNFILTERED_RECOVERY','BF_COHORT_STALLED','GLOBAL_S
     assert t in policy,t
 for t in ['bodyFinderCohortHealth','maintainAdaptiveScanner','VALIDATION_ENVIRONMENT_INVALID','BATTERY_SAVER_ON','CompletedValidationRun','snapshot_frozen','MANUFACTURER_FILTERED','scanGeneration']:
     assert t in module,t
-assert '0.2.0-experimental.12' in version
-assert 'reportVersion: 14' in version
+assert '0.2.0-experimental.13' in version
+assert 'reportVersion: 15' in version
 assert 'humanScanningEnabled: false' in version
-assert app_json['expo']['android']['versionCode']==12
-assert app_json['expo']['extra']['releaseIteration']=='experimental.12'
+assert app_json['expo']['android']['versionCode']==13
+assert app_json['expo']['extra']['releaseIteration']=='experimental.13'
 est=(ROOT/'apps/mobile/modules/body-finder-native/android/src/main/java/com/trochez/bodyfindernative/BleRangeEstimator.kt').read_text(); cont=(ROOT/'apps/mobile/modules/body-finder-native/android/src/main/java/com/trochez/bodyfindernative/BleContinuityPolicy.kt').read_text()
 assert '-69.19' in est and '3.62' in est
 assert 'FRESH_MS = 5_000L' in cont and 'HOLDOVER_MAX_MS = 10_000L' in cont and 'SIGMA_AGING_M_PER_S = 0.15' in cont
 active=next(p for p in profile['profiles'] if p['profile_id']==profile['active_profile_id'])
 assert active['profile_id']=='android-ble-lab-v1' and active['validated'] and active['physical_confidence']=='COARSE'
-print('experimental.12 adaptive acquisition + validation integrity contract OK')
+print('experimental.13 adaptive acquisition + validation integrity contract OK')

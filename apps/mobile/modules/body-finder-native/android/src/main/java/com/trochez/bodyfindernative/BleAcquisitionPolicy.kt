@@ -49,7 +49,7 @@ enum class PeerHealthState {
 }
 
 /**
- * Acquisition-only policy for experimental.11.
+ * Acquisition-only policy for experimental.13.
  *
  * Physical ranging truth is frozen: android-ble-lab-v1, minSamples=3,
  * freshness=5s, holdover=10s, sigma aging and solver rules are unchanged.
@@ -95,6 +95,7 @@ internal object BleAcquisitionPolicy {
   private val recoveryAttemptWallMs = ConcurrentLinkedDeque<Long>()
   private val recoveryGenerationCounter = AtomicLong(0)
   @Volatile private var activeRecoveryGeneration: Long? = null
+  @Volatile private var strategyRecoveryGeneration: Long? = null
   @Volatile private var activeRecoveryTriggerKind: RecoveryTriggerKind? = null
   @Volatile private var activeRecoveryTriggerPeerId: String? = null
   @Volatile private var lastRecoveryTriggerKind: RecoveryTriggerKind? = null
@@ -128,6 +129,7 @@ internal object BleAcquisitionPolicy {
     recoveryAttemptWallMs.clear()
     recoveryGenerationCounter.set(0)
     activeRecoveryGeneration = null
+    strategyRecoveryGeneration = null
     activeRecoveryTriggerKind = null
     activeRecoveryTriggerPeerId = null
     lastRecoveryTriggerKind = null
@@ -155,6 +157,7 @@ internal object BleAcquisitionPolicy {
   fun recoveryAttemptCount(): Long = recoveryAttemptCountTotal
   fun lastStrategyReason(): String = lastStrategyReason
   fun activeRecoveryGeneration(): Long? = activeRecoveryGeneration
+  fun strategyRecoveryGeneration(): Long? = strategyRecoveryGeneration
   fun activeRecoveryTriggerKind(): RecoveryTriggerKind? = activeRecoveryTriggerKind
   fun activeRecoveryTriggerPeerId(): String? = activeRecoveryTriggerPeerId
   fun currentRecoveryGeneration(): Long = activeRecoveryGeneration ?: recoveryGenerationCounter.get()
@@ -185,16 +188,23 @@ internal object BleAcquisitionPolicy {
   @Synchronized
   fun transition(next: BleAcquisitionStrategy, now: Long, reason: String) {
     if (strategy == next) return
+    val previous = strategy
     accumulateCurrentMode(now)
     strategy = next
     strategySinceWallMs = now
     lastStrategyReason = reason
+    strategyRecoveryGeneration = if (next == BleAcquisitionStrategy.UNFILTERED_RECOVERY || next == BleAcquisitionStrategy.FILTERED_RECOVERY_PROBE) activeRecoveryGeneration else null
     transitionCount++
-    ValidationEventLog.record("ACQUISITION_STRATEGY_CHANGED", "$reason:${next.name}", now = now)
+    ValidationEventLog.record(
+      "ACQUISITION_STRATEGY_CHANGED", "$reason:${next.name}", now = now,
+      fromStrategy = previous.name, toStrategy = next.name,
+    )
     if (next == BleAcquisitionStrategy.FILTERED_PRIMARY || next == BleAcquisitionStrategy.FAILED_SAFE) {
       activeRecoveryGeneration = null
+      strategyRecoveryGeneration = null
       activeRecoveryTriggerKind = null
       activeRecoveryTriggerPeerId = null
+      recoveryStartedWallMs = null
     }
   }
 
@@ -235,7 +245,15 @@ internal object BleAcquisitionPolicy {
     triggerKind: RecoveryTriggerKind = RecoveryTriggerKind.FULL_COHORT_STALL,
     triggerPeerId: String? = null,
   ) {
-    if (activeRecoveryGeneration != null) return
+    val active = activeRecoveryGeneration
+    if (active != null && recoveryTerminalGeneration.get() != active) return
+    if (active != null) {
+      activeRecoveryGeneration = null
+      strategyRecoveryGeneration = null
+      activeRecoveryTriggerKind = null
+      activeRecoveryTriggerPeerId = null
+      recoveryStartedWallMs = null
+    }
     recoveryAttemptCountTotal++
     recoveryAttemptWallMs.addLast(now)
     val generation = recoveryGenerationCounter.incrementAndGet()
@@ -367,6 +385,8 @@ internal object BleAcquisitionPolicy {
     .put("last_peer_starvation_peer_id", lastPeerStarvationPeerId ?: JSONObject.NULL)
     .put("last_recovery_trigger_kind", lastRecoveryTriggerKind?.name ?: JSONObject.NULL)
     .put("last_recovery_trigger_peer_id", lastRecoveryTriggerPeerId ?: JSONObject.NULL)
+    .put("active_recovery_generation", activeRecoveryGeneration ?: JSONObject.NULL)
+    .put("strategy_recovery_generation", strategyRecoveryGeneration ?: JSONObject.NULL)
     .put("active_recovery_trigger_kind", activeRecoveryTriggerKind?.name ?: JSONObject.NULL)
     .put("active_recovery_trigger_peer_id", activeRecoveryTriggerPeerId ?: JSONObject.NULL)
     .put("recovery_unfiltered_window_ms", RECOVERY_UNFILTERED_WINDOW_MS)

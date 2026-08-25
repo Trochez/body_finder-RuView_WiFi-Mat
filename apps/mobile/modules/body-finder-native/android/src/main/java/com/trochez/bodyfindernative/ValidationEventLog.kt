@@ -19,6 +19,9 @@ internal data class ValidationEvent(
   val recoveryGeneration: Long?,
   val peerId: String?,
   val triggerKind: String?,
+  val fromStrategy: String?,
+  val toStrategy: String?,
+  val authorizationReason: String?,
 )
 
 internal object ValidationEventLog {
@@ -46,6 +49,9 @@ internal object ValidationEventLog {
     now: Long = System.currentTimeMillis(),
     peerId: String? = null,
     triggerKind: String? = null,
+    fromStrategy: String? = null,
+    toStrategy: String? = null,
+    authorizationReason: String? = null,
   ) {
     val generation = BleAcquisitionPolicy.activeRecoveryGeneration()
     if (type == "FIRST_VALID_BF_CALLBACK_AFTER_RECOVERY") {
@@ -65,6 +71,7 @@ internal object ValidationEventLog {
         BleAcquisitionPolicy.currentCohortHealth().name,
         rs, y, generation, peerId,
         triggerKind ?: BleAcquisitionPolicy.activeRecoveryTriggerKind()?.name,
+        fromStrategy, toStrategy, authorizationReason,
       )
     )
     while (q.size > MAX_RUNTIME) q.pollFirst()
@@ -92,6 +99,9 @@ internal object ValidationEventLog {
           .put("peer_id", e.peerId ?: JSONObject.NULL)
           .put("trigger_kind", e.triggerKind ?: JSONObject.NULL)
           .put("trigger_peer_id", if (e.triggerKind == RecoveryTriggerKind.PEER_STARVATION.name) (e.peerId ?: JSONObject.NULL) else JSONObject.NULL)
+          .put("from_strategy", e.fromStrategy ?: JSONObject.NULL)
+          .put("to_strategy", e.toStrategy ?: JSONObject.NULL)
+          .put("authorization_reason", e.authorizationReason ?: JSONObject.NULL)
       )
     }
     return JSONObject()

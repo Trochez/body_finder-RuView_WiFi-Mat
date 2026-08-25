@@ -1,0 +1,35 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "validation-run-snapshot-v3.schema.json",
+  "title": "Body Finder CompletedValidationRun v3",
+  "type": "object",
+  "required": ["snapshot_schema_version","run_id","started_wall_ms","ended_wall_ms","elapsed_ms","snapshot_frozen","preflight_at_start","environment","validation_counters","acquisition_state_at_end","per_peer_at_end","system_ranging_at_end","events","geometry_at_end","fused_range_observations_at_end","graph_diagnostics_at_end"],
+  "properties": {
+    "snapshot_schema_version": {"const": 3},
+    "run_id": {"type":"string","minLength":1},
+    "started_wall_ms": {"type":"integer","minimum":0},
+    "ended_wall_ms": {"type":"integer","minimum":0},
+    "elapsed_ms": {"type":"integer","minimum":0},
+    "snapshot_frozen": {"const":true},
+    "preflight_at_start": {
+      "type":"object",
+      "required":["ready","wall_ms","bluetooth_on","ble_permissions_ready","battery_saver_off","screen_on","app_foreground","foreground_service_running","ble_scanner_running","expected_ble_peer_count","expected_ble_peers_ready","acquisition_strategy","filter_mode","hardware_filter_count","location_requirement_applicable","blocking_reasons"]
+    },
+    "environment": {
+      "type":"object",
+      "required":["valid","violation_count","violation_types","authorized_strategy_transition_count","authorized_recovery_interval_count","unauthorized_strategy_violation_count"]
+    },
+    "validation_counters":{"type":"object"},
+    "acquisition_state_at_end":{"type":"object"},
+    "per_peer_at_end":{"type":"array"},
+    "system_ranging_at_end":{"type":"object"},
+    "events":{"type":"array","items":{"type":"object","required":["seq","wall_ms","elapsed_ms","type"]}},
+    "geometry_at_end":{},
+    "locally_computed_geometry_at_end":{},
+    "fused_range_observations_at_end":{"type":"array"},
+    "graph_diagnostics_at_end":{},
+    "reciprocal_fusion_at_end":{},
+    "measurement_health_at_end":{}
+  },
+  "additionalProperties": true
+}

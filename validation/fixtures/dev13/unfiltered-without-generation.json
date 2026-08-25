@@ -1,0 +1,12 @@
+{
+  "strategy": "UNFILTERED_RECOVERY",
+  "active_recovery_generation": null,
+  "strategy_recovery_generation": null,
+  "trigger_kind": "PEER_STARVATION",
+  "recovery_started_wall_ms": 1000,
+  "strategy_since_wall_ms": 1000,
+  "now_wall_ms": 2000,
+  "filter_mode": "UNFILTERED",
+  "hardware_filter_count": 0,
+  "expected_valid": false
+}

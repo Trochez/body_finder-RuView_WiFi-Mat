@@ -89,6 +89,12 @@ private object ValidationRuntime {
   @Volatile private var environmentViolationCount: Long = 0
   @Volatile private var firstEnvironmentViolationWallMs: Long? = null
   @Volatile private var environmentViolationTypes: String = ""
+  @Volatile private var preflightAtStartJson: String = "{}"
+  @Volatile private var authorizedStrategyTransitionCount: Long = 0
+  @Volatile private var authorizedRecoveryIntervalCount: Long = 0
+  @Volatile private var unauthorizedStrategyViolationCount: Long = 0
+  @Volatile private var lastEnvironmentStrategy: String? = null
+  @Volatile private var lastAuthorizedRecoveryGeneration: Long? = null
   @Volatile private var baselineStrategyTransitions: Long = 0
   @Volatile private var baselineCohortStalls: Long = 0
   @Volatile private var baselineCohortRecoveries: Long = 0
@@ -108,7 +114,7 @@ private object ValidationRuntime {
   private val completedRuns = java.util.ArrayDeque<CompletedValidationRun>()
 
   @Synchronized
-  fun start(now: Long, peerExpire: Long, rebind: Long, scanRestart: Long, tx: Long, rx: Long): String {
+  fun start(now: Long, peerExpire: Long, rebind: Long, scanRestart: Long, tx: Long, rx: Long, preflightJson: String): String {
     if (runId != null && endedWallMs == null) return runId!!
     val id = UUID.randomUUID().toString()
     runId = id
@@ -129,6 +135,12 @@ private object ValidationRuntime {
     environmentViolationCount = 0
     firstEnvironmentViolationWallMs = null
     environmentViolationTypes = ""
+    preflightAtStartJson = try { JSONObject(preflightJson).toString() } catch (_: Throwable) { "{}" }
+    authorizedStrategyTransitionCount = 0
+    authorizedRecoveryIntervalCount = 0
+    unauthorizedStrategyViolationCount = 0
+    lastEnvironmentStrategy = BleAcquisitionStrategy.FILTERED_PRIMARY.name
+    lastAuthorizedRecoveryGeneration = null
     baselineStrategyTransitions = BleAcquisitionPolicy.transitionCount()
     baselineCohortStalls = BleAcquisitionPolicy.cohortStallCount()
     baselineCohortRecoveries = BleAcquisitionPolicy.cohortRecoveryCount()
@@ -190,6 +202,9 @@ private object ValidationRuntime {
       .put("violation_count", environmentViolationCount)
       .put("first_violation_wall_ms", firstEnvironmentViolationWallMs ?: JSONObject.NULL)
       .put("violation_types", if (environmentViolationTypes.isBlank()) JSONArray() else JSONArray(environmentViolationTypes.split(',')))
+      .put("authorized_strategy_transition_count", authorizedStrategyTransitionCount)
+      .put("authorized_recovery_interval_count", authorizedRecoveryIntervalCount)
+      .put("unauthorized_strategy_violation_count", unauthorizedStrategyViolationCount)
     val counters = JSONObject()
       .put("peer_expire_delta", base.optLong("peer_expire_delta"))
       .put("address_rebind_delta", base.optLong("address_rebind_delta"))
@@ -204,7 +219,8 @@ private object ValidationRuntime {
       .put("peer_starvation_recovery_failure_delta", base.optLong("peer_starvation_recovery_failure_delta"))
     base
       .put("snapshot_frozen", true)
-      .put("snapshot_schema_version", 2)
+      .put("snapshot_schema_version", 3)
+      .put("preflight_at_start", try { JSONObject(preflightAtStartJson) } catch (_: Throwable) { JSONObject() })
       .put("environment", environment)
       .put("validation_counters", counters)
       .put("acquisition_state_at_end", acquisitionState)
@@ -231,8 +247,32 @@ private object ValidationRuntime {
   fun updateGeometry(state: String) { geometryState = state }
 
   @Synchronized
-  fun recordEnvironmentViolation(now: Long, issues: List<String>) {
-    if (runId == null || endedWallMs != null || issues.isEmpty()) return
+  fun recordEnvironmentEvaluation(
+    now: Long,
+    issues: List<String>,
+    decision: StrategyEnvironmentDecision,
+    strategy: BleAcquisitionStrategy,
+    recoveryGeneration: Long?,
+    triggerKind: RecoveryTriggerKind?,
+    triggerPeerId: String?,
+  ) {
+    if (runId == null || endedWallMs != null) return
+    val previous = lastEnvironmentStrategy
+    if (previous != strategy.name && decision.authorized) {
+      authorizedStrategyTransitionCount++
+      ValidationEventLog.record(
+        "ENVIRONMENT_STRATEGY_TRANSITION_AUTHORIZED", decision.authorizationReason, now = now,
+        peerId = triggerPeerId, triggerKind = triggerKind?.name,
+        fromStrategy = previous, toStrategy = strategy.name, authorizationReason = decision.authorizationReason,
+      )
+    }
+    lastEnvironmentStrategy = strategy.name
+    if (decision.authorized && (strategy == BleAcquisitionStrategy.UNFILTERED_RECOVERY || strategy == BleAcquisitionStrategy.FILTERED_RECOVERY_PROBE) && recoveryGeneration != null && lastAuthorizedRecoveryGeneration != recoveryGeneration) {
+      authorizedRecoveryIntervalCount++
+      lastAuthorizedRecoveryGeneration = recoveryGeneration
+    }
+    if (!decision.valid) unauthorizedStrategyViolationCount++
+    if (issues.isEmpty()) return
     environmentViolationCount++
     if (firstEnvironmentViolationWallMs == null) firstEnvironmentViolationWallMs = now
     environmentViolationTypes = (environmentViolationTypes.split(',').filter { it.isNotBlank() } + issues).distinct().joinToString(",")
@@ -273,6 +313,10 @@ private object ValidationRuntime {
       .put("environment_violation_count", environmentViolationCount)
       .put("first_environment_violation_wall_ms", firstEnvironmentViolationWallMs ?: JSONObject.NULL)
       .put("environment_violation_types", if (environmentViolationTypes.isBlank()) JSONArray() else JSONArray(environmentViolationTypes.split(',')))
+      .put("preflight_at_start", try { JSONObject(preflightAtStartJson) } catch (_: Throwable) { JSONObject() })
+      .put("authorized_strategy_transition_count", authorizedStrategyTransitionCount)
+      .put("authorized_recovery_interval_count", authorizedRecoveryIntervalCount)
+      .put("unauthorized_strategy_violation_count", unauthorizedStrategyViolationCount)
       .put("strategy_transition_delta", (BleAcquisitionPolicy.transitionCount() - baselineStrategyTransitions).coerceAtLeast(0))
       .put("cohort_stall_delta", (BleAcquisitionPolicy.cohortStallCount() - baselineCohortStalls).coerceAtLeast(0))
       .put("cohort_recovery_delta", (BleAcquisitionPolicy.cohortRecoveryCount() - baselineCohortRecoveries).coerceAtLeast(0))
@@ -287,7 +331,7 @@ private object ValidationRuntime {
       .put("ranging_real_result_delta", ((if (Build.VERSION.SDK_INT >= 36) SystemRangingApi36.counterSnapshot().realDistanceResults else 0) - baselineRangingReal).coerceAtLeast(0))
       .put("ranging_close_failure_delta", ((if (Build.VERSION.SDK_INT >= 36) SystemRangingApi36.counterSnapshot().closeFailures else 0) - baselineRangingClose).coerceAtLeast(0))
       .put("snapshot_frozen", false)
-      .put("snapshot_schema_version", 2)
+      .put("snapshot_schema_version", 3)
   }
 
   @Synchronized
@@ -309,7 +353,15 @@ private object ValidationRuntime {
         .put("ended_wall_ms", j.opt("ended_wall_ms"))
         .put("elapsed_ms", j.optLong("elapsed_ms"))
         .put("snapshot_frozen", j.optBoolean("snapshot_frozen"))
-        .put("snapshot_schema_version", j.optInt("snapshot_schema_version")))
+        .put("snapshot_schema_version", j.optInt("snapshot_schema_version"))
+        .put("acceptance_minimum_ms", j.optLong("acceptance_minimum_ms"))
+        .put("acceptance_duration_eligible", j.optBoolean("acceptance_duration_eligible"))
+        .put("short_diagnostic_run", j.optBoolean("short_diagnostic_run"))
+        .put("environment_valid", j.optBoolean("environment_valid"))
+        .put("usable_metric_range_uptime_percent", j.opt("usable_metric_range_uptime_percent"))
+        .put("geometry_2d_uptime_percent", j.opt("geometry_2d_uptime_percent"))
+        .put("peer_expire_delta", j.optLong("peer_expire_delta"))
+        .put("recovery_attempt_delta", j.optLong("recovery_attempt_delta")))
     }
     return out
   }
@@ -548,9 +600,13 @@ class BodyFinderNativeModule : Module() {
     }
     Function("startValidationRun") {
       val ctx = appContext.reactContext ?: return@Function "VALIDATION_ENVIRONMENT_INVALID:NO_CONTEXT"
-      val issues = validationEnvironmentIssues(ctx)
-      if (issues.isNotEmpty()) return@Function "VALIDATION_ENVIRONMENT_INVALID:${issues.joinToString(",")}"
       val now = System.currentTimeMillis()
+      val preflight = validationPreflight(ctx, now)
+      val blocking = preflight.optJSONArray("blocking_reasons") ?: JSONArray()
+      if (blocking.length() > 0) {
+        val reasons = (0 until blocking.length()).map { blocking.optString(it) }
+        return@Function "VALIDATION_ENVIRONMENT_INVALID:${reasons.joinToString(",")}"
+      }
       FabricRuntime.snapshotAcquisitionForValidation()
       val id = ValidationRuntime.start(
         now,
@@ -559,6 +615,7 @@ class BodyFinderNativeModule : Module() {
         FabricRuntime.scanRestartCount.get(),
         FabricRuntime.txPackets.get(),
         FabricRuntime.rxPackets.get(),
+        preflight.toString(),
       )
       setValidationKeepAwake(true)
       id
@@ -663,7 +720,7 @@ class BodyFinderNativeModule : Module() {
     } catch (_: Throwable) { null }
   }
 
-  private fun validationEnvironmentIssues(ctx: Context): List<String> {
+  private fun physicalValidationIssues(ctx: Context): List<String> {
     val issues = mutableListOf<String>()
     val power = ctx.getSystemService(Context.POWER_SERVICE) as? PowerManager
     if (power?.isPowerSaveMode == true) issues += "BATTERY_SAVER_ON"
@@ -672,31 +729,70 @@ class BodyFinderNativeModule : Module() {
     if (FieldServiceState.state != "RUNNING") issues += "FIELD_SERVICE_NOT_RUNNING"
     val manager = ctx.getSystemService(Context.BLUETOOTH_SERVICE) as? BluetoothManager
     if (manager?.adapter?.isEnabled != true) issues += "BLUETOOTH_OFF"
+    if (!bluetoothPermissionsGranted(ctx)) issues += "BLE_PERMISSIONS_MISSING"
     if (Build.VERSION.SDK_INT < 31 && locationServiceEnabled(ctx) == false) issues += "LOCATION_OFF"
     if (expectedKnownPeerCount() < 2) issues += "EXPECTED_BLE_PEERS_LT_2"
-    if (BleAcquisitionPolicy.currentStrategy() != BleAcquisitionStrategy.FILTERED_PRIMARY) issues += "NOT_FILTERED_PRIMARY"
     if (!FabricRuntime.bleScanning) issues += "BLE_SCANNER_NOT_RUNNING"
     return issues.distinct()
   }
 
+  private fun strategyFilterMode(strategy: BleAcquisitionStrategy): Pair<String, Int> =
+    if (strategy == BleAcquisitionStrategy.UNFILTERED_RECOVERY) "UNFILTERED" to 0 else "MANUFACTURER_FILTERED" to 1
+
+  private fun strategyEnvironmentDecision(now: Long = System.currentTimeMillis()): StrategyEnvironmentDecision {
+    val strategy = BleAcquisitionPolicy.currentStrategy()
+    val (mode, count) = strategyFilterMode(strategy)
+    return EnvironmentStrategyValidator.evaluate(
+      RecoveryAuthorizationContext(
+        strategy = strategy,
+        activeRecoveryGeneration = BleAcquisitionPolicy.activeRecoveryGeneration(),
+        strategyRecoveryGeneration = BleAcquisitionPolicy.strategyRecoveryGeneration(),
+        triggerKind = BleAcquisitionPolicy.activeRecoveryTriggerKind(),
+        triggerPeerId = BleAcquisitionPolicy.activeRecoveryTriggerPeerId(),
+        recoveryStartedWallMs = BleAcquisitionPolicy.recoveryStartedMs(),
+        strategySinceWallMs = BleAcquisitionPolicy.strategySinceMs(),
+        nowWallMs = now,
+        filterMode = mode,
+        hardwareFilterCount = count,
+      )
+    )
+  }
+
+  private fun validationEnvironmentIssues(ctx: Context, now: Long = System.currentTimeMillis()): Pair<List<String>, StrategyEnvironmentDecision> {
+    val decision = strategyEnvironmentDecision(now)
+    val issues = physicalValidationIssues(ctx).toMutableList()
+    if (!decision.valid) issues += (decision.violationType ?: "UNAUTHORIZED_ACQUISITION_STRATEGY")
+    return issues.distinct() to decision
+  }
+
   private fun validationPreflight(ctx: Context, now: Long = System.currentTimeMillis()): JSONObject {
-    val issues = validationEnvironmentIssues(ctx)
-    val hardwareFilterCount = if (BleAcquisitionPolicy.currentStrategy() == BleAcquisitionStrategy.UNFILTERED_RECOVERY) 0 else 1
+    val strategy = BleAcquisitionPolicy.currentStrategy()
+    val (filterMode, hardwareFilterCount) = strategyFilterMode(strategy)
+    val blocking = physicalValidationIssues(ctx).toMutableList()
+    if (strategy != BleAcquisitionStrategy.FILTERED_PRIMARY) blocking += "START_REQUIRES_FILTERED_PRIMARY"
+    if (filterMode != "MANUFACTURER_FILTERED" || hardwareFilterCount <= 0) blocking += "START_REQUIRES_HARDWARE_FILTER"
+    val locationApplicable = Build.VERSION.SDK_INT < 31
     return JSONObject()
+      .put("ready", blocking.isEmpty())
+      .put("wall_ms", now)
       .put("captured_wall_ms", now)
-      .put("ready", issues.isEmpty())
-      .put("issues", JSONArray(issues))
       .put("bluetooth_on", (ctx.getSystemService(Context.BLUETOOTH_SERVICE) as? BluetoothManager)?.adapter?.isEnabled == true)
+      .put("ble_permissions_ready", bluetoothPermissionsGranted(ctx))
       .put("battery_saver_off", (ctx.getSystemService(Context.POWER_SERVICE) as? PowerManager)?.isPowerSaveMode != true)
       .put("screen_on", (ctx.getSystemService(Context.POWER_SERVICE) as? PowerManager)?.isInteractive == true)
       .put("app_foreground", ValidationRuntime.appVisibility == "active")
       .put("foreground_service_running", FieldServiceState.state == "RUNNING")
+      .put("ble_scanner_running", FabricRuntime.bleScanning)
+      .put("expected_ble_peer_count", expectedKnownPeerCount())
       .put("expected_ble_peers", expectedKnownPeerCount())
       .put("expected_ble_peers_ready", expectedKnownPeerCount() >= 2)
-      .put("acquisition_strategy", BleAcquisitionPolicy.currentStrategy().name)
-      .put("filter_mode", if (hardwareFilterCount > 0) "MANUFACTURER_FILTERED" else "UNFILTERED")
+      .put("acquisition_strategy", strategy.name)
+      .put("filter_mode", filterMode)
       .put("hardware_filter_count", hardwareFilterCount)
-      .put("location_service_enabled", locationServiceEnabled(ctx) ?: JSONObject.NULL)
+      .put("location_requirement_applicable", locationApplicable)
+      .put("location_service_enabled", if (locationApplicable) (locationServiceEnabled(ctx) ?: JSONObject.NULL) else JSONObject.NULL)
+      .put("blocking_reasons", JSONArray(blocking.distinct()))
+      .put("issues", JSONArray(blocking.distinct()))
       .put("acceptance_minimum_ms", 300_000L)
       .put("recommended_long_run_ms", 330_000L)
   }
@@ -1029,7 +1125,7 @@ class BodyFinderNativeModule : Module() {
             restartScannerWithStrategy(now, BleAcquisitionStrategy.UNFILTERED_RECOVERY, "BF_COHORT_STALLED")
           } else if(BleAcquisitionPolicy.recoveryAttemptsInWindow(now)>=BleAcquisitionPolicy.MAX_RECOVERY_ATTEMPTS_PER_5MIN) BleAcquisitionPolicy.markFailedSafe(now,"MAX_RECOVERY_ATTEMPTS")
         } else {
-          val environmentAllowsRecovery = ValidationRuntime.runId == null || ValidationRuntime.endedWallMs != null || validationEnvironmentIssues(ctx).isEmpty()
+          val environmentAllowsRecovery = ValidationRuntime.runId == null || ValidationRuntime.endedWallMs != null || physicalValidationIssues(ctx).isEmpty()
           val starvedPeer = if (environmentAllowsRecovery) evaluatePeerStarvation(now, global, cohort) else null
           if (starvedPeer != null && BleAcquisitionPolicy.canStartRecovery(now)) {
             BleAcquisitionPolicy.beginRecovery(now, "PEER_STARVATION", RecoveryTriggerKind.PEER_STARVATION, starvedPeer)
@@ -1594,13 +1690,29 @@ class BodyFinderNativeModule : Module() {
     return arr
   }
 
-  private fun acquisitionProvenance(now:Long)=JSONObject()
-    .put("logical_acquisition_strategy",BleAcquisitionPolicy.currentStrategy().name)
-    .put("strategy_since_wall_ms",BleAcquisitionPolicy.strategySinceMs())
-    .put("strategy_reason",BleAcquisitionPolicy.lastStrategyReason())
-    .put("android_scan_settings",JSONObject().put("scan_mode","LOW_LATENCY").put("callback_type","ALL_MATCHES").put("report_delay_ms",BleAcquisitionPolicy.REPORT_DELAY_MS).put("match_mode",BleAcquisitionPolicy.matchModeLabel()).put("num_matches",BleAcquisitionPolicy.numMatchesLabel()))
-    .put("filter_configuration",JSONObject().put("mode",if(BleAcquisitionPolicy.currentStrategy()==BleAcquisitionStrategy.UNFILTERED_RECOVERY) "UNFILTERED" else "MANUFACTURER_FILTERED").put("hardware_filter_count",if(BleAcquisitionPolicy.currentStrategy()==BleAcquisitionStrategy.UNFILTERED_RECOVERY)0 else 1).put("manufacturer_id",MANUFACTURER_ID).put("body_finder_prefix","4246"))
-    .put("scan_generation",FabricRuntime.scanGeneration.get()).put("scanner_started_wall_ms",FabricRuntime.bleScanStartedWallMs ?: JSONObject.NULL)
+  private fun acquisitionProvenance(now: Long): JSONObject {
+    val strategy = BleAcquisitionPolicy.currentStrategy()
+    val (filterMode, hardwareFilterCount) = strategyFilterMode(strategy)
+    val decision = strategyEnvironmentDecision(now)
+    return JSONObject()
+      .put("logical_acquisition_strategy", strategy.name)
+      .put("strategy_since_wall_ms", BleAcquisitionPolicy.strategySinceMs())
+      .put("strategy_reason", BleAcquisitionPolicy.lastStrategyReason())
+      .put("active_recovery_generation", BleAcquisitionPolicy.activeRecoveryGeneration() ?: JSONObject.NULL)
+      .put("strategy_recovery_generation", BleAcquisitionPolicy.strategyRecoveryGeneration() ?: JSONObject.NULL)
+      .put("active_recovery_trigger_kind", BleAcquisitionPolicy.activeRecoveryTriggerKind()?.name ?: JSONObject.NULL)
+      .put("active_recovery_trigger_peer_id", BleAcquisitionPolicy.activeRecoveryTriggerPeerId() ?: JSONObject.NULL)
+      .put("recovery_started_wall_ms", BleAcquisitionPolicy.recoveryStartedMs() ?: JSONObject.NULL)
+      .put("environment_authorization", JSONObject()
+        .put("valid", decision.valid)
+        .put("authorized", decision.authorized)
+        .put("violation_type", decision.violationType ?: JSONObject.NULL)
+        .put("authorization_reason", decision.authorizationReason))
+      .put("android_scan_settings", JSONObject().put("scan_mode","LOW_LATENCY").put("callback_type","ALL_MATCHES").put("report_delay_ms",BleAcquisitionPolicy.REPORT_DELAY_MS).put("match_mode",BleAcquisitionPolicy.matchModeLabel()).put("num_matches",BleAcquisitionPolicy.numMatchesLabel()))
+      .put("filter_configuration", JSONObject().put("mode", filterMode).put("hardware_filter_count", hardwareFilterCount).put("manufacturer_id",MANUFACTURER_ID).put("body_finder_prefix","4246"))
+      .put("scan_generation", FabricRuntime.scanGeneration.get())
+      .put("scanner_started_wall_ms", FabricRuntime.bleScanStartedWallMs ?: JSONObject.NULL)
+  }
 
   private fun bleDiagnostics(ctx: Context, now: Long = System.currentTimeMillis()) = JSONObject().apply {
     put("permissions", JSONObject().apply {
@@ -1687,7 +1799,11 @@ class BodyFinderNativeModule : Module() {
 
   private fun validationRunDiagnostics(ctx: Context, now: Long = System.currentTimeMillis()): JSONObject {
     if (ValidationRuntime.runId != null && ValidationRuntime.endedWallMs == null) {
-      ValidationRuntime.recordEnvironmentViolation(now, validationEnvironmentIssues(ctx))
+      val (issues, decision) = validationEnvironmentIssues(ctx, now)
+      ValidationRuntime.recordEnvironmentEvaluation(
+        now, issues, decision, BleAcquisitionPolicy.currentStrategy(),
+        BleAcquisitionPolicy.activeRecoveryGeneration(), BleAcquisitionPolicy.activeRecoveryTriggerKind(), BleAcquisitionPolicy.activeRecoveryTriggerPeerId(),
+      )
     }
     val out=ValidationRuntime.diagnostics(now,FabricRuntime.peerExpireCount.get(),FabricRuntime.totalRebinds(),FabricRuntime.scanRestartCount.get(),FabricRuntime.txPackets.get(),FabricRuntime.rxPackets.get())
     if(!out.optBoolean("snapshot_frozen")) out.put("acquisition_strategy",BleAcquisitionPolicy.currentStrategy().name).put("body_finder_cohort_health",bodyFinderCohortHealth(now).name)
@@ -1705,7 +1821,7 @@ class BodyFinderNativeModule : Module() {
     ValidationRuntime.observe(now, FabricRuntime.peers.size, evidenceReady, freshMetricReady, usableMetricReady)
     return JSONObject()
       .put("diagnostic_contract", JSONObject()
-        .put("schema", "dev12-self-contained-json-evidence-v1")
+        .put("schema", "dev13-self-contained-json-evidence-v2")
         .put("screenshots_required", false)
         .put("json_self_contained", true)
         .put("contains_runtime_preflight", true)
@@ -1851,7 +1967,11 @@ class BodyFinderNativeModule : Module() {
           val now = System.currentTimeMillis()
           maintainAdaptiveScanner(ctx, now)
           if (ValidationRuntime.runId != null && ValidationRuntime.endedWallMs == null) {
-            ValidationRuntime.recordEnvironmentViolation(now, validationEnvironmentIssues(ctx))
+            val (issues, decision) = validationEnvironmentIssues(ctx, now)
+            ValidationRuntime.recordEnvironmentEvaluation(
+              now, issues, decision, BleAcquisitionPolicy.currentStrategy(),
+              BleAcquisitionPolicy.activeRecoveryGeneration(), BleAcquisitionPolicy.activeRecoveryTriggerKind(), BleAcquisitionPolicy.activeRecoveryTriggerPeerId(),
+            )
           }
           if (Build.VERSION.SDK_INT >= 36 && now >= nextSystemRangingRefresh && hasPermission(ctx, RANGE_PERMISSION)) {
             try { SystemRangingApi36.refresh(ctx, desiredSystemRangingPeers()) } catch (_: Throwable) {}

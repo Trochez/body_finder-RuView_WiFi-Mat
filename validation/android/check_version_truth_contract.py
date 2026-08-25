@@ -3,10 +3,10 @@ import json, pathlib, sys
 ROOT=pathlib.Path(__file__).resolve().parents[2]
 
 app=(ROOT/'apps/mobile/App.tsx').read_text(); v=(ROOT/'apps/mobile/src/version.ts').read_text(); cfg=json.load(open(ROOT/'apps/mobile/app.json'))['expo']
-assert "0.2.0-experimental.12" in v
-assert 'reportVersion: 14' in v
-assert cfg['android']['versionCode']==12
-assert cfg['extra']['releaseIteration']=='experimental.12'
+assert "0.2.0-experimental.13" in v
+assert 'reportVersion: 15' in v
+assert cfg['android']['versionCode']==13
+assert cfg['extra']['releaseIteration']=='experimental.13'
 for stale in ['experimental.9','experimental.10']:
     assert stale not in app, stale
 assert 'HUMAN_SCANNING_ENABLED' in app

@@ -1,0 +1,12 @@
+{
+  "strategy": "COOLDOWN",
+  "active_recovery_generation": 2,
+  "strategy_recovery_generation": null,
+  "trigger_kind": "FULL_COHORT_STALL",
+  "recovery_started_wall_ms": null,
+  "strategy_since_wall_ms": 1000,
+  "now_wall_ms": 2000,
+  "filter_mode": "MANUFACTURER_FILTERED",
+  "hardware_filter_count": 1,
+  "expected_valid": false
+}

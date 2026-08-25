@@ -370,6 +370,12 @@ fn main() -> Result<()> {
             .as_millis();
         let event = serde_json::json!({
             "type":"status",
+            "release":"dev-13",
+            "build":"0.2.0-experimental.13",
+            "report_version":15,
+            "protocol_version":PROTOCOL_VERSION,
+            "evidence_contract":{"schema":"dev13-node-jsonl-evidence-v1","screenshots_required":false,"json_self_contained":true,"record_flag":"--record FILE.jsonl"},
+            "self_diagnostic":{"platform":platform,"udp_bound":true,"automatic_geometry":true,"manual_geometry_override":false,"human_scanning_enabled":false,"human_localization_validated":false,"rescue_use_validated":false},
             "unix_ms":now_ms,
             "node":advertisement,
             "all_nodes":all_nodes,
