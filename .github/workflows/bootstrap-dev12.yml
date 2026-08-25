@@ -9,7 +9,6 @@ on:
 
 permissions:
   contents: write
-  actions: write
 
 concurrency:
   group: bootstrap-dev12
@@ -37,20 +36,14 @@ jobs:
           python3 scripts/apply_dev12.py
           python3 validation/android/check_dev12_peer_starvation_contract.py
           python3 -m py_compile validation/analysis/validate_dev12_hard_gates.py validation/analysis/validate_snapshot_immutability.py validation/analysis/validate_timeline_causality.py validation/analysis/validate_peer_semantics.py validation/analysis/validate_peer_starvation_recovery.py validation/analysis/validate_geometry_snapshot.py validation/analysis/calculate_accuracy_report.py validation/analysis/validate_release_manifest.py validation/analysis/build_acceptance_report.py
-      - name: Commit dev-12 implementation
+      - name: Commit dev-12 source and validation assets
         shell: bash
         run: |
           set -euxo pipefail
+          rm -f .github/workflows/ci-exp12.yml .github/workflows/release-exp12.yml
+          find scripts validation -type d -name __pycache__ -prune -exec rm -rf {} + || true
           git config user.name github-actions[bot]
           git config user.email 41898282+github-actions[bot]@users.noreply.github.com
           git add -A
           git commit -m 'feat: implement dev12 per-peer starvation recovery and self-contained JSON evidence'
           git push origin HEAD:main
-      - name: Dispatch dev-12 release pipeline
-        env:
-          GH_TOKEN: ${{ github.token }}
-        shell: bash
-        run: |
-          set -euxo pipefail
-          sleep 3
-          gh workflow run release-exp12.yml --ref main
