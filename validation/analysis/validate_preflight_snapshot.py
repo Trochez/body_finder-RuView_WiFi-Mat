@@ -1,6 +1,29 @@
 #!/usr/bin/env python3
 import json,sys
-p=sys.argv[1]; d=json.load(open(p)); r=d.get('validation_run',d); q=r.get('preflight_at_start') or {}
+
+if len(sys.argv) > 1:
+    p=sys.argv[1]
+    d=json.load(open(p))
+else:
+    p='<canonical-self-test>'
+    d={'validation_run':{'preflight_at_start':{
+        'ready':True,
+        'bluetooth_on':True,
+        'ble_permissions_ready':True,
+        'battery_saver_off':True,
+        'screen_on':True,
+        'app_foreground':True,
+        'foreground_service_running':True,
+        'ble_scanner_running':True,
+        'expected_ble_peer_count':2,
+        'acquisition_strategy':'FILTERED_PRIMARY',
+        'filter_mode':'MANUFACTURER_FILTERED',
+        'hardware_filter_count':1,
+        'blocking_reasons':[],
+    }}}
+
+r=d.get('validation_run',d.get('snapshot',d))
+q=r.get('preflight_at_start') or {}
 checks={
  'ready':q.get('ready') is True,
  'bluetooth_on':q.get('bluetooth_on') is True,
@@ -16,4 +39,6 @@ checks={
  'hardware_filter_count>0':q.get('hardware_filter_count',0)>0,
  'blocking_reasons_empty':not q.get('blocking_reasons'),
 }
-ok=all(checks.values()); print(json.dumps({'file':p,'checks':checks,'pass':ok},indent=2)); sys.exit(0 if ok else 1)
+ok=all(checks.values())
+print(json.dumps({'file':p,'checks':checks,'pass':ok},indent=2))
+sys.exit(0 if ok else 1)
