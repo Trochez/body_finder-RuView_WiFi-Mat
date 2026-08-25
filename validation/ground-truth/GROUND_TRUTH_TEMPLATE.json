@@ -1,20 +1,11 @@
 {
-  "test_id": "replace-me",
-  "notes": "External validation only. Never import these coordinates into Body Finder.",
-  "local_time_start": "YYYY-MM-DDTHH:MM:SS-05:00",
-  "local_time_end": "YYYY-MM-DDTHH:MM:SS-05:00",
-  "node_aliases": {
-    "pixel10pro": "REPLACE_WITH_EXACT_NODE_ID",
-    "pixel7pro": "REPLACE_WITH_EXACT_NODE_ID",
-    "third_android": "REPLACE_WITH_EXACT_NODE_ID"
-  },
-  "node_positions_m": {
-    "REPLACE_WITH_EXACT_NODE_ID_1": [0.0, 0.0],
-    "REPLACE_WITH_EXACT_NODE_ID_2": [0.0, 0.0],
-    "REPLACE_WITH_EXACT_NODE_ID_3": [0.0, 0.0]
-  },
-  "person_position_m": null,
-  "wall": null,
-  "anything_moved": "no",
-  "measurement_method": "tape measure"
+  "schema": "body-finder-ground-truth-distances-v1",
+  "units": "m",
+  "method": "tape",
+  "ground_truth_entered_into_app": false,
+  "pairs_m": [
+    {"a": "pixel-10-pro", "b": "pixel-7-pro", "distance_m": 3.07},
+    {"a": "pixel-10-pro", "b": "lenovo-tb-j606l", "distance_m": 3.23},
+    {"a": "pixel-7-pro", "b": "lenovo-tb-j606l", "distance_m": 1.83}
+  ]
 }
