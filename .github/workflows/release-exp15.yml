@@ -1,0 +1,286 @@
+name: Dev Release experimental.15
+
+on:
+  push:
+    branches: [main]
+    paths: [RELEASE_DEV15_TRIGGER.txt]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release-exp15
+  cancel-in-progress: false
+
+jobs:
+  requirements:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: {python-version: '3.12'}
+      - name: Dev15 deterministic gates
+        run: |
+          set -euxo pipefail
+          grep -q '0.2.0-experimental.15' apps/mobile/src/version.ts
+          grep -q 'reportVersion: 17' apps/mobile/src/version.ts
+          grep -q '"versionCode": 15' apps/mobile/app.json
+          grep -q '"releaseIteration": "experimental.15"' apps/mobile/app.json
+          grep -q 'pub const PROTOCOL_VERSION: u16 = 2;' crates/body-finder-core/src/lib.rs
+          test -s DEV15_FROZEN_TRUTH.md
+          test -s docs/TESTING_DEV15.md
+          test -s validation/contracts/dev15-evidence-contract.json
+          test -s validation/contracts/dev15-gates.json
+          python3 -m json.tool validation/contracts/dev15-evidence-contract.json >/dev/null
+          python3 -m json.tool validation/contracts/dev15-gates.json >/dev/null
+          python3 -m json.tool protocol/schemas/validation-run-snapshot-v3.json >/dev/null
+          python3 validation/android/check_dev15_frozen_truth_contract.py
+          python3 validation/android/test_dev15_recovery_telemetry.py
+          python3 validation/analysis/test_dev15_tooling.py
+          python3 -m py_compile validation/analysis/dev15_validation.py validation/analysis/validate_dev15_acceptance.py validation/analysis/validate_dev15_hard_gates.py validation/analysis/calculate_accuracy_report.py validation/analysis/build_acceptance_report.py validation/analysis/test_dev15_tooling.py
+          ! grep -R -nE 'dev-1[23]|experimental\.1[23]' validation/analysis/build_acceptance_report.py validation/analysis/calculate_accuracy_report.py docs/TESTING_DEV15.md
+          grep -q 'body-finder-ground-truth-distances-v1' validation/ground-truth/GROUND_TRUTH_TEMPLATE.json
+          ! grep -q 'node_positions_m\|person' validation/ground-truth/GROUND_TRUTH_TEMPLATE.json
+
+  linux:
+    needs: requirements
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - run: cargo test --workspace && cargo build --release -p body-finder-node
+      - run: |
+          set -euxo pipefail
+          mkdir -p dist/pkg dist/deb/DEBIAN dist/deb/usr/bin
+          cp target/release/body-finder-node dist/pkg/
+          tar -C dist/pkg -czf dist/body-finder-node-linux-x86_64.tar.gz body-finder-node
+          cp target/release/body-finder-node dist/deb/usr/bin/
+          printf 'Package: body-finder-node\nVersion: 0.2.0~experimental15\nSection: science\nPriority: optional\nArchitecture: amd64\nMaintainer: Trochez\nDescription: Body Finder RuView field node\n' > dist/deb/DEBIAN/control
+          dpkg-deb --build dist/deb dist/body-finder-node-linux-x86_64.deb
+          test -s dist/body-finder-node-linux-x86_64.tar.gz
+          test -s dist/body-finder-node-linux-x86_64.deb
+          rm -rf dist/pkg dist/deb
+      - uses: actions/upload-artifact@v4
+        with: {name: dev15-linux, path: 'dist/*'}
+
+  windows:
+    needs: requirements
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - run: cargo test --workspace
+      - run: cargo build --release -p body-finder-node
+      - shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force dist\win | Out-Null
+          Copy-Item target\release\body-finder-node.exe dist\win\
+          Compress-Archive dist\win\body-finder-node.exe dist\body-finder-node-windows-x86_64.zip
+          if ((Get-Item dist\body-finder-node-windows-x86_64.zip).Length -le 0) { exit 1 }
+      - uses: actions/upload-artifact@v4
+        with: {name: dev15-windows, path: 'dist/*.zip'}
+
+  android:
+    needs: requirements
+    runs-on: ubuntu-latest
+    defaults: {run: {working-directory: apps/mobile}}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: {node-version: '20'}
+      - uses: actions/setup-java@v4
+        with: {distribution: temurin, java-version: '17'}
+      - name: Materialize deterministic npm lock for CI
+        run: npm install --package-lock-only --ignore-scripts --no-audit --no-fund
+      - run: npm ci --no-audit --no-fund
+      - run: npx tsc --noEmit
+      - run: CI=1 npx expo prebuild --platform android --clean
+      - run: chmod +x android/gradlew && ./android/gradlew -p android testReleaseUnitTest assembleRelease bundleRelease --stacktrace
+      - run: |
+          set -euxo pipefail
+          mkdir -p ../../dist
+          cp android/app/build/outputs/apk/release/*.apk ../../dist/body-finder-ruview-universal.apk
+          cp ../../dist/body-finder-ruview-universal.apk ../../dist/BodyFinder-dev15-universal.apk
+          cp android/app/build/outputs/bundle/release/*.aab ../../dist/body-finder-ruview.aab
+          test -s ../../dist/body-finder-ruview-universal.apk
+          test -s ../../dist/BodyFinder-dev15-universal.apk
+          test -s ../../dist/body-finder-ruview.aab
+      - uses: actions/upload-artifact@v4
+        with: {name: dev15-android, path: 'dist/*'}
+
+  android-legacy:
+    needs: requirements
+    runs-on: ubuntu-latest
+    defaults: {run: {working-directory: apps/android-legacy}}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with: {distribution: temurin, java-version: '17'}
+      - uses: gradle/actions/setup-gradle@v4
+        with: {gradle-version: '8.10.2'}
+      - run: |
+          set -euxo pipefail
+          mkdir -p "$HOME/.android"
+          keytool -genkeypair -keystore "$HOME/.android/debug.keystore" -storepass android -alias androiddebugkey -keypass android -dname 'CN=Android Debug,O=Android,C=US' -keyalg RSA -keysize 2048 -validity 10000
+          gradle :app:testReleaseUnitTest :app:assembleRelease --stacktrace
+          mkdir -p ../../dist
+          cp app/build/outputs/apk/release/*.apk ../../dist/body-finder-ruview-legacy-minsdk21.apk
+          test -s ../../dist/body-finder-ruview-legacy-minsdk21.apk
+      - uses: actions/upload-artifact@v4
+        with: {name: dev15-android-legacy, path: 'dist/*'}
+
+  ios-simulator:
+    needs: requirements
+    runs-on: macos-latest
+    defaults: {run: {working-directory: apps/mobile}}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: {node-version: '20'}
+      - run: npm install --package-lock-only --ignore-scripts --no-audit --no-fund
+      - run: npm ci --no-audit --no-fund
+      - run: npx tsc --noEmit
+      - run: CI=1 npx expo prebuild --platform ios --clean
+      - run: pod install
+        working-directory: apps/mobile/ios
+      - shell: bash
+        working-directory: apps/mobile/ios
+        run: |
+          set -euxo pipefail
+          W=$(find . -maxdepth 1 -name '*.xcworkspace' -print -quit)
+          test -n "$W"
+          xcodebuild -workspace "$W" -scheme BodyFinderRuView -configuration Release -sdk iphonesimulator -destination 'generic/platform=iOS Simulator' -derivedDataPath build CODE_SIGNING_ALLOWED=NO build
+          A=$(find build/Build/Products -type d -name '*.app' -print -quit)
+          test -n "$A"
+          mkdir -p "$GITHUB_WORKSPACE/dist"
+          ditto -c -k --sequesterRsrc --keepParent "$A" "$GITHUB_WORKSPACE/dist/body-finder-ruview-ios-simulator.zip"
+          test -s "$GITHUB_WORKSPACE/dist/body-finder-ruview-ios-simulator.zip"
+      - uses: actions/upload-artifact@v4
+        with: {name: dev15-ios, path: 'dist/*'}
+
+  release:
+    needs: [requirements, linux, windows, android, android-legacy, ios-simulator]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with: {fetch-depth: 0}
+      - uses: actions/setup-python@v5
+        with: {python-version: '3.12'}
+      - uses: actions/download-artifact@v4
+        with: {pattern: 'dev15-*', path: dist, merge-multiple: true}
+      - name: Package canonical validation assets
+        run: |
+          set -euxo pipefail
+          cp docs/TESTING_DEV15.md dist/TESTING_DEV15.md
+          cp DEV15_FROZEN_TRUTH.md dist/DEV15_FROZEN_TRUTH.md
+          cp validation/ground-truth/GROUND_TRUTH_TEMPLATE.json dist/GROUND_TRUTH_TEMPLATE.json
+          cp protocol/schemas/validation-run-snapshot-v3.json dist/validation-run-snapshot-v3.schema.json
+          cp docs/CAPABILITY_MATRIX_AUTOGEOMETRY.json dist/capability-matrix.json
+          cp calibration/ble-range-calibration-profiles.json dist/
+          cp calibration/ble-range-calibration-schema.json dist/
+          cp upstream/ruvieW.lock.json dist/ruview-upstream-lock.json
+          printf '2\n' > dist/protocol-version.txt
+          printf '{"schema_version":1,"release_family":"0.2.0-experimental.15","models":[],"human_localization_validated":false}\n' > dist/model-manifest.json
+          mkdir -p kit/validation/fixtures/dev15 kit/validation/contracts
+          cp validation/analysis/*.py validation/android/check_dev15_frozen_truth_contract.py validation/android/test_dev15_recovery_telemetry.py kit/
+          cp protocol/schemas/validation-run-snapshot-v3.json kit/
+          cp docs/TESTING_DEV15.md kit/
+          cp validation/contracts/dev15-*.json kit/validation/contracts/
+          cp -r validation/fixtures/dev15/* kit/validation/fixtures/dev15/
+          (cd kit && zip -qr ../dist/validators-dev15.zip .)
+          (cd validation/fixtures/dev15 && zip -qr "$GITHUB_WORKSPACE/dist/fixtures-dev15.zip" .)
+          SHA=$(git rev-parse HEAD)
+          TS=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+          python3 - <<PY
+          import json
+          json.dump({
+            'schema_version':15,
+            'release':'dev-15',
+            'version':'0.2.0-experimental.15',
+            'commit_sha':'$SHA',
+            'build_timestamp':'$TS',
+            'protocol_version':2,
+            'validation_snapshot_schema_version':3,
+            'screenshots_required_for_acceptance':False,
+            'json_evidence_self_contained':True,
+            'automatic_geometry':True,
+            'manual_node_coordinates_required':False,
+            'ble_metric_profile':'android-ble-lab-v1',
+            'ble_metric_min_samples':3,
+            'ble_fresh_ms':5000,
+            'ble_holdover_max_ms':10000,
+            'ble_hard_expiry_ms':10000,
+            'ble_recovery_unfiltered_window_ms':10000,
+            'ble_filtered_recovery_probe_ms':15000,
+            'ble_filtered_recovery_probe_exit_target_ms':14500,
+            'ble_restart_cooldown_ms':30000,
+            'ble_max_recovery_attempts_per_5min':3,
+            'recovery_generation_atomic':True,
+            'targeted_first_valid_required':True,
+            'recovery_event_counter_consistency_required':True,
+            'history_isolation_required':True,
+            'ground_truth_schema':'body-finder-ground-truth-distances-v1',
+            'accuracy_informational_only':True,
+            'human_scanning_enabled':False,
+            'human_localization_validated':False,
+            'rescue_use_validated':False
+          },open('dist/release-manifest.json','w'),indent=2)
+          PY
+      - name: Test documented offline commands against packaged fixtures
+        run: |
+          set -euxo pipefail
+          mkdir doc-test && cd doc-test
+          unzip -q ../dist/validators-dev15.zip -d validators-dev15
+          unzip -q ../dist/fixtures-dev15.zip -d fixtures-dev15
+          python3 validators-dev15/test_dev15_tooling.py
+          mkdir evidence
+          cp fixtures-dev15/campaign/*.json evidence/
+          python3 validators-dev15/validate_dev15_acceptance.py --evidence-dir evidence --output acceptance_report.json
+          python3 validators-dev15/calculate_accuracy_report.py --ground-truth fixtures-dev15/campaign/ground-truth.json --evidence-dir evidence --output accuracy_report.json
+          test -s acceptance_report.json
+          test -s accuracy_report.json
+      - name: SBOM
+        uses: anchore/sbom-action@v0
+        with: {path: '.', format: spdx-json, output-file: dist/SBOM.spdx.json}
+      - name: Canonical inventory and initial checksums
+        run: |
+          set -euxo pipefail
+          python3 - <<'PY'
+          import hashlib,json,pathlib
+          d=pathlib.Path('dist'); p=d/'release-manifest.json'; m=json.load(open(p));
+          required='BodyFinder-dev15-universal.apk body-finder-ruview-universal.apk body-finder-ruview.aab body-finder-ruview-legacy-minsdk21.apk body-finder-node-linux-x86_64.tar.gz body-finder-node-linux-x86_64.deb body-finder-node-windows-x86_64.zip body-finder-ruview-ios-simulator.zip validators-dev15.zip fixtures-dev15.zip validation-run-snapshot-v3.schema.json GROUND_TRUTH_TEMPLATE.json TESTING_DEV15.md DEV15_FROZEN_TRUTH.md release-manifest.json capability-matrix.json ble-range-calibration-profiles.json ble-range-calibration-schema.json protocol-version.txt model-manifest.json ruview-upstream-lock.json SBOM.spdx.json'.split()
+          missing=[x for x in required if not (d/x).is_file() or (d/x).stat().st_size==0]
+          if missing: raise SystemExit('missing/non-empty gate: '+','.join(missing))
+          names=[x.name for x in d.iterdir() if x.is_file()]
+          if len(names)!=len(set(names)): raise SystemExit('duplicate asset names')
+          forbidden=[x for x in names if 'ruvview' in x.lower() or x=='body-finder-validation-tools.zip' or x=='ground-truth-template.json']
+          if forbidden: raise SystemExit('non-canonical assets: '+','.join(forbidden))
+          static=[f for f in sorted(d.iterdir()) if f.is_file() and f.name not in {'release-manifest.json','SHA256SUMS.txt','release-verification.json'}]
+          m['artifacts']=[{'name':f.name,'size_bytes':f.stat().st_size,'sha256':hashlib.sha256(f.read_bytes()).hexdigest()} for f in static]
+          p.write_text(json.dumps(m,indent=2)+'\n')
+          PY
+          printf '{"release":"dev-15","pass":false,"checksums_verified":false,"redownload_verified":false,"screenshots_required":false,"physical_smoke_required":true,"physical_smoke_status":"PENDING_USER_HARDWARE"}\n' > dist/release-verification.json
+          (cd dist && find . -maxdepth 1 -type f ! -name SHA256SUMS.txt -printf '%f\n' | sort | xargs sha256sum > SHA256SUMS.txt)
+          python3 validation/analysis/validate_release_manifest.py dist/release-manifest.json
+      - name: Publish, redownload and verify final dev-15 prerelease
+        env: {GH_TOKEN: '${{ github.token }}'}
+        run: |
+          set -euxo pipefail
+          git tag -f dev-15 "$GITHUB_SHA"
+          git push origin refs/tags/dev-15 --force
+          gh release delete dev-15 -y || true
+          gh release create dev-15 dist/* --prerelease --title 'dev-15 — 0.2.0-experimental.15' --notes 'Dev15 closes post-dev14 telemetry, strict validation, reporting, distances-only ground truth, self-identifying JSON evidence and release hygiene. BLE/ranging/fusion/geometry remain frozen. No screenshots. Directed Pixel 10 Pro + Pixel 7 Pro recovery smoke is pending user hardware.'
+          rm -rf verify && mkdir verify
+          gh release download dev-15 -D verify
+          (cd verify && sha256sum -c SHA256SUMS.txt)
+          python3 - <<'PY'
+          import json,pathlib
+          p=pathlib.Path('verify/release-verification.json'); x=json.load(open(p)); x['pass']=True; x['checksums_verified']=True; x['redownload_verified']=True; p.write_text(json.dumps(x,indent=2)+'\n')
+          PY
+          (cd verify && find . -maxdepth 1 -type f ! -name SHA256SUMS.txt -printf '%f\n' | sort | xargs sha256sum > SHA256SUMS.txt)
+          gh release upload dev-15 verify/release-verification.json verify/SHA256SUMS.txt --clobber
+          rm -rf final-verify && mkdir final-verify
+          gh release download dev-15 -D final-verify
+          (cd final-verify && sha256sum -c SHA256SUMS.txt)
+          python3 -c "import json; x=json.load(open('final-verify/release-verification.json')); assert x['pass'] and x['checksums_verified'] and x['redownload_verified'] and x['physical_smoke_status']=='PENDING_USER_HARDWARE'"
