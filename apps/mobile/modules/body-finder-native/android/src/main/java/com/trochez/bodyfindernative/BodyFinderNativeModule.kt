@@ -513,8 +513,8 @@ class BodyFinderNativeModule : Module() {
     }
     Function("startValidationRun") {
       val ctx = appContext.reactContext ?: return@Function "VALIDATION_ENVIRONMENT_INVALID:NO_CONTEXT"
-      val issues = validationEnvironmentIssues(ctx)
-      if (issues.isNotEmpty()) return@Function "VALIDATION_ENVIRONMENT_INVALID:${issues.joinToString(",")}"
+      val issues = validationStartIssues(ctx)
+      if (issues.isNotEmpty()) return@Function "VALIDATION_PREFLIGHT_INVALID:${issues.joinToString(",")}"
       val now = System.currentTimeMillis()
       FabricRuntime.snapshotAcquisitionForValidation()
       keepValidationScreenAwake(true)
@@ -634,6 +634,15 @@ class BodyFinderNativeModule : Module() {
     val manager = ctx.getSystemService(Context.BLUETOOTH_SERVICE) as? BluetoothManager
     if (manager?.adapter?.isEnabled != true) issues += "BLUETOOTH_OFF"
     return issues
+  }
+
+  private fun validationStartIssues(ctx:Context):List<String> {
+    val issues=validationEnvironmentIssues(ctx).toMutableList()
+    if(Build.VERSION.SDK_INT < 31 && locationServiceEnabled(ctx)==false) issues += "LOCATION_OFF"
+    if(expectedKnownPeerCount()<2) issues += "EXPECTED_BLE_PEERS_LT_2"
+    if(BleAcquisitionPolicy.currentStrategy()!=BleAcquisitionStrategy.FILTERED_PRIMARY) issues += "NOT_FILTERED_PRIMARY"
+    if(FabricRuntime.bleScanning && BleAcquisitionPolicy.currentStrategy()==BleAcquisitionStrategy.FILTERED_PRIMARY && FabricRuntime.bleScanMode!="LOW_LATENCY") issues += "SCAN_MODE_NOT_LOW_LATENCY"
+    return issues.distinct()
   }
 
   private fun deviceReport(ctx: Context) = JSONObject().apply {
@@ -1570,7 +1579,7 @@ class BodyFinderNativeModule : Module() {
   }
 
   private fun preflightDiagnostics(ctx:Context,now:Long):JSONObject {
-    val issues=validationEnvironmentIssues(ctx)
+    val issues=validationStartIssues(ctx)
     val manager=ctx.getSystemService(Context.BLUETOOTH_SERVICE) as? BluetoothManager
     val expected=expectedKnownPeerCount()
     return JSONObject()
