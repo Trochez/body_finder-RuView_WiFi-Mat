@@ -9,5 +9,9 @@ old_checker="checker=read('validation/android/check_dev13_environment_contract.p
 new_checker="checker=read('validation/android/check_dev13_environment_contract.py').replace('dev13','dev14').replace('experimental.13','experimental.14').replace('reportVersion: 15','reportVersion: 16')"
 if old_checker not in s: raise SystemExit('checker migration anchor missing')
 s=s.replace(old_checker,new_checker,1)
+old_schema="""env=schema['properties']['environment']; req=env.setdefault('required',[])\nfor x in ['total_background_ms','max_background_interval_ms','foreground_transition_count','unresolved_violation_count']:\n    if x not in req: req.append(x)\nwrite('protocol/schemas/validation-run-snapshot-v3.json',json.dumps(schema,indent=2)+'\\n')"""
+new_schema="""env=schema['properties']['environment']\nenv.setdefault('properties',{}).update({\n    'total_background_ms': {'type':'integer','minimum':0},\n    'max_background_interval_ms': {'type':'integer','minimum':0},\n    'foreground_transition_count': {'type':'integer','minimum':0},\n    'unresolved_violation_count': {'type':'integer','minimum':0},\n    'environment_violation_events': {'type':'array'},\n})\n# Keep these dev14 additions optional: schema v3 must remain backward-compatible with dev13 snapshots.\nwrite('protocol/schemas/validation-run-snapshot-v3.json',json.dumps(schema,indent=2)+'\\n')"""
+if old_schema not in s: raise SystemExit('schema compatibility anchor missing')
+s=s.replace(old_schema,new_schema,1)
 p.write_text(s)
-print('apply_dev14 anchor/report hotfix PASS')
+print('apply_dev14 anchor/report/schema hotfix PASS')
