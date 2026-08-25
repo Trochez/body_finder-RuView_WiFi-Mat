@@ -44,8 +44,15 @@ jobs:
           python3 validation/android/test_dev14_recovery_model.py
           python3 validation/analysis/validate_dev14_fixture_matrix.py
           python3 validation/analysis/validate_environment_authorization.py
-          python3 validation/analysis/validate_preflight_snapshot.py
+          python3 validation/analysis/validate_dev14_hard_gates.py validation/fixtures/dev14/probe-deadline-near-limit.json
           python3 -m json.tool protocol/schemas/validation-run-snapshot-v3.json >/dev/null
+          python3 - <<'PY'
+          import json
+          s=json.load(open('protocol/schemas/validation-run-snapshot-v3.json'))
+          req=set(s['properties']['environment'].get('required',[]))
+          added={'total_background_ms','max_background_interval_ms','foreground_transition_count','unresolved_violation_count','environment_violation_events'}
+          assert not (req & added), f'dev14 broke schema-v3 backward compatibility: {req & added}'
+          PY
           cargo test --workspace
           grep -q "0.2.0-experimental.14" apps/mobile/src/version.ts
           grep -q "reportVersion: 16" apps/mobile/src/version.ts
