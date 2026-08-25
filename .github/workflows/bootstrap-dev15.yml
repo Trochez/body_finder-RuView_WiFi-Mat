@@ -58,7 +58,8 @@ jobs:
           set -euxo pipefail
           git config user.name github-actions[bot]
           git config user.email 41898282+github-actions[bot]@users.noreply.github.com
-          git add apps validation scripts docs DEV15_FROZEN_TRUTH.md RELEASE_DEV15_TRIGGER.txt .github/workflows/release-exp15.yml
+          # Workflow files are committed separately through the authenticated GitHub connector.
+          git add apps validation scripts docs DEV15_FROZEN_TRUTH.md RELEASE_DEV15_TRIGGER.txt
           if ! git diff --cached --quiet; then git commit -m 'feat: implement dev15 validation tooling telemetry'; fi
       - name: Record bootstrap result
         if: always()
