@@ -31,16 +31,35 @@ jobs:
               if p.name in {'check_dev11_frozen_truth_contract.py','check_dev12_peer_starvation_contract.py'}:
                   continue
               s=p.read_text()
-              s=s.replace('0.2.0-experimental.11','0.2.0-experimental.12')
-              s=s.replace('Experimental.11','Experimental.12')
-              s=s.replace('experimental.11','experimental.12')
-              s=s.replace('dev11 version truth missing','dev12 version truth missing')
-              s=s.replace('reportVersion: 13','reportVersion: 14')
-              if p.name == 'check_version_truth_contract.py':
-                  s=s.replace("cfg['android']['versionCode']==11","cfg['android']['versionCode']==12")
-                  s=s.replace("cfg['extra']['releaseIteration']=='experimental.11'","cfg['extra']['releaseIteration']=='experimental.12'")
+              for old,new in [
+                  ('0.2.0-experimental.11','0.2.0-experimental.12'),
+                  ('Experimental.11','Experimental.12'),
+                  ('experimental.11','experimental.12'),
+                  ('dev11 version truth missing','dev12 version truth missing'),
+                  ('reportVersion: 13','reportVersion: 14'),
+                  ("versionCode']==11","versionCode']==12"),
+                  ("versionCode'] == 11","versionCode'] == 12"),
+                  ('versionCode must be 11','versionCode must be 12'),
+                  ('versionCode is 11','versionCode is 12'),
+              ]:
+                  s=s.replace(old,new)
               p.write_text(s)
           PY
+      - name: Commit validator migration
+        shell: bash
+        run: |
+          set -euxo pipefail
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git add validation/android
+          if ! git diff --cached --quiet; then
+            git commit -m 'test: migrate inherited Android contracts to dev12 version truth'
+            git push origin HEAD:main
+          fi
+      - name: Validate migrated contracts
+        shell: bash
+        run: |
+          set -euxo pipefail
           python3 validation/android/check_android_ranging_contract.py
           python3 validation/android/check_ble_range_accuracy_contract.py
           python3 validation/android/check_ble_continuity_contract.py
@@ -55,12 +74,3 @@ jobs:
           python3 validation/android/check_version_truth_contract.py
           python3 validation/android/check_dev11_frozen_truth_contract.py
           python3 validation/android/check_dev12_peer_starvation_contract.py
-      - name: Commit validator migration
-        shell: bash
-        run: |
-          set -euxo pipefail
-          git config user.name github-actions[bot]
-          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
-          git add validation/android
-          git commit -m 'test: migrate inherited Android contracts to dev12 version truth'
-          git push origin HEAD:main
