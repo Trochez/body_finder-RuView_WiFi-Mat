@@ -1,1 +1,1 @@
-dev12 bootstrap requested 2026-08-24 attempt-3 verified-chunks
+dev12 bootstrap requested 2026-08-24 attempt-4 source-only
