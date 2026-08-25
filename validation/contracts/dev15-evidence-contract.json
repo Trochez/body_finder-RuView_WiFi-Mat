@@ -1,0 +1,27 @@
+{
+  "release": "dev-15",
+  "build": "0.2.0-experimental.15",
+  "protocol_version": 2,
+  "validation_snapshot_schema_version": 3,
+  "screenshots_required": false,
+  "required_top_level": [
+    "build", "protocol_version", "json_self_contained", "screenshots_required",
+    "manual_geometry_override", "human_scanning_enabled", "human_localization_validated",
+    "rescue_use_validated", "export_metadata", "validation_run"
+  ],
+  "required_export_metadata": [
+    "device_alias", "device_manufacturer", "device_model", "node_id", "run_id", "run_type",
+    "snapshot_stage", "elapsed_ms", "snapshot_frozen", "source_long_run_id", "export_sequence",
+    "generated_at", "build", "protocol_version", "suggested_filename"
+  ],
+  "required_validation_run": [
+    "run_id", "elapsed_ms", "snapshot_schema_version", "snapshot_frozen",
+    "acceptance_duration_eligible", "short_diagnostic_run", "preflight_at_start", "environment",
+    "environment_violation_events", "usable_metric_range_uptime_percent", "geometry_2d_uptime_percent",
+    "validation_counters", "acquisition_state_at_end", "per_peer_at_end", "events"
+  ],
+  "missing_required_field_is_fail": true,
+  "wrong_type_is_fail": true,
+  "out_of_contract_value_is_fail": true,
+  "diagnosis_must_not_depend_on_filename": true
+}
