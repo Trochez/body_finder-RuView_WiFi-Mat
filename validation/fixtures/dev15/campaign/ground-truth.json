@@ -1,0 +1,23 @@
+{
+  "schema": "body-finder-ground-truth-distances-v1",
+  "units": "m",
+  "method": "tape",
+  "ground_truth_entered_into_app": false,
+  "pairs_m": [
+    {
+      "a": "pixel-10-pro",
+      "b": "pixel-7-pro",
+      "distance_m": 3.07
+    },
+    {
+      "a": "pixel-10-pro",
+      "b": "lenovo-tb-j606l",
+      "distance_m": 3.23
+    },
+    {
+      "a": "pixel-7-pro",
+      "b": "lenovo-tb-j606l",
+      "distance_m": 1.83
+    }
+  ]
+}

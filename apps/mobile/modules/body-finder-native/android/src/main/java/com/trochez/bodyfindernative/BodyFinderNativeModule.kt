@@ -63,6 +63,7 @@ private data class CompletedValidationRun(val runId: String, val snapshotJson: S
 private data class PeerStarvationCounterSnapshot(
   val starvationCount: Long,
   val recoveryParticipationCount: Long,
+  val firstValidCallbackCount: Long,
   val recoverySuccessCount: Long,
   val recoveryFailureCount: Long,
 )
@@ -100,6 +101,7 @@ private object ValidationRuntime {
   @Volatile private var baselineCohortRecoveries: Long = 0
   @Volatile private var baselineCohortRecoveryFailures: Long = 0
   @Volatile private var baselineRecoveryAttempts: Long = 0
+  @Volatile private var baselineFirstValidCallbacks: Long = 0
   @Volatile private var baselineRestartSuppressed: Long = 0
   @Volatile private var baselineRangingYield: Long = 0
   @Volatile private var baselineRangingReal: Long = 0
@@ -147,6 +149,7 @@ private object ValidationRuntime {
     baselineCohortRecoveries = BleAcquisitionPolicy.cohortRecoveryCount()
     baselineCohortRecoveryFailures = BleAcquisitionPolicy.cohortRecoveryFailureCount()
     baselineRecoveryAttempts = BleAcquisitionPolicy.recoveryAttemptCount()
+    baselineFirstValidCallbacks = BleAcquisitionPolicy.firstValidRecoveryCallbackCount()
     baselineRestartSuppressed = BleAcquisitionPolicy.restartSuppressedCount()
     val r = if (Build.VERSION.SDK_INT >= 36) SystemRangingApi36.counterSnapshot() else SystemRangingCounterSnapshot(0, 0, 0)
     baselineRangingYield = r.yieldTransitions
@@ -222,6 +225,7 @@ private object ValidationRuntime {
       .put("tx_packets_delta", base.optLong("tx_packets_delta"))
       .put("rx_packets_delta", base.optLong("rx_packets_delta"))
       .put("recovery_attempt_delta", base.optLong("recovery_attempt_delta"))
+      .put("recovery_first_valid_callback_delta", base.optLong("recovery_first_valid_callback_delta"))
       .put("cohort_stall_delta", base.optLong("cohort_stall_delta"))
       .put("peer_starvation_delta", base.optLong("peer_starvation_delta"))
       .put("peer_starvation_recovery_request_delta", base.optLong("peer_starvation_recovery_request_delta"))
@@ -341,6 +345,7 @@ private object ValidationRuntime {
       .put("cohort_recovery_delta", (BleAcquisitionPolicy.cohortRecoveryCount() - baselineCohortRecoveries).coerceAtLeast(0))
       .put("cohort_recovery_failure_delta", (BleAcquisitionPolicy.cohortRecoveryFailureCount() - baselineCohortRecoveryFailures).coerceAtLeast(0))
       .put("recovery_attempt_delta", (BleAcquisitionPolicy.recoveryAttemptCount() - baselineRecoveryAttempts).coerceAtLeast(0))
+      .put("recovery_first_valid_callback_delta", (BleAcquisitionPolicy.firstValidRecoveryCallbackCount() - baselineFirstValidCallbacks).coerceAtLeast(0))
       .put("restart_suppressed_delta", (BleAcquisitionPolicy.restartSuppressedCount() - baselineRestartSuppressed).coerceAtLeast(0))
       .put("peer_starvation_delta", (BleAcquisitionPolicy.peerStarvationCount() - baselinePeerStarvation).coerceAtLeast(0))
       .put("peer_starvation_recovery_request_delta", (BleAcquisitionPolicy.peerStarvationRecoveryRequestCount() - baselinePeerStarvationRecoveryRequest).coerceAtLeast(0))
@@ -446,6 +451,7 @@ private object FabricRuntime {
   val starvationSinceByPeer = ConcurrentHashMap<String, Long>()
   val peerStarvationCountByPeer = ConcurrentHashMap<String, AtomicLong>()
   val peerStarvationRecoveryParticipationByPeer = ConcurrentHashMap<String, AtomicLong>()
+  val peerStarvationRecoveryFirstValidByPeer = ConcurrentHashMap<String, AtomicLong>()
   val peerStarvationRecoverySuccessByPeer = ConcurrentHashMap<String, AtomicLong>()
   val peerStarvationRecoveryFailureByPeer = ConcurrentHashMap<String, AtomicLong>()
   val peerLastStarvationRecoveryGeneration = ConcurrentHashMap<String, Long>()
@@ -514,6 +520,7 @@ private object FabricRuntime {
     starvationSinceByPeer.clear()
     peerStarvationCountByPeer.clear()
     peerStarvationRecoveryParticipationByPeer.clear()
+    peerStarvationRecoveryFirstValidByPeer.clear()
     peerStarvationRecoverySuccessByPeer.clear()
     peerStarvationRecoveryFailureByPeer.clear()
     peerLastStarvationRecoveryGeneration.clear()
@@ -540,6 +547,7 @@ private object FabricRuntime {
       validationStarvationBaselineByPeer[peerId] = PeerStarvationCounterSnapshot(
         peerStarvationCountByPeer[peerId]?.get() ?: 0,
         peerStarvationRecoveryParticipationByPeer[peerId]?.get() ?: 0,
+        peerStarvationRecoveryFirstValidByPeer[peerId]?.get() ?: 0,
         peerStarvationRecoverySuccessByPeer[peerId]?.get() ?: 0,
         peerStarvationRecoveryFailureByPeer[peerId]?.get() ?: 0,
       )
@@ -1337,7 +1345,10 @@ class BodyFinderNativeModule : Module() {
     val validRssi = BleRangeEstimator.isValidBleRssi(result.rssi.toDouble())
     val callbackPeerId = peerIdForIdentity(id)
     if (validRssi && BleAcquisitionPolicy.currentStrategy() == BleAcquisitionStrategy.UNFILTERED_RECOVERY) {
-      BleAcquisitionPolicy.noteRecoveryFirstValidCallback(now, callbackPeerId)
+      val acceptedFirstValid = BleAcquisitionPolicy.noteRecoveryFirstValidCallback(now, callbackPeerId)
+      if (acceptedFirstValid && callbackPeerId != null && BleAcquisitionPolicy.activeRecoveryTriggerKind() == RecoveryTriggerKind.PEER_STARVATION) {
+        FabricRuntime.peerStarvationRecoveryFirstValidByPeer.computeIfAbsent(callbackPeerId) { AtomicLong(0) }.incrementAndGet()
+      }
     }
     FabricRuntime.acquisitionStatsByIdentity.computeIfAbsent(id) { BleAcquisitionStats() }.record(now, validRssi, BleAcquisitionPolicy.currentStrategy())
 
@@ -1642,10 +1653,12 @@ class BodyFinderNativeModule : Module() {
           put("starvation_since_wall_ms", FabricRuntime.starvationSinceByPeer[peerId] ?: JSONObject.NULL)
           put("starvation_count", FabricRuntime.peerStarvationCountByPeer[peerId]?.get() ?: 0)
           put("starvation_recovery_participation_count", FabricRuntime.peerStarvationRecoveryParticipationByPeer[peerId]?.get() ?: 0)
+          put("first_callback_after_recovery_count", FabricRuntime.peerStarvationRecoveryFirstValidByPeer[peerId]?.get() ?: 0)
           put("last_starvation_recovery_generation", FabricRuntime.peerLastStarvationRecoveryGeneration[peerId] ?: JSONObject.NULL)
           put("last_starvation_recovery_latency_ms", FabricRuntime.peerLastStarvationRecoveryLatencyMs[peerId] ?: JSONObject.NULL)
           put("run_starvation_count", starvationDelta(FabricRuntime.peerStarvationCountByPeer[peerId]?.get() ?: 0, starvationBaseline?.starvationCount))
           put("run_starvation_recovery_participation_count", starvationDelta(FabricRuntime.peerStarvationRecoveryParticipationByPeer[peerId]?.get() ?: 0, starvationBaseline?.recoveryParticipationCount))
+          put("run_first_callback_after_recovery_count", starvationDelta(FabricRuntime.peerStarvationRecoveryFirstValidByPeer[peerId]?.get() ?: 0, starvationBaseline?.firstValidCallbackCount))
           put("run_starvation_recovery_success_count", starvationDelta(FabricRuntime.peerStarvationRecoverySuccessByPeer[peerId]?.get() ?: 0, starvationBaseline?.recoverySuccessCount))
           put("run_starvation_recovery_failure_count", starvationDelta(FabricRuntime.peerStarvationRecoveryFailureByPeer[peerId]?.get() ?: 0, starvationBaseline?.recoveryFailureCount))
           put("body_finder_scan_results_for_identity", identity?.let { FabricRuntime.bleSeenCountByIdentity[it]?.get() } ?: 0)

@@ -49,7 +49,7 @@ enum class PeerHealthState {
 }
 
 /**
- * Acquisition-only policy for experimental.14.
+ * Acquisition-only policy for experimental.15.
  *
  * Physical ranging truth is frozen: android-ble-lab-v1, minSamples=3,
  * freshness=5s, holdover=10s, sigma aging and solver rules are unchanged.
@@ -94,6 +94,7 @@ internal object BleAcquisitionPolicy {
   @Volatile private var firstValidCallbackGeneration: Long? = null
   @Volatile private var firstValidCallbackPeerId: String? = null
   @Volatile private var firstValidCallbackWallMs: Long? = null
+  @Volatile private var firstValidCallbackCountTotal: Long = 0L
   @Volatile private var lastRecoveryLatencyMs: Long? = null
   @Volatile private var lastRecoveryAttemptWallMs: Long = 0L
   @Volatile private var filteredAccumulatedMs: Long = 0L
@@ -133,6 +134,7 @@ internal object BleAcquisitionPolicy {
     firstValidCallbackGeneration = null
     firstValidCallbackPeerId = null
     firstValidCallbackWallMs = null
+    firstValidCallbackCountTotal = 0L
     lastRecoveryLatencyMs = null
     lastRecoveryAttemptWallMs = 0
     filteredAccumulatedMs = 0
@@ -165,6 +167,7 @@ internal object BleAcquisitionPolicy {
   fun firstValidRecoveryGeneration(): Long? = firstValidCallbackGeneration
   fun firstValidRecoveryPeerId(): String? = firstValidCallbackPeerId
   fun firstValidRecoveryWallMs(): Long? = firstValidCallbackWallMs
+  fun firstValidRecoveryCallbackCount(): Long = firstValidCallbackCountTotal
   fun transitionCount(): Long = transitionCount
   fun cohortStallCount(): Long = cohortStallCount
   fun cohortRecoveryCount(): Long = cohortRecoveryCount
@@ -315,6 +318,7 @@ internal object BleAcquisitionPolicy {
     firstValidCallbackGeneration = generation
     firstValidCallbackPeerId = peerId
     firstValidCallbackWallMs = now
+    firstValidCallbackCountTotal++
     ValidationEventLog.record(
       "FIRST_VALID_BF_CALLBACK_AFTER_RECOVERY", "BODY_FINDER_CALLBACK", now = now,
       peerId = peerId, triggerKind = activeRecoveryTriggerKind?.name,

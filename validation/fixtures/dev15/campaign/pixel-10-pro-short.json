@@ -1,0 +1,97 @@
+{
+  "report_version": 17,
+  "generated_at": "2026-08-25T10:00:00Z",
+  "app": "Body Finder \u2013 RuView",
+  "build": "0.2.0-experimental.15",
+  "protocol_version": 2,
+  "json_self_contained": true,
+  "screenshots_required": false,
+  "manual_geometry_override": false,
+  "human_scanning_enabled": false,
+  "human_localization_validated": false,
+  "rescue_use_validated": false,
+  "node_id": "node-pixel10",
+  "export_metadata": {
+    "device_alias": "pixel-10-pro",
+    "device_manufacturer": "Google",
+    "device_model": "Pixel 10 Pro",
+    "node_id": "node-pixel10",
+    "run_id": "pixel-10-pro-short-run",
+    "run_type": "SHORT",
+    "snapshot_stage": "SHORT",
+    "elapsed_ms": 60000,
+    "snapshot_frozen": true,
+    "source_long_run_id": "pixel-10-pro-long-run",
+    "export_sequence": 1,
+    "generated_at": "2026-08-25T10:00:00Z",
+    "build": "0.2.0-experimental.15",
+    "protocol_version": 2,
+    "suggested_filename": "pixel-10-pro-pixel-10-short.json"
+  },
+  "validation_run": {
+    "run_id": "pixel-10-pro-short-run",
+    "started_wall_ms": 2000000,
+    "ended_wall_ms": 2060000,
+    "elapsed_ms": 60000,
+    "snapshot_schema_version": 3,
+    "snapshot_frozen": true,
+    "acceptance_duration_eligible": false,
+    "short_diagnostic_run": true,
+    "preflight_at_start": {
+      "ready": true,
+      "acquisition_strategy": "FILTERED_PRIMARY",
+      "hardware_filter_count": 1
+    },
+    "environment": {
+      "valid": true,
+      "violation_count": 0,
+      "violation_types": [],
+      "unauthorized_strategy_violation_count": 0
+    },
+    "environment_violation_events": [],
+    "usable_metric_range_uptime_percent": 99.0,
+    "geometry_2d_uptime_percent": 99.0,
+    "validation_counters": {
+      "peer_expire_delta": 0,
+      "recovery_attempt_delta": 0,
+      "peer_starvation_recovery_request_delta": 0,
+      "recovery_first_valid_callback_delta": 0,
+      "peer_starvation_recovery_success_delta": 0,
+      "peer_starvation_recovery_failure_delta": 0
+    },
+    "acquisition_state_at_end": {
+      "recovery_attempts_in_current_5min_window": 0,
+      "filtered_probe_window_ms": 15000,
+      "filtered_probe_exit_target_ms": 14500
+    },
+    "per_peer_at_end": [
+      {
+        "node_id": "node-pixel7",
+        "run_starvation_recovery_participation_count": 0,
+        "run_first_callback_after_recovery_count": 0,
+        "run_starvation_recovery_success_count": 0,
+        "run_starvation_recovery_failure_count": 0
+      },
+      {
+        "node_id": "node-lenovo",
+        "run_starvation_recovery_participation_count": 0,
+        "run_first_callback_after_recovery_count": 0,
+        "run_starvation_recovery_success_count": 0,
+        "run_starvation_recovery_failure_count": 0
+      }
+    ],
+    "events": [],
+    "fused_range_observations_at_end": [
+      {
+        "observer_node_id": "node-pixel10",
+        "peer_node_id": "node-pixel7",
+        "distance_m": 3.1
+      },
+      {
+        "observer_node_id": "node-pixel10",
+        "peer_node_id": "node-lenovo",
+        "distance_m": 3.2
+      }
+    ]
+  }
+}
