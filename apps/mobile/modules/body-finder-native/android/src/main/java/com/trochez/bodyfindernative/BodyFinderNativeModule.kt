@@ -1107,7 +1107,15 @@ class BodyFinderNativeModule : Module() {
     FabricRuntime.bleScanState = "ACTIVE_PEER_SEEN"
 
     val validRssi = BleRangeEstimator.isValidBleRssi(result.rssi.toDouble())
-    if (validRssi && BleAcquisitionPolicy.currentStrategy() == BleAcquisitionStrategy.UNFILTERED_RECOVERY) ValidationEventLog.record("FIRST_VALID_BF_CALLBACK_AFTER_RECOVERY", "BODY_FINDER_CALLBACK", now = now)
+    if (validRssi && BleAcquisitionPolicy.currentStrategy() == BleAcquisitionStrategy.UNFILTERED_RECOVERY) {
+      val callbackPeerId = FabricRuntime.peers.values.firstNotNullOfOrNull { pair ->
+        try {
+          val peer=JSONObject(pair.first)
+          if(peer.optString("ble_identity")==id) peer.optString("node_id").takeIf { it.isNotBlank() } else null
+        } catch(_:Throwable) { null }
+      }
+      if(callbackPeerId!=null) BleAcquisitionPolicy.noteValidCallback(callbackPeerId,now)
+    }
     FabricRuntime.acquisitionStatsByIdentity.computeIfAbsent(id) { BleAcquisitionStats() }.record(now, validRssi, BleAcquisitionPolicy.currentStrategy())
 
     val advertisedTx = result.scanRecord?.txPowerLevel?.takeIf { it in -100..20 } ?: Int.MIN_VALUE
