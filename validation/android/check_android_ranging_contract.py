@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Static acceptance checks for Android BLE/ranging plumbing.
 
-Experimental.11 preserves the validated COARSE metric/continuity contracts while
+Experimental.12 preserves the validated COARSE metric/continuity contracts while
 adding completed-run integrity, causal recovery provenance and frozen geometry truth.
 """
 from pathlib import Path
@@ -60,7 +60,7 @@ require("CIRCUIT_BREAKER_FAILURES" in system, "bounded failure circuit breaker m
 require("BLE_ACQUISITION_YIELD" in system, "API36 BLE-acquisition yield missing")
 for token in ["getDiagnosticsJson","BLE / ranging diagnostics","Fabric diagnostics","ble_diagnostics","fabric_diagnostics","report_version: REPORT_VERSION"]:
     require(token in app or token in native, f"mobile report/Expert token missing: {token}")
-require("0.2.0-experimental.11" in version, "dev11 version truth missing")
+require("0.2.0-experimental.12" in version, "dev12 version truth missing")
 for forbidden in ["SET MEASURED POSITION", "Guardar posición", "Set position"]:
     require(forbidden not in app, f"manual geometry UI reintroduced: {forbidden}")
-print("Android ranging experimental.11 adaptive acquisition/validation-integrity contract: PASS")
+print("Android ranging experimental.12 adaptive acquisition/validation-integrity contract: PASS")
