@@ -41,17 +41,8 @@ jobs:
           set -euxo pipefail
           git config user.name github-actions[bot]
           git config user.email 41898282+github-actions[bot]@users.noreply.github.com
-          git add apps crates validation protocol docs DEV13_FROZEN_TRUTH.md .github/workflows/release-exp13.yml scripts/apply_dev13.py
+          git add apps crates validation protocol docs DEV13_FROZEN_TRUTH.md scripts/apply_dev13.py
           if ! git diff --cached --quiet; then
             git commit -m 'feat: implement dev13 recovery-aware environment integrity'
             git push origin HEAD:main
           fi
-      - name: Trigger dev13 release after workflow is committed
-        shell: bash
-        run: |
-          set -euxo pipefail
-          git pull --ff-only origin main
-          printf 'dev13 release trigger %s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" > RELEASE_DEV13_TRIGGER.txt
-          git add RELEASE_DEV13_TRIGGER.txt
-          git commit -m 'ci: trigger dev13 full release matrix'
-          git push origin HEAD:main
