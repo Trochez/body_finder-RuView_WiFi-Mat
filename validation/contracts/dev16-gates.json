@@ -1,0 +1,20 @@
+{
+  "release": "dev-16",
+  "G0": "version/schema",
+  "G1": "frozen physical truth",
+  "G2": "preflight",
+  "G3": "duration",
+  "G4": "environment",
+  "G5": "completed acquisition state",
+  "G6": "3-node usable metric continuity",
+  "G7": "3-node geometry 2D",
+  "G8": "peer expiry",
+  "G9": "rolling recovery budget",
+  "G10": "recovery causality",
+  "G11": "target peer",
+  "G12": "counters/events/frozen summaries",
+  "G13": "hard recovery timing",
+  "G14": "evidence contract",
+  "G15": "history isolation",
+  "G16": "directed campaign semantics"
+}

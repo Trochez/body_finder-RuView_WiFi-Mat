@@ -5,6 +5,7 @@ import android.bluetooth.le.ScanCallback
 import android.bluetooth.le.ScanFilter
 import android.bluetooth.le.ScanSettings
 import android.os.Build
+import android.os.SystemClock
 import org.json.JSONObject
 import java.util.concurrent.ConcurrentLinkedDeque
 import java.util.concurrent.atomic.AtomicLong
@@ -49,7 +50,7 @@ enum class PeerHealthState {
 }
 
 /**
- * Acquisition-only policy for experimental.15.
+ * Acquisition-only policy for experimental.16.
  *
  * Physical ranging truth is frozen: android-ble-lab-v1, minSamples=3,
  * freshness=5s, holdover=10s, sigma aging and solver rules are unchanged.
@@ -68,8 +69,10 @@ internal object BleAcquisitionPolicy {
   const val COHORT_STALL_THRESHOLD_MS = 5_000L
   const val PEER_STARVATION_PERSIST_MS = 6_000L
   const val RECOVERY_UNFILTERED_WINDOW_MS = 10_000L
+  const val RECOVERY_UNFILTERED_ACTION_TARGET_MS = 9_500L
   const val FILTERED_PROBE_WINDOW_MS = 15_000L
   const val FILTERED_PROBE_EXIT_TARGET_MS = 14_500L
+  const val FILTERED_PROBE_ACTION_TARGET_MS = 14_000L
   const val MIN_RESTART_COOLDOWN_MS = 30_000L
   const val MAX_RECOVERY_ATTEMPTS_PER_5MIN = 3
   const val RECOVERY_ATTEMPT_WINDOW_MS = 300_000L
@@ -88,8 +91,11 @@ internal object BleAcquisitionPolicy {
   @Volatile private var cohortRecoveryFailureCount: Long = 0L
   @Volatile private var restartSuppressedCount: Long = 0L
   @Volatile private var recoveryAttemptCountTotal: Long = 0L
+  @Volatile private var maxRecoveryAttemptsInAnyRollingWindow: Int = 0
   @Volatile private var recoveryStartedWallMs: Long? = null
+  @Volatile private var recoveryStartedElapsedMs: Long? = null
   @Volatile private var recoveryProbeStartedWallMs: Long? = null
+  @Volatile private var recoveryProbeStartedElapsedMs: Long? = null
   @Volatile private var recoveryProbeDeadlineWallMs: Long? = null
   @Volatile private var firstValidCallbackGeneration: Long? = null
   @Volatile private var firstValidCallbackPeerId: String? = null
@@ -128,8 +134,11 @@ internal object BleAcquisitionPolicy {
     cohortRecoveryFailureCount = 0
     restartSuppressedCount = 0
     recoveryAttemptCountTotal = 0
+    maxRecoveryAttemptsInAnyRollingWindow = 0
     recoveryStartedWallMs = null
+    recoveryStartedElapsedMs = null
     recoveryProbeStartedWallMs = null
+    recoveryProbeStartedElapsedMs = null
     recoveryProbeDeadlineWallMs = null
     firstValidCallbackGeneration = null
     firstValidCallbackPeerId = null
@@ -162,7 +171,10 @@ internal object BleAcquisitionPolicy {
   fun currentCohortHealth(): BodyFinderCohortHealth = cohortHealth
   fun strategySinceMs(): Long = strategySinceWallMs
   fun recoveryStartedMs(): Long? = recoveryStartedWallMs
+  fun recoveryUnfilteredElapsedMs(nowElapsedMs: Long = SystemClock.elapsedRealtime()): Long? = recoveryStartedElapsedMs?.let { max(0L, nowElapsedMs - it) }
   fun recoveryProbeStartedMs(): Long? = recoveryProbeStartedWallMs
+  fun filteredProbeElapsedMs(nowElapsedMs: Long = SystemClock.elapsedRealtime()): Long? = recoveryProbeStartedElapsedMs?.let { max(0L, nowElapsedMs - it) }
+  fun maxRecoveryAttemptsInAnyRollingWindow(): Int = maxRecoveryAttemptsInAnyRollingWindow
   fun recoveryProbeDeadlineMs(): Long? = recoveryProbeDeadlineWallMs
   fun firstValidRecoveryGeneration(): Long? = firstValidCallbackGeneration
   fun firstValidRecoveryPeerId(): String? = firstValidCallbackPeerId
@@ -218,6 +230,7 @@ internal object BleAcquisitionPolicy {
     strategyRecoveryGeneration = if (next == BleAcquisitionStrategy.UNFILTERED_RECOVERY || next == BleAcquisitionStrategy.FILTERED_RECOVERY_PROBE) activeRecoveryGeneration else null
     if (next == BleAcquisitionStrategy.FILTERED_RECOVERY_PROBE) {
       recoveryProbeStartedWallMs = now
+      recoveryProbeStartedElapsedMs = SystemClock.elapsedRealtime()
       recoveryProbeDeadlineWallMs = now + FILTERED_PROBE_EXIT_TARGET_MS
     }
     transitionCount++
@@ -231,7 +244,9 @@ internal object BleAcquisitionPolicy {
       activeRecoveryTriggerKind = null
       activeRecoveryTriggerPeerId = null
       recoveryStartedWallMs = null
+      recoveryStartedElapsedMs = null
       recoveryProbeStartedWallMs = null
+      recoveryProbeStartedElapsedMs = null
       recoveryProbeDeadlineWallMs = null
       firstValidCallbackGeneration = null
       firstValidCallbackPeerId = null
@@ -284,9 +299,12 @@ internal object BleAcquisitionPolicy {
       activeRecoveryTriggerKind = null
       activeRecoveryTriggerPeerId = null
       recoveryStartedWallMs = null
+      recoveryStartedElapsedMs = null
     }
     recoveryAttemptCountTotal++
     recoveryAttemptWallMs.addLast(now)
+    recoveryAttemptsInWindow(now)
+    maxRecoveryAttemptsInAnyRollingWindow = max(maxRecoveryAttemptsInAnyRollingWindow, recoveryAttemptWallMs.size)
     val generation = recoveryGenerationCounter.incrementAndGet()
     activeRecoveryGeneration = generation
     activeRecoveryTriggerKind = triggerKind
@@ -300,6 +318,7 @@ internal object BleAcquisitionPolicy {
     lastRecoveryTriggerPeerId = triggerPeerId
     if (triggerKind == RecoveryTriggerKind.PEER_STARVATION) peerStarvationRecoveryRequestCount++
     recoveryStartedWallMs = now
+    recoveryStartedElapsedMs = SystemClock.elapsedRealtime()
     lastRecoveryAttemptWallMs = now
     cohortHealth = BodyFinderCohortHealth.BF_COHORT_RECOVERING
     ValidationEventLog.record(
@@ -478,10 +497,18 @@ internal object BleAcquisitionPolicy {
     .put("active_recovery_trigger_kind", activeRecoveryTriggerKind?.name ?: JSONObject.NULL)
     .put("active_recovery_trigger_peer_id", activeRecoveryTriggerPeerId ?: JSONObject.NULL)
     .put("recovery_unfiltered_window_ms", RECOVERY_UNFILTERED_WINDOW_MS)
+    .put("recovery_unfiltered_hard_limit_ms", RECOVERY_UNFILTERED_WINDOW_MS)
+    .put("recovery_unfiltered_action_target_ms", RECOVERY_UNFILTERED_ACTION_TARGET_MS)
     .put("filtered_probe_window_ms", FILTERED_PROBE_WINDOW_MS)
+    .put("filtered_probe_hard_limit_ms", FILTERED_PROBE_WINDOW_MS)
     .put("filtered_probe_exit_target_ms", FILTERED_PROBE_EXIT_TARGET_MS)
+    .put("filtered_probe_action_target_ms", FILTERED_PROBE_ACTION_TARGET_MS)
     .put("restart_cooldown_ms", MIN_RESTART_COOLDOWN_MS)
     .put("max_recovery_attempts_per_5min", MAX_RECOVERY_ATTEMPTS_PER_5MIN)
+    .put("recovery_budget_window_ms", RECOVERY_ATTEMPT_WINDOW_MS)
+    .put("recovery_budget_limit", MAX_RECOVERY_ATTEMPTS_PER_5MIN)
+    .put("recovery_attempts_in_current_5min_window", recoveryAttemptsInWindow(now))
+    .put("recovery_attempts_max_in_any_rolling_5min_window", maxRecoveryAttemptsInAnyRollingWindow)
 
   fun health(callbackCount: Long, currentGapMs: Long?, valid5s: Int, valid8s: Int): String = when {
     callbackCount <= 0L -> "NO_BODY_FINDER_CALLBACK"

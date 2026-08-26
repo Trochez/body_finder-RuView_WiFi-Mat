@@ -1,0 +1,10 @@
+{
+  "schema": "dev16-self-contained-json-evidence-v4",
+  "snapshot_schema_version": 4,
+  "report_version": 18,
+  "protocol_version": 2,
+  "screenshots_required": false,
+  "json_self_contained": true,
+  "acceptance_source": "validation_run frozen snapshot",
+  "runtime_live_preflight_not_acceptance_evidence": true
+}

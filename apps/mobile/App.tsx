@@ -34,7 +34,7 @@ const T = {
     peers: 'nodes', share: 'Share complete test JSON', empty: 'Keep the target area empty while calibrating.',
     network: 'OPEN / UNTRUSTED FIELD NETWORK', relative: 'POSITION RELATIVE TO THIS DEVICE', geometry: 'SENSOR GEOMETRY',
     estimating: 'Estimating automatically…', positioned: 'nodes positioned', residual: 'solver residual', condition: 'graph condition',
-    noTarget: 'Human scanning remains intentionally blocked until the experimental.15 validation-integrity gate is reviewed. This build validates sensor geometry acquisition continuity only.',
+    noTarget: 'Human scanning remains intentionally blocked until the experimental.16 validation-integrity gate is reviewed. This build validates sensor geometry acquisition continuity only.',
     confidence: 'human confidence', uncertainty: 'position uncertainty',
     evidence: 'Evidence: connected-Wi-Fi RSSI disturbance (not CSI). Sensor metric coordinates require validated pairwise ranging.',
     unresolved: 'unresolved nodes are intentionally not placed on the radar', startRun: 'Start validation run', endRun: 'End validation run',
@@ -46,7 +46,7 @@ const T = {
     peers: 'nodos', share: 'Compartir JSON completo de prueba', empty: 'Mantén vacía el área objetivo durante la calibración.',
     network: 'RED DE CAMPO ABIERTA / NO CONFIABLE', relative: 'POSICIÓN RELATIVA A ESTE DISPOSITIVO', geometry: 'GEOMETRÍA DE SENSORES',
     estimating: 'Estimando automáticamente…', positioned: 'nodos posicionados', residual: 'residual del solver', condition: 'condición del grafo',
-    noTarget: 'El escaneo humano permanece bloqueado intencionalmente hasta revisar el gate de continuidad de adquisición BLE de experimental.15. Esta build valida únicamente la continuidad de adquisición de la geometría de sensores.',
+    noTarget: 'El escaneo humano permanece bloqueado intencionalmente hasta revisar el gate de continuidad de adquisición BLE de experimental.16. Esta build valida únicamente la continuidad de adquisición de la geometría de sensores.',
     confidence: 'confianza humana', uncertainty: 'incertidumbre de posición',
     evidence: 'Evidencia: perturbación RSSI de Wi‑Fi conectado (no CSI). Las coordenadas métricas requieren ranging entre nodos validado.',
     unresolved: 'los nodos no resueltos no se colocan artificialmente en el radar', startRun: 'Iniciar corrida de validación', endRun: 'Finalizar corrida de validación',
@@ -300,7 +300,7 @@ export default function App() {
       },
       truth: 'LIVE_DEVICE_CAPABILITIES__VALIDATED_COARSE_BLE_METRIC_0P5_TO_5M__BOUNDED_HOLDOVER__ADAPTIVE_FILTERED_PRIMARY_WITH_FULL_COHORT_AND_PER_PEER_STARVATION_RECOVERY__RANGING_MANAGER_BLE_YIELD__RECIPROCAL_FUSION__AUTOGEOMETRY_EXPERIMENTAL_NOT_RESCUE_VALIDATED',
       evidence_contract: {
-        schema: 'dev15-self-contained-json-evidence-v3', screenshots_required: false, json_self_contained: true,
+        schema: 'dev16-self-contained-json-evidence-v4', screenshots_required: false, json_self_contained: true,
         required_external_input: 'ground_truth_distances_only_for_accuracy_report',
         diagnostic_source: 'this JSON export',
       },
@@ -418,11 +418,11 @@ export default function App() {
             <Text style={s.text}>Node geometry: AUTO ONLY — manual override disabled</Text><Text style={s.text}>Geometry authority: {geometrySelection.source}</Text>
             <Text style={s.text}>BLE RSSI: validated COARSE profile android-ble-lab-v1 only inside 0.5–5.0 m. Profile parameters are frozen from dev-6.</Text>
             <Text style={s.text}>Continuity: fresh metric estimates may enter a bounded 10 s HOLDOVER when samples briefly disappear; sigma increases with age and hard expiry removes the edge.</Text>
-            <Text style={s.text}>Acquisition: experimental.15 uses manufacturer-filtered LOW_LATENCY scanning as FILTERED_PRIMARY. CALLBACK_TYPE_ALL_MATCHES is only the Android callback setting inside the filtered scan; the no-filter path is bounded UNFILTERED_RECOVERY only.</Text>
+            <Text style={s.text}>Acquisition: experimental.16 uses manufacturer-filtered LOW_LATENCY scanning as FILTERED_PRIMARY. CALLBACK_TYPE_ALL_MATCHES is only the Android callback setting inside the filtered scan; the no-filter path is bounded UNFILTERED_RECOVERY only.</Text>
             <Text style={s.text}>API36+: repeated RangingManager close/no-result churn enters a bounded BLE-acquisition yield; only a real platform distance resets system-ranging failures.</Text>
             <Text style={s.text}>RSSI 127 and other invalid values are filtered before the valid queue and are counted separately for diagnostics.</Text>
             <Text style={s.text}>Reciprocal A↔B BLE observations are inverse-variance fused before the solver; REJECT never enters geometry.</Text>
-            <Text style={s.text}>Human scanning: BLOCKED until the experimental.15 validation-integrity gate is reviewed.</Text>
+            <Text style={s.text}>Human scanning: BLOCKED until the experimental.16 validation-integrity gate is reviewed.</Text>
             <Text style={s.text}>Graph condition is not physical accuracy. CSI remains unsupported unless a verified adapter is loaded.</Text></View>
           <Pressable style={s.btnTest} onPress={toggleValidationRun}><Text style={s.btnText}>{validationRun?.active ? tx.endRun : tx.startRun}</Text></Pressable>
           {[

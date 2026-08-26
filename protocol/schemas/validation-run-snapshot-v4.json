@@ -1,0 +1,97 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Body Finder completed validation run snapshot v4",
+  "type": "object",
+  "required": [
+    "snapshot_schema_version",
+    "snapshot_frozen",
+    "run_id",
+    "started_wall_ms",
+    "ended_wall_ms",
+    "elapsed_ms",
+    "preflight_at_start",
+    "environment",
+    "validation_counters",
+    "acquisition_state_at_end",
+    "recovery_timing_summary",
+    "per_peer_at_end",
+    "system_ranging_at_end",
+    "events",
+    "geometry_at_end",
+    "fused_range_observations_at_end"
+  ],
+  "properties": {
+    "snapshot_schema_version": {
+      "const": 4
+    },
+    "snapshot_frozen": {
+      "const": true
+    },
+    "run_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "started_wall_ms": {
+      "type": "number"
+    },
+    "ended_wall_ms": {
+      "type": "number"
+    },
+    "elapsed_ms": {
+      "type": "number",
+      "minimum": 0
+    },
+    "preflight_at_start": {
+      "type": "object"
+    },
+    "environment": {
+      "type": "object"
+    },
+    "validation_counters": {
+      "type": "object"
+    },
+    "acquisition_state_at_end": {
+      "type": "object",
+      "required": [
+        "logical_acquisition_strategy",
+        "active_recovery_generation",
+        "strategy_recovery_generation",
+        "recovery_unfiltered_hard_limit_ms",
+        "recovery_unfiltered_action_target_ms",
+        "filtered_probe_exit_target_ms",
+        "filtered_probe_hard_limit_ms",
+        "filtered_probe_action_target_ms",
+        "recovery_budget_window_ms",
+        "recovery_budget_limit",
+        "recovery_attempt_delta_total",
+        "recovery_attempts_in_current_5min_window_at_end",
+        "recovery_attempts_max_in_any_rolling_5min_window"
+      ]
+    },
+    "recovery_timing_summary": {
+      "type": "object",
+      "required": [
+        "generation_count",
+        "max_unfiltered_duration_ms",
+        "unfiltered_action_target_miss_count",
+        "unfiltered_hard_limit_breach_count",
+        "max_filtered_probe_duration_ms",
+        "filtered_probe_target_miss_count",
+        "filtered_probe_hard_limit_breach_count"
+      ]
+    },
+    "per_peer_at_end": {
+      "type": "array"
+    },
+    "system_ranging_at_end": {
+      "type": "object"
+    },
+    "events": {
+      "type": "array"
+    },
+    "geometry_at_end": {},
+    "fused_range_observations_at_end": {
+      "type": "array"
+    }
+  }
+}

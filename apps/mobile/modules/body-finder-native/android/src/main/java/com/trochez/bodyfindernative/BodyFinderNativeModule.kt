@@ -80,6 +80,8 @@ private object ValidationRuntime {
   @Volatile private var rangeEvidenceUptimeMs: Long = 0
   @Volatile private var freshMetricRangeUptimeMs: Long = 0
   @Volatile private var usableMetricRangeUptimeMs: Long = 0
+  @Volatile private var singleRemotePeerMetricUptimeMs: Long = 0
+  @Volatile private var allExpectedPeerMetricUptimeMs: Long = 0
   @Volatile private var holdoverMetricUptimeMs: Long = 0
   @Volatile private var geometry2dUptimeMs: Long = 0
   @Volatile private var baselinePeerExpire: Long = 0
@@ -127,6 +129,8 @@ private object ValidationRuntime {
     rangeEvidenceUptimeMs = 0
     freshMetricRangeUptimeMs = 0
     usableMetricRangeUptimeMs = 0
+    singleRemotePeerMetricUptimeMs = 0
+    allExpectedPeerMetricUptimeMs = 0
     holdoverMetricUptimeMs = 0
     geometry2dUptimeMs = 0
     baselinePeerExpire = peerExpire
@@ -174,6 +178,8 @@ private object ValidationRuntime {
     if (evidenceReadyPeerCount >= 2) rangeEvidenceUptimeMs += dt
     if (freshMetricReadyPeerCount >= 2) freshMetricRangeUptimeMs += dt
     if (usableMetricReadyPeerCount >= 2) usableMetricRangeUptimeMs += dt
+    if (usableMetricReadyPeerCount >= 1) singleRemotePeerMetricUptimeMs += dt
+    if (activePeerCount > 0 && usableMetricReadyPeerCount >= activePeerCount) allExpectedPeerMetricUptimeMs += dt
     if (usableMetricReadyPeerCount >= 2 && freshMetricReadyPeerCount < 2) holdoverMetricUptimeMs += dt
     if (geometryState == "GEOMETRY_2D") geometry2dUptimeMs += dt
     lastObserveWallMs = now
@@ -218,6 +224,54 @@ private object ValidationRuntime {
       .put("max_background_interval_ms", environmentIntervals.optLong("max_background_interval_ms"))
       .put("foreground_transition_count", environmentIntervals.optLong("foreground_transition_count"))
       .put("unresolved_violation_count", environmentIntervals.optLong("unresolved_violation_count"))
+    val requestWalls = mutableListOf<Long>()
+    val generations = mutableMapOf<Long, MutableList<JSONObject>>()
+    for (i in 0 until events.length()) {
+      val e = events.optJSONObject(i) ?: continue
+      val g = e.optLong("recovery_generation", Long.MIN_VALUE)
+      if (g != Long.MIN_VALUE) generations.getOrPut(g) { mutableListOf() }.add(e)
+      if (e.optString("type") == "RECOVERY_REQUESTED") requestWalls += e.optLong("wall_ms")
+    }
+    var rollingMax = 0
+    requestWalls.sorted().forEach { start -> rollingMax = max(rollingMax, requestWalls.count { it >= start && it <= start + BleAcquisitionPolicy.RECOVERY_ATTEMPT_WINDOW_MS }) }
+    var maxUnfiltered = 0L; var unfilteredTargetMisses = 0; var unfilteredBreaches = 0
+    var maxProbe = 0L; var probeTargetMisses = 0; var probeBreaches = 0
+    generations.values.forEach { group ->
+      val request = group.firstOrNull { it.optString("type") == "RECOVERY_REQUESTED" }
+      val terminal = group.firstOrNull { it.optString("type") == "RECOVERY_SUCCESS" || it.optString("type") == "RECOVERY_FAILURE" }
+      if (request != null && terminal != null) {
+        val d = max(0L, terminal.optLong("wall_ms") - request.optLong("wall_ms")); maxUnfiltered = max(maxUnfiltered,d)
+        if (d > BleAcquisitionPolicy.RECOVERY_UNFILTERED_ACTION_TARGET_MS) unfilteredTargetMisses++
+        if (d > BleAcquisitionPolicy.RECOVERY_UNFILTERED_WINDOW_MS) unfilteredBreaches++
+      }
+      val ps = group.firstOrNull { it.optString("type") == "ACQUISITION_STRATEGY_CHANGED" && it.optString("to_strategy") == "FILTERED_RECOVERY_PROBE" }
+      val pe = group.firstOrNull { it.optString("type") == "ACQUISITION_STRATEGY_CHANGED" && it.optString("from_strategy") == "FILTERED_RECOVERY_PROBE" }
+      if (ps != null) {
+        val d = max(0L, (pe?.optLong("wall_ms") ?: now) - ps.optLong("wall_ms")); maxProbe=max(maxProbe,d)
+        if (d > BleAcquisitionPolicy.FILTERED_PROBE_EXIT_TARGET_MS) probeTargetMisses++
+        if (d > BleAcquisitionPolicy.FILTERED_PROBE_WINDOW_MS) probeBreaches++
+      }
+    }
+    acquisitionState
+      .put("recovery_unfiltered_hard_limit_ms", BleAcquisitionPolicy.RECOVERY_UNFILTERED_WINDOW_MS)
+      .put("recovery_unfiltered_action_target_ms", BleAcquisitionPolicy.RECOVERY_UNFILTERED_ACTION_TARGET_MS)
+      .put("filtered_probe_exit_target_ms", BleAcquisitionPolicy.FILTERED_PROBE_EXIT_TARGET_MS)
+      .put("filtered_probe_hard_limit_ms", BleAcquisitionPolicy.FILTERED_PROBE_WINDOW_MS)
+      .put("filtered_probe_action_target_ms", BleAcquisitionPolicy.FILTERED_PROBE_ACTION_TARGET_MS)
+      .put("recovery_budget_window_ms", BleAcquisitionPolicy.RECOVERY_ATTEMPT_WINDOW_MS)
+      .put("recovery_budget_limit", BleAcquisitionPolicy.MAX_RECOVERY_ATTEMPTS_PER_5MIN)
+      .put("recovery_attempt_delta_total", base.optLong("recovery_attempt_delta"))
+      .put("recovery_attempts_in_current_5min_window_at_end", requestWalls.count { now - it <= BleAcquisitionPolicy.RECOVERY_ATTEMPT_WINDOW_MS })
+      .put("recovery_attempts_max_in_any_rolling_5min_window", rollingMax)
+    val timingSummary = JSONObject()
+      .put("generation_count", generations.size)
+      .put("max_unfiltered_duration_ms", maxUnfiltered)
+      .put("unfiltered_action_target_miss_count", unfilteredTargetMisses)
+      .put("unfiltered_hard_limit_breach_count", unfilteredBreaches)
+      .put("max_filtered_probe_duration_ms", maxProbe)
+      .put("filtered_probe_target_miss_count", probeTargetMisses)
+      .put("filtered_probe_hard_limit_breach_count", probeBreaches)
+
     val counters = JSONObject()
       .put("peer_expire_delta", base.optLong("peer_expire_delta"))
       .put("address_rebind_delta", base.optLong("address_rebind_delta"))
@@ -233,12 +287,13 @@ private object ValidationRuntime {
       .put("peer_starvation_recovery_failure_delta", base.optLong("peer_starvation_recovery_failure_delta"))
     base
       .put("snapshot_frozen", true)
-      .put("snapshot_schema_version", 3)
+      .put("snapshot_schema_version", 4)
       .put("preflight_at_start", try { JSONObject(preflightAtStartJson) } catch (_: Throwable) { JSONObject() })
       .put("environment", environment)
       .put("environment_violation_events", environmentIntervals.optJSONArray("events"))
       .put("validation_counters", counters)
       .put("acquisition_state_at_end", acquisitionState)
+      .put("recovery_timing_summary", timingSummary)
       .put("per_peer_at_end", perPeer)
       .put("per_peer", perPeer)
       .put("system_ranging_at_end", systemRanging)
@@ -329,6 +384,8 @@ private object ValidationRuntime {
       .put("ble_evidence_uptime_percent", pct(rangeEvidenceUptimeMs))
       .put("fresh_metric_range_uptime_percent", pct(freshMetricRangeUptimeMs))
       .put("usable_metric_range_uptime_percent", pct(usableMetricRangeUptimeMs))
+      .put("single_remote_peer_metric_uptime_percent", pct(singleRemotePeerMetricUptimeMs))
+      .put("all_expected_peer_metric_uptime_percent", pct(allExpectedPeerMetricUptimeMs))
       .put("holdover_metric_uptime_percent", pct(holdoverMetricUptimeMs))
       .put("metric_range_uptime_percent", pct(usableMetricRangeUptimeMs))
       .put("geometry_2d_uptime_percent", pct(geometry2dUptimeMs))
@@ -355,7 +412,7 @@ private object ValidationRuntime {
       .put("ranging_real_result_delta", ((if (Build.VERSION.SDK_INT >= 36) SystemRangingApi36.counterSnapshot().realDistanceResults else 0) - baselineRangingReal).coerceAtLeast(0))
       .put("ranging_close_failure_delta", ((if (Build.VERSION.SDK_INT >= 36) SystemRangingApi36.counterSnapshot().closeFailures else 0) - baselineRangingClose).coerceAtLeast(0))
       .put("snapshot_frozen", false)
-      .put("snapshot_schema_version", 3)
+      .put("snapshot_schema_version", 4)
   }
 
   @Synchronized
@@ -1150,6 +1207,26 @@ class BodyFinderNativeModule : Module() {
     var cohort = bodyFinderCohortHealth(now)
     BleAcquisitionPolicy.updateCohortHealth(cohort, now)
 
+    // dev16: action targets use elapsedRealtime internally; wall_ms remains evidence only.
+    if (BleAcquisitionPolicy.currentStrategy() == BleAcquisitionStrategy.UNFILTERED_RECOVERY &&
+        (BleAcquisitionPolicy.recoveryUnfilteredElapsedMs() ?: 0L) >= BleAcquisitionPolicy.RECOVERY_UNFILTERED_ACTION_TARGET_MS) {
+      val triggerPeer = BleAcquisitionPolicy.activeRecoveryTriggerPeerId()
+      val triggerKind = BleAcquisitionPolicy.activeRecoveryTriggerKind()
+      BleAcquisitionPolicy.noteRecoveryFailure(now)
+      if (triggerPeer != null && triggerKind == RecoveryTriggerKind.PEER_STARVATION) {
+        FabricRuntime.peerHealthStateByPeer[triggerPeer] = PeerHealthState.PEER_RECOVERY_FAILED.name
+        FabricRuntime.peerStarvationRecoveryFailureByPeer.computeIfAbsent(triggerPeer) { AtomicLong(0) }.incrementAndGet()
+      }
+      restartScannerWithStrategy(now, BleAcquisitionStrategy.FILTERED_RECOVERY_PROBE, "RECOVERY_ACTION_TARGET_EXPIRED")
+      return
+    }
+    if (BleAcquisitionPolicy.currentStrategy() == BleAcquisitionStrategy.FILTERED_RECOVERY_PROBE &&
+        (BleAcquisitionPolicy.filteredProbeElapsedMs() ?: 0L) >= BleAcquisitionPolicy.FILTERED_PROBE_ACTION_TARGET_MS) {
+      BleAcquisitionPolicy.transition(BleAcquisitionStrategy.FILTERED_PRIMARY, now, "PROBE_ACTION_TARGET")
+      restartScannerWithStrategy(now, BleAcquisitionStrategy.FILTERED_PRIMARY, "PROBE_ACTION_TARGET")
+      return
+    }
+
     if (global == GlobalBleScannerHealth.GLOBAL_SCANNER_STALLED) {
       val current = BleAcquisitionPolicy.currentStrategy()
       if (current == BleAcquisitionStrategy.UNFILTERED_RECOVERY) {
@@ -1758,6 +1835,15 @@ class BodyFinderNativeModule : Module() {
       .put("active_recovery_trigger_kind", BleAcquisitionPolicy.activeRecoveryTriggerKind()?.name ?: JSONObject.NULL)
       .put("active_recovery_trigger_peer_id", BleAcquisitionPolicy.activeRecoveryTriggerPeerId() ?: JSONObject.NULL)
       .put("recovery_started_wall_ms", BleAcquisitionPolicy.recoveryStartedMs() ?: JSONObject.NULL)
+      .put("recovery_unfiltered_hard_limit_ms", BleAcquisitionPolicy.RECOVERY_UNFILTERED_WINDOW_MS)
+      .put("recovery_unfiltered_action_target_ms", BleAcquisitionPolicy.RECOVERY_UNFILTERED_ACTION_TARGET_MS)
+      .put("filtered_probe_exit_target_ms", BleAcquisitionPolicy.FILTERED_PROBE_EXIT_TARGET_MS)
+      .put("filtered_probe_hard_limit_ms", BleAcquisitionPolicy.FILTERED_PROBE_WINDOW_MS)
+      .put("filtered_probe_action_target_ms", BleAcquisitionPolicy.FILTERED_PROBE_ACTION_TARGET_MS)
+      .put("recovery_budget_window_ms", BleAcquisitionPolicy.RECOVERY_ATTEMPT_WINDOW_MS)
+      .put("recovery_budget_limit", BleAcquisitionPolicy.MAX_RECOVERY_ATTEMPTS_PER_5MIN)
+      .put("recovery_attempts_in_current_5min_window_at_end", BleAcquisitionPolicy.recoveryAttemptsInWindow(now))
+      .put("recovery_attempts_max_in_any_rolling_5min_window", BleAcquisitionPolicy.maxRecoveryAttemptsInAnyRollingWindow())
       .put("environment_authorization", JSONObject()
         .put("valid", decision.valid)
         .put("authorized", decision.authorized)
@@ -1876,14 +1962,15 @@ class BodyFinderNativeModule : Module() {
     ValidationRuntime.observe(now, FabricRuntime.peers.size, evidenceReady, freshMetricReady, usableMetricReady)
     return JSONObject()
       .put("diagnostic_contract", JSONObject()
-        .put("schema", "dev13-self-contained-json-evidence-v2")
+        .put("schema", "dev16-self-contained-json-evidence-v4")
         .put("screenshots_required", false)
         .put("json_self_contained", true)
         .put("contains_runtime_preflight", true)
         .put("contains_system_ranging", true)
         .put("contains_recovery_causality", true)
         .put("contains_frozen_geometry", true))
-      .put("validation_preflight", validationPreflight(ctx, now))
+      .put("validation_preflight", validationPreflight(ctx, now).put("runtime_live", true).put("not_acceptance_evidence", true))
+      .put("evidence_contract", JSONObject().put("schema", "dev16-self-contained-json-evidence-v4").put("screenshots_required", false).put("json_self_contained", true))
       .put("ble_diagnostics", bleDiagnostics(ctx, now))
       .put("fabric_diagnostics", fabricDiagnostics(now))
       .put("lifecycle_diagnostics", lifecycleDiagnostics(ctx))
