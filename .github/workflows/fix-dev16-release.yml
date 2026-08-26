@@ -1,0 +1,22 @@
+name: Fix dev16 release publisher
+on:
+  push:
+    branches: [main]
+    paths: [DEV16_RELEASE_FIX_TRIGGER.txt]
+permissions:
+  contents: write
+jobs:
+  fix:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with: {ref: main}
+      - run: python3 scripts/fix_dev16_release_workflow.py
+      - run: |
+          set -euxo pipefail
+          grep -q "gh release create dev-16 \$(find dist -maxdepth 1 -type f -print | sort)" .github/workflows/release-exp16.yml
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git add .github/workflows/release-exp16.yml
+          git commit -m 'ci: publish only canonical dev16 files'
+          git push origin HEAD:main
