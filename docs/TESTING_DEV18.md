@@ -15,7 +15,10 @@ Install `BodyFinder-dev18-universal.apk` on the 3 Androids. Ubuntu/Windows use t
 ## 2. Re-run frozen dev-17 non-regression gate
 
 ```bash
-python3 validators-dev18/validate_dev17_baseline.py validation/baselines/dev17/acceptance-summary.json
+unzip validators-dev18.zip -d validators-dev18
+python3 validators-dev18/validation/analysis/validate_dev17_baseline.py \
+  dev17-acceptance-summary.json \
+  --output dev17-baseline-gate.json
 ```
 
 Expected: `"pass": true`.
