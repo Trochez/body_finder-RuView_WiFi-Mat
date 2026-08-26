@@ -1,0 +1,109 @@
+name: Dev16 publish hotfix
+
+on:
+  push:
+    branches: [main]
+    paths: [.github/workflows/dev16-publish-hotfix.yml]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  actions: read
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    env:
+      SOURCE_RUN_ID: '32937289024'
+      SOURCE_SHA: '3d637128080ce7d74de2979dd931cfdf535144d6'
+      GH_TOKEN: '${{ github.token }}'
+    steps:
+      - uses: actions/checkout@v4
+        with: {fetch-depth: 0}
+      - uses: actions/setup-python@v5
+        with: {python-version: '3.12'}
+      - name: Download successful dev16 build artifacts
+        run: |
+          set -euxo pipefail
+          rm -rf fetched dist kit
+          mkdir -p fetched dist
+          gh run download "$SOURCE_RUN_ID" --pattern 'dev16-*' --dir fetched
+          for f in \
+            BodyFinder-dev16-universal.apk \
+            body-finder-ruview-universal.apk \
+            body-finder-ruview.aab \
+            body-finder-ruview-legacy-minsdk21.apk \
+            body-finder-node-linux-x86_64.tar.gz \
+            body-finder-node-linux-x86_64.deb \
+            body-finder-node-windows-x86_64.zip \
+            body-finder-ruview-ios-simulator.zip; do
+            p=$(find fetched -type f -name "$f" -print -quit)
+            test -n "$p" && cp "$p" "dist/$f"
+          done
+      - name: Package canonical dev16 validation assets
+        run: |
+          set -euxo pipefail
+          python3 scripts/generate_dev16_fixtures.py
+          cp docs/TESTING_DEV16.md dist/TESTING_DEV16.md
+          cp DEV16_FROZEN_TRUTH.md dist/DEV16_FROZEN_TRUTH.md
+          cp validation/ground-truth/GROUND_TRUTH_TEMPLATE.json dist/GROUND_TRUTH_TEMPLATE.json
+          cp protocol/schemas/validation-run-snapshot-v4.json dist/validation-run-snapshot-v4.schema.json
+          cp validation/contracts/dev16-evidence-contract.json dist/dev16-evidence-contract.json
+          cp validation/contracts/dev16-gates.json dist/dev16-gates.json
+          cp docs/CAPABILITY_MATRIX_AUTOGEOMETRY.json dist/capability-matrix.json
+          cp calibration/ble-range-calibration-profiles.json dist/
+          cp calibration/ble-range-calibration-schema.json dist/
+          cp upstream/ruvieW.lock.json dist/ruview-upstream-lock.json
+          printf '2\n' > dist/protocol-version.txt
+          printf '{"schema_version":1,"release_family":"0.2.0-experimental.16","models":[],"human_localization_validated":false}\n' > dist/model-manifest.json
+          mkdir -p kit/validation/contracts kit/validation/fixtures/dev16
+          cp validation/analysis/dev16_validation.py validation/analysis/validate_dev16_acceptance.py validation/analysis/validate_dev16_directed_smoke.py validation/analysis/build_dev16_acceptance_report.py validation/analysis/test_dev16_tooling.py kit/
+          cp protocol/schemas/validation-run-snapshot-v4.json kit/
+          cp docs/TESTING_DEV16.md kit/
+          cp validation/contracts/dev16-*.json kit/validation/contracts/
+          cp -r validation/fixtures/dev16/* kit/validation/fixtures/dev16/
+          (cd kit && zip -qr ../dist/validators-dev16.zip .)
+          (cd validation/fixtures/dev16 && zip -qr "$GITHUB_WORKSPACE/dist/fixtures-dev16.zip" .)
+          python3 validation/analysis/test_dev16_tooling.py
+          mkdir -p /tmp/evidence-directed && cp validation/fixtures/dev16/campaign/*.json /tmp/evidence-directed/
+          python3 validation/analysis/validate_dev16_directed_smoke.py --evidence-dir /tmp/evidence-directed --output /tmp/directed.json
+          python3 -c "import json; x=json.load(open('/tmp/directed.json')); assert x['pass'] and x['targeted_recovery_success_count']>=1"
+      - name: SBOM
+        uses: anchore/sbom-action@v0
+        with: {path: '.', format: spdx-json, output-file: dist/SBOM.spdx.json, upload-release-assets: false}
+      - name: Build manifest and exact inventory
+        run: |
+          set -euxo pipefail
+          python3 - <<'PY'
+          import hashlib,json,pathlib,datetime
+          d=pathlib.Path('dist')
+          required='BodyFinder-dev16-universal.apk body-finder-ruview-universal.apk body-finder-ruview.aab body-finder-ruview-legacy-minsdk21.apk body-finder-node-linux-x86_64.tar.gz body-finder-node-linux-x86_64.deb body-finder-node-windows-x86_64.zip body-finder-ruview-ios-simulator.zip validators-dev16.zip fixtures-dev16.zip validation-run-snapshot-v4.schema.json dev16-evidence-contract.json dev16-gates.json GROUND_TRUTH_TEMPLATE.json TESTING_DEV16.md DEV16_FROZEN_TRUTH.md capability-matrix.json ble-range-calibration-profiles.json ble-range-calibration-schema.json protocol-version.txt model-manifest.json ruview-upstream-lock.json SBOM.spdx.json'.split()
+          missing=[x for x in required if not (d/x).is_file() or (d/x).stat().st_size==0]
+          if missing: raise SystemExit('missing/non-empty gate: '+','.join(missing))
+          m={'schema_version':16,'release':'dev-16','version':'0.2.0-experimental.16','commit_sha':'3d637128080ce7d74de2979dd931cfdf535144d6','build_timestamp':datetime.datetime.now(datetime.timezone.utc).isoformat(),'report_version':18,'protocol_version':2,'validation_snapshot_schema_version':4,'screenshots_required_for_acceptance':False,'json_evidence_self_contained':True,'ble_metric_profile':'android-ble-lab-v1','ble_recovery_unfiltered_hard_limit_ms':10000,'ble_recovery_unfiltered_action_target_ms':9500,'ble_filtered_probe_observed_target_ms':14500,'ble_filtered_probe_action_target_ms':14000,'ble_filtered_probe_hard_limit_ms':15000,'recovery_budget_limit':3,'recovery_budget_window_ms':300000,'physical_acceptance_status':'PENDING_USER_HARDWARE','final_go':False}
+          m['artifacts']=[{'name':f.name,'size_bytes':f.stat().st_size,'sha256':hashlib.sha256(f.read_bytes()).hexdigest()} for f in sorted(d.iterdir()) if f.is_file()]
+          (d/'release-manifest.json').write_text(json.dumps(m,indent=2)+'\n')
+          (d/'release-verification.json').write_text(json.dumps({'release':'dev-16','ci_pass':True,'redownload_verified':False,'checksums_verified':False,'physical_acceptance_status':'PENDING_USER_HARDWARE','final_go':False,'screenshots_required':False},indent=2)+'\n')
+          PY
+          (cd dist && find . -maxdepth 1 -type f ! -name SHA256SUMS.txt -printf '%f\n' | sort | xargs sha256sum > SHA256SUMS.txt)
+      - name: Publish only regular files, redownload, verify, finalize
+        run: |
+          set -euxo pipefail
+          git tag -f dev-16 "$SOURCE_SHA"
+          git push origin refs/tags/dev-16 --force
+          gh release delete dev-16 -y || true
+          mapfile -t ASSETS < <(find dist -maxdepth 1 -type f -print | sort)
+          gh release create dev-16 "${ASSETS[@]}" --prerelease --target "$SOURCE_SHA" --title 'dev-16 — 0.2.0-experimental.16' --notes 'Dev16 hardens the frozen completed-run contract: snapshot v4, monotonic recovery action deadlines, rolling 5-minute recovery budget, strict hard-limit validation, warning semantics, campaign-level targeted smoke and reproducible SHA-verified assets. Calibration/ranging/fusion/geometry remain frozen. No screenshots. Physical acceptance remains pending user hardware.'
+          rm -rf verify && mkdir verify
+          gh release download dev-16 -D verify
+          (cd verify && sha256sum -c SHA256SUMS.txt)
+          python3 - <<'PY'
+          import json,pathlib
+          p=pathlib.Path('verify/release-verification.json'); x=json.load(open(p)); x['redownload_verified']=True; x['checksums_verified']=True; x['final_go']=False; p.write_text(json.dumps(x,indent=2)+'\n')
+          PY
+          (cd verify && find . -maxdepth 1 -type f ! -name SHA256SUMS.txt -printf '%f\n' | sort | xargs sha256sum > SHA256SUMS.txt)
+          gh release upload dev-16 verify/release-verification.json verify/SHA256SUMS.txt --clobber
+          rm -rf final-verify && mkdir final-verify
+          gh release download dev-16 -D final-verify
+          (cd final-verify && sha256sum -c SHA256SUMS.txt)
+          python3 -c "import json; x=json.load(open('final-verify/release-verification.json')); assert x['ci_pass'] and x['checksums_verified'] and x['redownload_verified'] and x['physical_acceptance_status']=='PENDING_USER_HARDWARE' and x['final_go'] is False"
