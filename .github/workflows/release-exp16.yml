@@ -41,7 +41,6 @@ jobs:
           mkdir -p /tmp/dev16-evidence && cp validation/fixtures/dev16/campaign/*.json /tmp/dev16-evidence/
           python3 validation/analysis/validate_dev16_directed_smoke.py --evidence-dir /tmp/dev16-evidence --output /tmp/directed.json
           python3 -c "import json; x=json.load(open('/tmp/directed.json')); assert x['pass'] and x['targeted_recovery_success_count']>=1"
-          # Explicit regression expectations.
           python3 - <<'PY'
           import json,sys
           sys.path.insert(0,'validation/analysis')
@@ -244,7 +243,7 @@ jobs:
           set -euxo pipefail
           git tag -f dev-16 "$GITHUB_SHA"; git push origin refs/tags/dev-16 --force
           gh release delete dev-16 -y || true
-          gh release create dev-16 dist/* --prerelease --title 'dev-16 — 0.2.0-experimental.16' --notes 'Dev16 hardens the frozen completed-run contract: snapshot v4, monotonic recovery action deadlines, rolling 5-minute recovery budget, strict hard-limit validation, warning semantics, campaign-level targeted smoke and reproducible SHA-verified assets. Calibration/ranging/fusion/geometry remain frozen. No screenshots. Physical acceptance remains pending user hardware.'
+          gh release create dev-16 $(find dist -maxdepth 1 -type f -print | sort) --prerelease --title 'dev-16 — 0.2.0-experimental.16' --notes 'Dev16 hardens the frozen completed-run contract: snapshot v4, monotonic recovery action deadlines, rolling 5-minute recovery budget, strict hard-limit validation, warning semantics, campaign-level targeted smoke and reproducible SHA-verified assets. Calibration/ranging/fusion/geometry remain frozen. No screenshots. Physical acceptance remains pending user hardware.'
           rm -rf verify && mkdir verify; gh release download dev-16 -D verify
           (cd verify && sha256sum -c SHA256SUMS.txt)
           python3 - <<'PY'
