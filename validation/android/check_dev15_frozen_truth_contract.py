@@ -9,4 +9,8 @@ for token in ('FRESH_MS = 5_000L','HOLDOVER_MAX_MS = 10_000L','HARD_EXPIRY_MS = 
     assert token in continuity,token
 for token in ('MIN_SAMPLES_FOR_RANGE = 3','recovery_first_valid_callback_delta','run_first_callback_after_recovery_count'):
     assert token in native,token
+# Directed dev15 smoke uses two phones, therefore each phone has exactly one remote BLE peer.
+assert 'if (expectedKnownPeerCount() < 1) issues += "EXPECTED_BLE_PEERS_LT_1"' in native
+assert '.put("expected_ble_peers_ready", expectedKnownPeerCount() >= 1)' in native
+assert 'EXPECTED_BLE_PEERS_LT_2' not in native
 print('DEV15_FROZEN_TRUTH_AND_TELEMETRY_CONTRACT_PASS')
