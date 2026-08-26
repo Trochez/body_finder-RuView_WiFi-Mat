@@ -1,0 +1,67 @@
+{
+  "schema_version": 1,
+  "release": "dev-17",
+  "version": "0.2.0-experimental.17",
+  "status": "APPROVED_EXPERIMENTAL_3NODE",
+  "source": "physical 3-Android acceptance campaign supplied after dev-17",
+  "thresholds": {
+    "metric_uptime_percent_min": 90.0,
+    "geometry_2d_uptime_percent_min": 90.0,
+    "peer_expire_delta_max": 0,
+    "recoveries_rolling_5min_max": 3,
+    "hard_timing_breach_max": 0
+  },
+  "nodes": [
+    {
+      "device": "Lenovo TB-J606L",
+      "duration_s": 392.129,
+      "expected_peers": 2,
+      "preflight_ready": true,
+      "environment_valid": true,
+      "metric_uptime_percent": 99.913,
+      "geometry_2d_uptime_percent": 99.913,
+      "peer_expire_delta": 0,
+      "recoveries": 0,
+      "max_recoveries_rolling_5min": 0,
+      "max_unfiltered_ms": 0,
+      "max_filtered_probe_ms": 0,
+      "hard_timing_breach": 0,
+      "final_state": "FILTERED_PRIMARY",
+      "active_recovery_at_end": false
+    },
+    {
+      "device": "Pixel 7 Pro",
+      "duration_s": 403.685,
+      "expected_peers": 2,
+      "preflight_ready": true,
+      "environment_valid": true,
+      "metric_uptime_percent": 99.320,
+      "geometry_2d_uptime_percent": 99.996,
+      "peer_expire_delta": 0,
+      "recoveries": 2,
+      "max_recoveries_rolling_5min": 1,
+      "max_unfiltered_ms": 856,
+      "max_filtered_probe_ms": 14199,
+      "hard_timing_breach": 0,
+      "final_state": "FILTERED_PRIMARY",
+      "active_recovery_at_end": false
+    },
+    {
+      "device": "Pixel 10 Pro",
+      "duration_s": 369.713,
+      "expected_peers": 2,
+      "preflight_ready": true,
+      "environment_valid": true,
+      "metric_uptime_percent": 99.969,
+      "geometry_2d_uptime_percent": 99.969,
+      "peer_expire_delta": 0,
+      "recoveries": 1,
+      "max_recoveries_rolling_5min": 1,
+      "max_unfiltered_ms": 507,
+      "max_filtered_probe_ms": 14195,
+      "hard_timing_breach": 0,
+      "final_state": "FILTERED_PRIMARY",
+      "active_recovery_at_end": false
+    }
+  ]
+}

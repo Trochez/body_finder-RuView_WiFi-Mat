@@ -3,6 +3,7 @@ resolver = "2"
 members = [
   "crates/body-finder-core",
   "crates/body-finder-ruview-adapter",
+  "crates/body-finder-science",
   "apps/node"
 ]
 

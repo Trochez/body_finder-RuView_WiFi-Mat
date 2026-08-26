@@ -1,0 +1,26 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://body-finder.local/schemas/rf-measurement-v1.json",
+  "title": "Body Finder RFMeasurement v1",
+  "type": "object",
+  "required": ["schema_version","timestamp_monotonic_ns","source_node_id","peer_or_bssid","modality","raw_value","variance","quality","capability_provenance","session_id"],
+  "properties": {
+    "schema_version": {"const":1},
+    "timestamp_monotonic_ns": {"type":"integer","minimum":0},
+    "timestamp_unix_ms": {"type":["integer","null"],"minimum":0},
+    "source_node_id": {"type":"string","minLength":1},
+    "peer_or_bssid": {"type":"string","minLength":1},
+    "modality": {"type":"string","enum":["WIFI_CONNECTED_RSSI_DBM","WIFI_RTT_DISTANCE_M","BLE_RSSI_DBM","BLE_RANGE_M","CSI_FEATURE","OTHER"]},
+    "raw_value": {"type":"number"},
+    "variance": {"type":"number","minimum":0},
+    "quality": {"type":"string","enum":["HIGH","MEDIUM","LOW","REJECTED"]},
+    "position": {"type":["object","null"]},
+    "orientation": {"type":["object","null"]},
+    "frequency_mhz": {"type":["number","null"]},
+    "channel": {"type":["integer","null"]},
+    "capability_provenance": {"type":"string","minLength":1},
+    "session_id": {"type":"string","minLength":1},
+    "metadata": {"type":"object"}
+  },
+  "additionalProperties": false
+}
