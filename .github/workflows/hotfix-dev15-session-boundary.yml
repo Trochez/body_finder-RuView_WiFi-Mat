@@ -1,0 +1,60 @@
+name: Hotfix dev15 session boundary recovery
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - DEV15_SESSION_BOUNDARY_HOTFIX_TRIGGER.txt
+
+permissions:
+  contents: write
+
+jobs:
+  hotfix:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Materialize real-device recovery fixes
+        run: |
+          python3 scripts/hotfix_dev15_session_boundary_recovery.py
+          python3 scripts/hotfix_dev15_session_boundary_followup.py
+          python3 scripts/generate_dev15_fixtures.py
+      - name: Deterministic hotfix gates
+        run: |
+          python3 validation/android/check_dev15_frozen_truth_contract.py
+          python3 validation/android/check_dev15_session_boundary_contract.py
+          python3 validation/android/test_dev15_recovery_telemetry.py
+          python3 validation/analysis/test_dev15_tooling.py
+          python3 -m py_compile \
+            validation/analysis/dev15_validation.py \
+            validation/analysis/validate_dev15_directed_smoke.py \
+            validation/android/check_dev15_session_boundary_contract.py
+          grep -q 'VALIDATION_SESSION_BOUNDARY_RESET' apps/mobile/modules/body-finder-native/android/src/main/java/com/trochez/bodyfindernative/BleAcquisitionPolicy.kt
+          grep -q 'RECOVERY_WINDOW_EXPIRED_GLOBAL_STALL' apps/mobile/modules/body-finder-native/android/src/main/java/com/trochez/bodyfindernative/BodyFinderNativeModule.kt
+          grep -q 'AUTHORIZED_FAILED_SAFE_RECOVERY_BUDGET_GUARD' apps/mobile/modules/body-finder-native/android/src/main/java/com/trochez/bodyfindernative/EnvironmentStrategyValidator.kt
+          grep -q 'FAILED_SAFE_AT_END' validation/analysis/dev15_validation.py
+      - name: Commit hotfix and rebuild trigger
+        run: |
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git add \
+            apps/mobile/modules/body-finder-native/android/src/main/java/com/trochez/bodyfindernative/BleAcquisitionPolicy.kt \
+            apps/mobile/modules/body-finder-native/android/src/main/java/com/trochez/bodyfindernative/BodyFinderNativeModule.kt \
+            apps/mobile/modules/body-finder-native/android/src/main/java/com/trochez/bodyfindernative/EnvironmentStrategyValidator.kt \
+            validation/analysis/dev15_validation.py \
+            validation/fixtures/dev15 \
+            scripts/generate_dev15_fixtures.py \
+            docs/TESTING_DEV15.md \
+            RELEASE_DEV15_TRIGGER.txt
+          git diff --cached --check
+          if git diff --cached --quiet; then
+            echo 'No materialized hotfix changes required.'
+          else
+            git commit -m 'fix: isolate dev15 validation sessions and recovery telemetry'
+            git push origin HEAD:main
+          fi
