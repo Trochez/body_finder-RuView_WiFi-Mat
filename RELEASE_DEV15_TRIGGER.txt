@@ -1,1 +1,1 @@
-dev-15 canonical release trigger after dist/template/docs hardening 2026-08-25T22:14-05:00
+dev-15 two-device preflight hotfix 2026-08-26T03:51:16.043507+00:00

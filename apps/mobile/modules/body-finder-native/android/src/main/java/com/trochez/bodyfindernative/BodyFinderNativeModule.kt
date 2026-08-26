@@ -760,7 +760,7 @@ class BodyFinderNativeModule : Module() {
     if (manager?.adapter?.isEnabled != true) issues += "BLUETOOTH_OFF"
     if (!bluetoothPermissionsGranted(ctx)) issues += "BLE_PERMISSIONS_MISSING"
     if (Build.VERSION.SDK_INT < 31 && locationServiceEnabled(ctx) == false) issues += "LOCATION_OFF"
-    if (expectedKnownPeerCount() < 2) issues += "EXPECTED_BLE_PEERS_LT_2"
+    if (expectedKnownPeerCount() < 1) issues += "EXPECTED_BLE_PEERS_LT_1"
     if (!FabricRuntime.bleScanning) issues += "BLE_SCANNER_NOT_RUNNING"
     return issues.distinct()
   }
@@ -814,7 +814,7 @@ class BodyFinderNativeModule : Module() {
       .put("ble_scanner_running", FabricRuntime.bleScanning)
       .put("expected_ble_peer_count", expectedKnownPeerCount())
       .put("expected_ble_peers", expectedKnownPeerCount())
-      .put("expected_ble_peers_ready", expectedKnownPeerCount() >= 2)
+      .put("expected_ble_peers_ready", expectedKnownPeerCount() >= 1)
       .put("acquisition_strategy", strategy.name)
       .put("filter_mode", filterMode)
       .put("hardware_filter_count", hardwareFilterCount)
