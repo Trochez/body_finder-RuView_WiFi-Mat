@@ -1,0 +1,41 @@
+name: Hotfix dev15 two-device preflight
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - DEV15_TWO_DEVICE_HOTFIX_TRIGGER.txt
+
+permissions:
+  contents: write
+
+jobs:
+  hotfix:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Apply two-device preflight fix
+        run: python3 scripts/hotfix_dev15_two_device_smoke.py
+      - name: Verify frozen truth and preflight contract
+        run: |
+          python3 validation/android/check_dev15_frozen_truth_contract.py
+          python3 -m py_compile validation/analysis/validate_dev15_directed_smoke.py
+          grep -q 'expectedKnownPeerCount() < 1' apps/mobile/modules/body-finder-native/android/src/main/java/com/trochez/bodyfindernative/BodyFinderNativeModule.kt
+          ! grep -q 'EXPECTED_BLE_PEERS_LT_2' apps/mobile/modules/body-finder-native/android/src/main/java/com/trochez/bodyfindernative/BodyFinderNativeModule.kt
+      - name: Commit hotfix and release trigger
+        run: |
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git add apps/mobile/modules/body-finder-native/android/src/main/java/com/trochez/bodyfindernative/BodyFinderNativeModule.kt RELEASE_DEV15_TRIGGER.txt
+          git diff --cached --check
+          if git diff --cached --quiet; then
+            echo 'No hotfix changes required.'
+          else
+            git commit -m 'fix: allow dev15 two-device validation preflight'
+            git push origin HEAD:main
+          fi
