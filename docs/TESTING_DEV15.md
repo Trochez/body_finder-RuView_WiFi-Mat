@@ -32,6 +32,9 @@ On both phones: Bluetooth ON; Battery Saver OFF; screen ON; Body Finder foregrou
 Before starting, each phone must see exactly **one remote BLE peer**. In the exported/preflight diagnostics this corresponds to `expected_ble_peer_count: 1` and `expected_ble_peers_ready: true`.
 
 ## 4. Directed physical smoke — exactly one LONG + one SHORT per phone
+
+After each completed LONG export, the SHORT must be startable without waiting for the rolling recovery window to expire. If the previous completed run left the controller in `FAILED_SAFE` or `COOLDOWN`, dev-15 normalizes only that filtered terminal state to `FILTERED_PRIMARY` at the new-run boundary. It does **not** erase the frozen 3-attempts/5-minute history or the 30-second cooldown. If the remote peer is genuinely absent, wait until `expected_ble_peer_count: 1` before starting.
+
 Do **not** repeat the old 330 s × 3 dev14 campaign.
 
 1. Open Body Finder on both phones and wait until the other phone appears as the remote peer and preflight is ready.

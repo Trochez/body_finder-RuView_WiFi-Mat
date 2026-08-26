@@ -369,6 +369,31 @@ internal object BleAcquisitionPolicy {
     transition(BleAcquisitionStrategy.FAILED_SAFE, now, reason)
   }
 
+  /**
+   * Establish a new validation-session boundary without weakening the frozen
+   * rolling recovery budget or cooldown. Only filtered terminal safety states
+   * may be normalized; an active recovery/probe generation must finish first.
+   */
+  @Synchronized
+  fun prepareValidationRunBoundary(now: Long = System.currentTimeMillis()): Boolean {
+    return when (strategy) {
+      BleAcquisitionStrategy.FILTERED_PRIMARY -> true
+      BleAcquisitionStrategy.FAILED_SAFE,
+      BleAcquisitionStrategy.COOLDOWN -> {
+        if (activeRecoveryGeneration != null || strategyRecoveryGeneration != null) return false
+        transition(BleAcquisitionStrategy.FILTERED_PRIMARY, now, "VALIDATION_RUN_BOUNDARY")
+        ValidationEventLog.record(
+          "VALIDATION_SESSION_BOUNDARY_RESET", "FILTERED_TERMINAL_STATE_TO_PRIMARY", now = now,
+          fromStrategy = null, toStrategy = BleAcquisitionStrategy.FILTERED_PRIMARY.name,
+          authorizationReason = "PRESERVE_RECOVERY_BUDGET_AND_COOLDOWN",
+        )
+        true
+      }
+      BleAcquisitionStrategy.UNFILTERED_RECOVERY,
+      BleAcquisitionStrategy.FILTERED_RECOVERY_PROBE -> false
+    }
+  }
+
   private fun isFiltered(s: BleAcquisitionStrategy): Boolean =
     s == BleAcquisitionStrategy.FILTERED_PRIMARY || s == BleAcquisitionStrategy.FILTERED_RECOVERY_PROBE || s == BleAcquisitionStrategy.COOLDOWN
 
@@ -548,6 +573,14 @@ internal class BleAcquisitionStats {
     if (interval > BleAcquisitionPolicy.GAP_10S_MS) gapGt10sCount.incrementAndGet()
     recentIntervalsMs.addLast(interval)
     while (recentIntervalsMs.size > BleAcquisitionPolicy.MAX_INTERVAL_SAMPLES) recentIntervalsMs.pollFirst()
+  }
+
+  fun noteFirstValidRecovery(generation: Long, now: Long) {
+    if (markGeneration(lastFirstValidRecoveryGeneration, generation)) {
+      firstCallbackAfterRecoveryCount.incrementAndGet()
+      val started = BleAcquisitionPolicy.recoveryStartedMs()
+      if (started != null) lastRecoveryCallbackLatencyMs.set(max(0L, now - started))
+    }
   }
 
   fun snapshot(): BleAcquisitionCounterSnapshot = BleAcquisitionCounterSnapshot(

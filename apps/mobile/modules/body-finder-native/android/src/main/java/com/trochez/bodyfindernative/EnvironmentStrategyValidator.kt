@@ -57,7 +57,20 @@ internal object EnvironmentStrategyValidator {
           else -> StrategyEnvironmentDecision(true, true, null, "AUTHORIZED_FILTERED_RECOVERY_PROBE")
         }
       }
-      else -> StrategyEnvironmentDecision(false, false, "UNAUTHORIZED_ACQUISITION_STRATEGY", "RECOVERY_ARBITER_PROVENANCE_REQUIRED")
+      BleAcquisitionStrategy.FAILED_SAFE -> {
+        if (c.filterMode == "MANUFACTURER_FILTERED" && c.hardwareFilterCount > 0) {
+          StrategyEnvironmentDecision(true, true, null, "AUTHORIZED_FAILED_SAFE_RECOVERY_BUDGET_GUARD")
+        } else {
+          StrategyEnvironmentDecision(false, false, "FAILED_SAFE_FILTER_CONFIGURATION_INVALID", "FAILED_SAFE_REQUIRES_MANUFACTURER_FILTER")
+        }
+      }
+      BleAcquisitionStrategy.COOLDOWN -> {
+        if (c.filterMode == "MANUFACTURER_FILTERED" && c.hardwareFilterCount > 0) {
+          StrategyEnvironmentDecision(true, true, null, "AUTHORIZED_FILTERED_COOLDOWN")
+        } else {
+          StrategyEnvironmentDecision(false, false, "COOLDOWN_FILTER_CONFIGURATION_INVALID", "COOLDOWN_REQUIRES_MANUFACTURER_FILTER")
+        }
+      }
     }
   }
 }

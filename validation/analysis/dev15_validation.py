@@ -104,6 +104,8 @@ def _recovery_analysis(run: dict):
             errors.append(f"FIRST_VALID_WITH_FAILURE:g{generation}")
         if first and first[0]["seq"] > terminal[0]["seq"]: errors.append(f"CALLBACK_AFTER_TERMINAL:g{generation}")
 
+        if first:
+            totals["first"] += 1
         trigger = req[0].get("trigger_kind")
         target = req[0].get("trigger_peer_id") or req[0].get("peer_id")
         if trigger == "PEER_STARVATION":
@@ -112,7 +114,7 @@ def _recovery_analysis(run: dict):
             else:
                 totals["peer_request"] += 1; peer_totals[target]["request"] += 1
                 if first:
-                    totals["first"] += 1; peer_totals[target]["first"] += 1
+                    peer_totals[target]["first"] += 1
                     if first[0].get("peer_id") != target: errors.append(f"FIRST_VALID_WRONG_TARGET:g{generation}")
                 if success:
                     totals["peer_success"] += 1; peer_totals[target]["success"] += 1
@@ -213,6 +215,7 @@ def validate_export(doc: dict, acceptance: bool = True) -> dict:
     try:
         acq = require_dict(run, "acquisition_state_at_end", "$.validation_run")
         if require_int(acq, "recovery_attempts_in_current_5min_window", "$.validation_run.acquisition_state_at_end") > 3: fail("G9", "RECOVERY_BUDGET_EXCEEDED")
+        if require_string(acq, "logical_acquisition_strategy", "$.validation_run.acquisition_state_at_end") == "FAILED_SAFE": fail("G9", "FAILED_SAFE_AT_END")
         if require_int(acq, "filtered_probe_window_ms", "$.validation_run.acquisition_state_at_end") != 15000: fail("G13", "FILTERED_PROBE_HARD_LIMIT_DRIFT")
         if require_int(acq, "filtered_probe_exit_target_ms", "$.validation_run.acquisition_state_at_end") != 14500: fail("G13", "FILTERED_PROBE_EXIT_TARGET_DRIFT")
     except ContractError as exc: fail("G9", str(exc)); fail("G13", str(exc))
@@ -233,12 +236,20 @@ def validate_export(doc: dict, acceptance: bool = True) -> dict:
         for i, peer in enumerate(peers):
             if not isinstance(peer, dict): fail("G12", f"PER_PEER_INVALID:{i}"); continue
             peer_index[require_string(peer, "node_id", f"$.validation_run.per_peer_at_end[{i}]")] = peer
+        all_first_by_peer = {}
+        for event in require_list(run, "events", "$.validation_run"):
+            if isinstance(event, dict) and event.get("type") == "FIRST_VALID_BF_CALLBACK_AFTER_RECOVERY" and isinstance(event.get("peer_id"), str):
+                all_first_by_peer[event["peer_id"]] = all_first_by_peer.get(event["peer_id"], 0) + 1
         for peer_id, expected in peer_totals.items():
             if peer_id not in peer_index: fail("G12", f"RECOVERY_COUNTER_PEER_MISSING:{peer_id}"); continue
             fields = {"run_starvation_recovery_participation_count": expected["request"], "run_first_callback_after_recovery_count": expected["first"], "run_starvation_recovery_success_count": expected["success"], "run_starvation_recovery_failure_count": expected["failure"]}
             for key, wanted in fields.items():
                 actual = require_int(peer_index[peer_id], key, f"$.validation_run.per_peer_at_end[{peer_id}]")
                 if actual != wanted: fail("G12", f"RECOVERY_COUNTER_EVENT_MISMATCH:{peer_id}:{key}:{actual}!={wanted}")
+            nested = require_dict(peer_index[peer_id], "acquisition", f"$.validation_run.per_peer_at_end[{peer_id}]")
+            nested_first = require_int(nested, "run_first_callback_after_recovery_count", f"$.validation_run.per_peer_at_end[{peer_id}].acquisition")
+            wanted_nested_first = all_first_by_peer.get(peer_id, 0)
+            if nested_first != wanted_nested_first: fail("G12", f"RECOVERY_COUNTER_EVENT_MISMATCH:{peer_id}:acquisition.run_first_callback_after_recovery_count:{nested_first}!={wanted_nested_first}")
     except ContractError as exc: fail("G12", str(exc))
     try:
         meta = require_dict(export, "export_metadata")

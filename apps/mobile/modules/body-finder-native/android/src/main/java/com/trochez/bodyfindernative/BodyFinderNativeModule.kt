@@ -629,8 +629,19 @@ class BodyFinderNativeModule : Module() {
     }
     Function("startValidationRun") {
       val ctx = appContext.reactContext ?: return@Function "VALIDATION_ENVIRONMENT_INVALID:NO_CONTEXT"
-      val now = System.currentTimeMillis()
+      var now = System.currentTimeMillis()
+      val previousStrategy = BleAcquisitionPolicy.currentStrategy()
+      var sessionBoundaryReset = false
+      val previousRunCompleted = ValidationRuntime.runId != null && ValidationRuntime.endedWallMs != null
+      if (previousRunCompleted && physicalValidationIssues(ctx).isEmpty() &&
+          (previousStrategy == BleAcquisitionStrategy.FAILED_SAFE || previousStrategy == BleAcquisitionStrategy.COOLDOWN)) {
+        sessionBoundaryReset = BleAcquisitionPolicy.prepareValidationRunBoundary(now)
+      }
+      now = System.currentTimeMillis()
       val preflight = validationPreflight(ctx, now)
+        .put("session_boundary_reset", sessionBoundaryReset)
+        .put("session_boundary_previous_strategy", previousStrategy.name)
+        .put("recovery_budget_preserved_across_boundary", true)
       val blocking = preflight.optJSONArray("blocking_reasons") ?: JSONArray()
       if (blocking.length() > 0) {
         val reasons = (0 until blocking.length()).map { blocking.optString(it) }
@@ -1140,8 +1151,23 @@ class BodyFinderNativeModule : Module() {
     BleAcquisitionPolicy.updateCohortHealth(cohort, now)
 
     if (global == GlobalBleScannerHealth.GLOBAL_SCANNER_STALLED) {
+      val current = BleAcquisitionPolicy.currentStrategy()
+      if (current == BleAcquisitionStrategy.UNFILTERED_RECOVERY) {
+        val started = BleAcquisitionPolicy.recoveryStartedMs() ?: now
+        if (now - started >= BleAcquisitionPolicy.RECOVERY_UNFILTERED_WINDOW_MS) {
+          BleAcquisitionPolicy.noteRecoveryFailure(now)
+          restartScannerWithStrategy(now, BleAcquisitionStrategy.FILTERED_RECOVERY_PROBE, "RECOVERY_WINDOW_EXPIRED_GLOBAL_STALL")
+          return
+        }
+      }
+      if (current == BleAcquisitionStrategy.FILTERED_RECOVERY_PROBE &&
+          now - BleAcquisitionPolicy.strategySinceMs() >= BleAcquisitionPolicy.FILTERED_PROBE_EXIT_TARGET_MS) {
+        BleAcquisitionPolicy.transition(BleAcquisitionStrategy.FILTERED_PRIMARY, now, "PROBE_EXIT_TARGET_GLOBAL_STALL")
+        restartScannerWithStrategy(now, BleAcquisitionStrategy.FILTERED_PRIMARY, "PROBE_EXIT_TARGET_GLOBAL_STALL")
+        return
+      }
       if (now - FabricRuntime.lastScanRestartWallMs >= BleAcquisitionPolicy.MIN_RESTART_COOLDOWN_MS) {
-        restartScannerWithStrategy(now, BleAcquisitionStrategy.FILTERED_PRIMARY, "GLOBAL_SCANNER_STALLED")
+        restartScannerWithStrategy(now, current, "GLOBAL_SCANNER_STALLED")
       }
       return
     }
@@ -1344,13 +1370,18 @@ class BodyFinderNativeModule : Module() {
 
     val validRssi = BleRangeEstimator.isValidBleRssi(result.rssi.toDouble())
     val callbackPeerId = peerIdForIdentity(id)
+    val acquisitionStats = FabricRuntime.acquisitionStatsByIdentity.computeIfAbsent(id) { BleAcquisitionStats() }
     if (validRssi && BleAcquisitionPolicy.currentStrategy() == BleAcquisitionStrategy.UNFILTERED_RECOVERY) {
+      val recoveryGeneration = BleAcquisitionPolicy.activeRecoveryGeneration()
       val acceptedFirstValid = BleAcquisitionPolicy.noteRecoveryFirstValidCallback(now, callbackPeerId)
+      if (acceptedFirstValid && recoveryGeneration != null) {
+        acquisitionStats.noteFirstValidRecovery(recoveryGeneration, now)
+      }
       if (acceptedFirstValid && callbackPeerId != null && BleAcquisitionPolicy.activeRecoveryTriggerKind() == RecoveryTriggerKind.PEER_STARVATION) {
         FabricRuntime.peerStarvationRecoveryFirstValidByPeer.computeIfAbsent(callbackPeerId) { AtomicLong(0) }.incrementAndGet()
       }
     }
-    FabricRuntime.acquisitionStatsByIdentity.computeIfAbsent(id) { BleAcquisitionStats() }.record(now, validRssi, BleAcquisitionPolicy.currentStrategy())
+    acquisitionStats.record(now, validRssi, BleAcquisitionPolicy.currentStrategy())
 
     val advertisedTx = result.scanRecord?.txPowerLevel?.takeIf { it in -100..20 } ?: Int.MIN_VALUE
     if (validRssi) {

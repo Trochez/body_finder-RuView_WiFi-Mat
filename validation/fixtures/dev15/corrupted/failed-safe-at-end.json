@@ -10,26 +10,26 @@
   "human_scanning_enabled": false,
   "human_localization_validated": false,
   "rescue_use_validated": false,
-  "node_id": "node-pixel7",
+  "node_id": "node-pixel10",
   "export_metadata": {
-    "device_alias": "pixel-7-pro",
+    "device_alias": "pixel-10-pro",
     "device_manufacturer": "Google",
-    "device_model": "Pixel 7 Pro",
-    "node_id": "node-pixel7",
-    "run_id": "pixel-7-pro-long-run",
+    "device_model": "Pixel 10 Pro",
+    "node_id": "node-pixel10",
+    "run_id": "pixel-10-pro-long-run",
     "run_type": "LONG",
-    "snapshot_stage": "LONG_POST_SHORT",
+    "snapshot_stage": "LONG_1",
     "elapsed_ms": 330000,
     "snapshot_frozen": true,
-    "source_long_run_id": "pixel-7-pro-long-run",
-    "export_sequence": 3,
+    "source_long_run_id": "pixel-10-pro-long-run",
+    "export_sequence": 1,
     "generated_at": "2026-08-25T10:00:00Z",
     "build": "0.2.0-experimental.15",
     "protocol_version": 2,
-    "suggested_filename": "pixel-7-pro-pixel-7--long-post-short.json"
+    "suggested_filename": "pixel-10-pro-pixel-10-long-1.json"
   },
   "validation_run": {
-    "run_id": "pixel-7-pro-long-run",
+    "run_id": "pixel-10-pro-long-run",
     "started_wall_ms": 1000000,
     "ended_wall_ms": 1330000,
     "elapsed_ms": 330000,
@@ -60,14 +60,14 @@
       "peer_starvation_recovery_failure_delta": 0
     },
     "acquisition_state_at_end": {
-      "logical_acquisition_strategy": "FILTERED_PRIMARY",
+      "logical_acquisition_strategy": "FAILED_SAFE",
       "recovery_attempts_in_current_5min_window": 1,
       "filtered_probe_window_ms": 15000,
       "filtered_probe_exit_target_ms": 14500
     },
     "per_peer_at_end": [
       {
-        "node_id": "node-pixel10",
+        "node_id": "node-pixel7",
         "run_starvation_recovery_participation_count": 1,
         "run_first_callback_after_recovery_count": 1,
         "run_starvation_recovery_success_count": 1,
@@ -95,9 +95,9 @@
         "elapsed_from_run_start_ms": 1000,
         "type": "RECOVERY_REQUESTED",
         "recovery_generation": 1,
-        "peer_id": "node-pixel10",
+        "peer_id": "node-pixel7",
         "trigger_kind": "PEER_STARVATION",
-        "trigger_peer_id": "node-pixel10"
+        "trigger_peer_id": "node-pixel7"
       },
       {
         "seq": 2,
@@ -116,9 +116,9 @@
         "elapsed_from_run_start_ms": 2000,
         "type": "FIRST_VALID_BF_CALLBACK_AFTER_RECOVERY",
         "recovery_generation": 1,
-        "peer_id": "node-pixel10",
+        "peer_id": "node-pixel7",
         "trigger_kind": "PEER_STARVATION",
-        "trigger_peer_id": "node-pixel10"
+        "trigger_peer_id": "node-pixel7"
       },
       {
         "seq": 4,
@@ -127,9 +127,9 @@
         "elapsed_from_run_start_ms": 3000,
         "type": "RECOVERY_SUCCESS",
         "recovery_generation": 1,
-        "peer_id": "node-pixel10",
+        "peer_id": "node-pixel7",
         "trigger_kind": "PEER_STARVATION",
-        "trigger_peer_id": "node-pixel10"
+        "trigger_peer_id": "node-pixel7"
       },
       {
         "seq": 5,
@@ -154,15 +154,16 @@
     ],
     "fused_range_observations_at_end": [
       {
-        "observer_node_id": "node-pixel7",
-        "peer_node_id": "node-pixel10",
+        "observer_node_id": "node-pixel10",
+        "peer_node_id": "node-pixel7",
         "distance_m": 3.1
       },
       {
-        "observer_node_id": "node-pixel7",
+        "observer_node_id": "node-pixel10",
         "peer_node_id": "node-lenovo",
-        "distance_m": 1.85
+        "distance_m": 3.2
       }
     ]
-  }
+  },
+  "expected_error": "FAILED_SAFE_AT_END"
 }

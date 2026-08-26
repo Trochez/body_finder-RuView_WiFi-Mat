@@ -60,6 +60,7 @@
       "peer_starvation_recovery_failure_delta": 0
     },
     "acquisition_state_at_end": {
+      "logical_acquisition_strategy": "FILTERED_PRIMARY",
       "recovery_attempts_in_current_5min_window": 1,
       "filtered_probe_window_ms": 15000,
       "filtered_probe_exit_target_ms": 14500
@@ -70,14 +71,20 @@
         "run_starvation_recovery_participation_count": 1,
         "run_first_callback_after_recovery_count": 1,
         "run_starvation_recovery_success_count": 1,
-        "run_starvation_recovery_failure_count": 0
+        "run_starvation_recovery_failure_count": 0,
+        "acquisition": {
+          "run_first_callback_after_recovery_count": 1
+        }
       },
       {
         "node_id": "node-pixel7",
         "run_starvation_recovery_participation_count": 0,
         "run_first_callback_after_recovery_count": 0,
         "run_starvation_recovery_success_count": 0,
-        "run_starvation_recovery_failure_count": 0
+        "run_starvation_recovery_failure_count": 0,
+        "acquisition": {
+          "run_first_callback_after_recovery_count": 0
+        }
       }
     ],
     "events": [
