@@ -1,0 +1,23 @@
+{
+  "$schema":"https://json-schema.org/draft/2020-12/schema",
+  "$id":"https://body-finder.local/schemas/ground-truth-v1.json",
+  "title":"Body Finder GroundTruth v1",
+  "type":"object",
+  "required":["schema_version","session_id","reference_clock","sensor_coordinates","human_labels","measurement_method","measurement_uncertainty_m","environment","device_inventory","software_build","partition"],
+  "properties":{
+    "schema_version":{"const":1},
+    "session_id":{"type":"string","minLength":1},
+    "reference_clock":{"type":"string"},
+    "sensor_coordinates":{"type":"array","items":{"type":"object"}},
+    "human_labels":{"type":"array","items":{"type":"object","required":["timestamp_monotonic_ns","present"],"properties":{"timestamp_monotonic_ns":{"type":"integer","minimum":0},"present":{"type":"boolean"},"x_m":{"type":["number","null"]},"y_m":{"type":["number","null"]},"z_m":{"type":["number","null"]}}}},
+    "measurement_method":{"type":"string"},
+    "measurement_uncertainty_m":{"type":"number","minimum":0},
+    "environment":{"type":"object"},
+    "wall_material":{"type":["object","null"]},
+    "operator":{"type":"string"},
+    "device_inventory":{"type":"array","items":{"type":"object"}},
+    "software_build":{"type":"string"},
+    "partition":{"type":"string","enum":["development","calibration","validation","blind_acceptance"]}
+  },
+  "additionalProperties":true
+}

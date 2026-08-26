@@ -1,0 +1,226 @@
+name: Dev Release experimental.18
+
+on:
+  push:
+    branches: [main]
+    paths: [RELEASE_DEV18_TRIGGER.txt]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release-exp18
+  cancel-in-progress: false
+
+jobs:
+  requirements:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with: {fetch-depth: 0}
+      - uses: actions/setup-python@v5
+        with: {python-version: '3.12'}
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Dev18 scientific/replay gates
+        run: |
+          set -euxo pipefail
+          grep -q "0.2.0-experimental.18" apps/mobile/src/version.ts
+          grep -q "versionCode: 18" apps/mobile/src/version.ts
+          grep -q '"versionCode": 18' apps/mobile/app.json
+          grep -q '"releaseIteration": "experimental.18"' apps/mobile/app.json
+          python3 -m json.tool validation/baselines/dev17/acceptance-summary.json >/dev/null
+          python3 -m json.tool protocol/schemas/session-manifest-v1.json >/dev/null
+          python3 -m json.tool protocol/schemas/rf-measurement-v1.json >/dev/null
+          python3 -m json.tool protocol/schemas/ground-truth-v1.json >/dev/null
+          python3 -m py_compile validation/analysis/validate_dev17_baseline.py validation/analysis/validate_dev18_session.py
+          python3 validation/analysis/validate_dev17_baseline.py validation/baselines/dev17/acceptance-summary.json --output dev17-baseline-gate.json
+          cargo test --workspace
+          mkdir -p /tmp/dev18-fixture
+          cat > /tmp/dev18-fixture/session.jsonl <<'EOF'
+          {"schema_version":1,"timestamp_monotonic_ns":1000000,"timestamp_unix_ms":1,"source_node_id":"fixture-node","peer_or_bssid":"aa:bb:cc:dd:ee:ff","modality":"WIFI_CONNECTED_RSSI_DBM","raw_value":-60.0,"variance":0.0,"quality":"MEDIUM","position":null,"orientation":null,"frequency_mhz":5180.0,"channel":36,"capability_provenance":"synthetic-ci-fixture-not-physical-proof","session_id":"fixture-session","metadata":{}}
+          {"schema_version":1,"timestamp_monotonic_ns":2000000,"timestamp_unix_ms":2,"source_node_id":"fixture-node","peer_or_bssid":"aa:bb:cc:dd:ee:ff","modality":"WIFI_CONNECTED_RSSI_DBM","raw_value":-58.0,"variance":0.0,"quality":"MEDIUM","position":null,"orientation":null,"frequency_mhz":5180.0,"channel":36,"capability_provenance":"synthetic-ci-fixture-not-physical-proof","session_id":"fixture-session","metadata":{}}
+          EOF
+          cat > /tmp/dev18-fixture/manifest.json <<'EOF'
+          {"schema_version":1,"session_id":"fixture-session","node_id":"fixture-node","platform":"synthetic-ci-fixture","software_build":"0.2.0-experimental.18","started_unix_ms":0,"ended_unix_ms":3,"monotonic_origin":"PROCESS_START","sample_interval_ms":500,"capabilities":{"wifi_connected_rssi":{"state":"WORKING","detail":"fixture"}},"device_inventory":[],"evidence_policy":{"screenshots_required":false,"json_self_contained":true,"simulation_is_physical_proof":false}}
+          EOF
+          cargo run -q -p body-finder-science --bin body-finder-validate-session -- --manifest /tmp/dev18-fixture/manifest.json --input /tmp/dev18-fixture/session.jsonl
+          A=$(cargo run -q -p body-finder-science --bin body-finder-replay -- --input /tmp/dev18-fixture/session.jsonl | python3 -c 'import sys,json; print(json.load(sys.stdin)["deterministic_digest"])')
+          B=$(cargo run -q -p body-finder-science --bin body-finder-replay -- --input /tmp/dev18-fixture/session.jsonl | python3 -c 'import sys,json; print(json.load(sys.stdin)["deterministic_digest"])')
+          test "$A" = "$B"
+
+  linux:
+    needs: requirements
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - run: cargo build --release -p body-finder-node -p body-finder-science
+      - run: |
+          set -euxo pipefail
+          mkdir -p dist/pkg dist/deb/DEBIAN dist/deb/usr/bin
+          cp target/release/body-finder-node dist/pkg/
+          tar -C dist/pkg -czf dist/body-finder-node-linux-x86_64.tar.gz body-finder-node
+          cp target/release/body-finder-node dist/deb/usr/bin/
+          printf 'Package: body-finder-node\nVersion: 0.2.0~experimental18\nSection: science\nPriority: optional\nArchitecture: amd64\nMaintainer: Trochez\nDescription: Body Finder RuView field node\n' > dist/deb/DEBIAN/control
+          dpkg-deb --build dist/deb dist/body-finder-node-linux-x86_64.deb
+          cp target/release/body-finder-replay dist/body-finder-replay-linux-x86_64
+          cp target/release/body-finder-validate-session dist/body-finder-validate-session-linux-x86_64
+          cp target/release/body-finder-rf-recorder dist/body-finder-rf-recorder-linux-x86_64
+      - uses: actions/upload-artifact@v4
+        with: {name: dev18-linux, path: 'dist/*'}
+
+  windows:
+    needs: requirements
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - run: cargo build --release -p body-finder-node -p body-finder-science
+      - shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force dist\win | Out-Null
+          Copy-Item target\release\body-finder-node.exe dist\win\
+          Copy-Item target\release\body-finder-replay.exe dist\win\
+          Copy-Item target\release\body-finder-validate-session.exe dist\win\
+          Copy-Item target\release\body-finder-rf-recorder.exe dist\win\
+          Compress-Archive dist\win\* dist\body-finder-windows-x86_64.zip
+      - uses: actions/upload-artifact@v4
+        with: {name: dev18-windows, path: 'dist/*.zip'}
+
+  android:
+    needs: requirements
+    runs-on: ubuntu-latest
+    defaults: {run: {working-directory: apps/mobile}}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: {node-version: '20'}
+      - uses: actions/setup-java@v4
+        with: {distribution: temurin, java-version: '17'}
+      - run: npm install --package-lock-only --ignore-scripts --no-audit --no-fund
+      - run: npm ci --no-audit --no-fund
+      - run: npx tsc --noEmit
+      - run: CI=1 npx expo prebuild --platform android --clean
+      - run: chmod +x android/gradlew && ./android/gradlew -p android testReleaseUnitTest assembleRelease bundleRelease --stacktrace
+      - run: |
+          mkdir -p ../../dist
+          cp android/app/build/outputs/apk/release/*.apk ../../dist/body-finder-ruview-universal.apk
+          cp ../../dist/body-finder-ruview-universal.apk ../../dist/BodyFinder-dev18-universal.apk
+          cp android/app/build/outputs/bundle/release/*.aab ../../dist/body-finder-ruview.aab
+      - uses: actions/upload-artifact@v4
+        with: {name: dev18-android, path: 'dist/*'}
+
+  android-legacy:
+    needs: requirements
+    runs-on: ubuntu-latest
+    defaults: {run: {working-directory: apps/android-legacy}}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with: {distribution: temurin, java-version: '17'}
+      - uses: gradle/actions/setup-gradle@v4
+        with: {gradle-version: '8.10.2'}
+      - run: |
+          mkdir -p "$HOME/.android"
+          keytool -genkeypair -keystore "$HOME/.android/debug.keystore" -storepass android -alias androiddebugkey -keypass android -dname 'CN=Android Debug,O=Android,C=US' -keyalg RSA -keysize 2048 -validity 10000
+          gradle :app:testReleaseUnitTest :app:assembleRelease --stacktrace
+          mkdir -p ../../dist
+          cp app/build/outputs/apk/release/*.apk ../../dist/body-finder-ruview-legacy-minsdk21.apk
+      - uses: actions/upload-artifact@v4
+        with: {name: dev18-android-legacy, path: 'dist/*'}
+
+  ios-simulator:
+    needs: requirements
+    runs-on: macos-latest
+    defaults: {run: {working-directory: apps/mobile}}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: {node-version: '20'}
+      - run: npm install --package-lock-only --ignore-scripts --no-audit --no-fund
+      - run: npm ci --no-audit --no-fund
+      - run: npx tsc --noEmit
+      - run: CI=1 npx expo prebuild --platform ios --clean
+      - run: pod install
+        working-directory: apps/mobile/ios
+      - shell: bash
+        working-directory: apps/mobile/ios
+        run: |
+          set -euxo pipefail
+          W=$(find . -maxdepth 1 -name '*.xcworkspace' -print -quit); test -n "$W"
+          xcodebuild -workspace "$W" -scheme BodyFinderRuView -configuration Release -sdk iphonesimulator -destination 'generic/platform=iOS Simulator' -derivedDataPath build CODE_SIGNING_ALLOWED=NO build
+          A=$(find build/Build/Products -type d -name '*.app' -print -quit); test -n "$A"
+          mkdir -p "$GITHUB_WORKSPACE/dist"
+          ditto -c -k --sequesterRsrc --keepParent "$A" "$GITHUB_WORKSPACE/dist/body-finder-ruview-ios-simulator.zip"
+      - uses: actions/upload-artifact@v4
+        with: {name: dev18-ios, path: 'dist/*'}
+
+  release:
+    needs: [requirements, linux, windows, android, android-legacy, ios-simulator]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with: {fetch-depth: 0}
+      - uses: actions/setup-python@v5
+        with: {python-version: '3.12'}
+      - uses: actions/download-artifact@v4
+        with: {pattern: 'dev18-*', path: dist, merge-multiple: true}
+      - name: Package dev18 scientific assets
+        run: |
+          set -euxo pipefail
+          cp docs/TESTING_DEV18.md dist/TESTING_DEV18.md
+          cp IMPLEMENTATION_STATUS_POST_DEV17_TO_V1.md dist/IMPLEMENTATION_STATUS_POST_DEV17_TO_V1.md
+          cp validation/baselines/dev17/acceptance-summary.json dist/dev17-acceptance-summary.json
+          cp protocol/schemas/session-manifest-v1.json dist/session-manifest-v1.schema.json
+          cp protocol/schemas/rf-measurement-v1.json dist/rf-measurement-v1.schema.json
+          cp protocol/schemas/ground-truth-v1.json dist/ground-truth-v1.schema.json
+          mkdir -p kit/validation/baselines/dev17 kit/validation/analysis kit/protocol/schemas
+          cp validation/baselines/dev17/acceptance-summary.json kit/validation/baselines/dev17/
+          cp validation/analysis/validate_dev17_baseline.py validation/analysis/validate_dev18_session.py kit/validation/analysis/
+          cp protocol/schemas/session-manifest-v1.json protocol/schemas/rf-measurement-v1.json protocol/schemas/ground-truth-v1.json kit/protocol/schemas/
+          (cd kit && zip -qr ../dist/validators-dev18.zip .)
+          SHA=$(git rev-parse HEAD); TS=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+          python3 - <<PY
+          import json
+          json.dump({'schema_version':18,'release':'dev-18','version':'0.2.0-experimental.18','commit_sha':'$SHA','build_timestamp':'$TS','protocol_version':2,'screenshots_required_for_acceptance':False,'json_evidence_self_contained':True,'dev17_frozen_baseline_gate':True,'recording_replay_tooling':'IMPLEMENTED','physical_rf_acceptance_status':'PENDING_USER_CAMPAIGN','human_scanning_enabled':False,'human_localization_validated':False,'rescue_use_validated':False,'final_v1_gate':False},open('dist/release-manifest.json','w'),indent=2)
+          json.dump({'release':'dev-18','ci_pass':True,'dev17_baseline_pass':True,'checksums_verified':False,'redownload_verified':False,'physical_rf_acceptance_status':'PENDING_USER_CAMPAIGN','v1_ready':False,'warnings':['No simulation-as-proof: dev19+ physical gates remain pending.']},open('dist/release-verification.json','w'),indent=2)
+          PY
+      - name: Inventory and SBOM
+        run: |
+          set -euxo pipefail
+          python3 - <<'PY'
+          import pathlib
+          d=pathlib.Path('dist')
+          required='BodyFinder-dev18-universal.apk body-finder-ruview-universal.apk body-finder-ruview.aab body-finder-ruview-legacy-minsdk21.apk body-finder-node-linux-x86_64.tar.gz body-finder-node-linux-x86_64.deb body-finder-windows-x86_64.zip body-finder-ruview-ios-simulator.zip body-finder-replay-linux-x86_64 body-finder-validate-session-linux-x86_64 body-finder-rf-recorder-linux-x86_64 validators-dev18.zip TESTING_DEV18.md IMPLEMENTATION_STATUS_POST_DEV17_TO_V1.md dev17-acceptance-summary.json session-manifest-v1.schema.json rf-measurement-v1.schema.json ground-truth-v1.schema.json release-manifest.json release-verification.json'.split()
+          missing=[x for x in required if not (d/x).is_file() or (d/x).stat().st_size==0]
+          if missing: raise SystemExit('missing/non-empty gate: '+','.join(missing))
+          PY
+      - uses: anchore/sbom-action@v0
+        with: {path: '.', format: spdx-json, output-file: dist/SBOM.spdx.json}
+      - name: Manifest and checksums
+        run: |
+          python3 - <<'PY'
+          import hashlib,json,pathlib
+          d=pathlib.Path('dist'); p=d/'release-manifest.json'; m=json.load(open(p)); files=[f for f in sorted(d.iterdir()) if f.is_file() and f.name!='SHA256SUMS.txt'];m['artifacts']=[{'name':f.name,'size_bytes':f.stat().st_size,'sha256':hashlib.sha256(f.read_bytes()).hexdigest()} for f in files if f.name!='release-manifest.json'];p.write_text(json.dumps(m,indent=2)+'\n');files=[f for f in sorted(d.iterdir()) if f.is_file() and f.name!='SHA256SUMS.txt'];(d/'SHA256SUMS.txt').write_text(''.join(f'{hashlib.sha256(f.read_bytes()).hexdigest()}  {f.name}\n' for f in files))
+          PY
+      - name: Publish, redownload and verify dev-18 prerelease
+        env: {GH_TOKEN: '${{ github.token }}'}
+        run: |
+          set -euxo pipefail
+          git tag -f dev-18 "$GITHUB_SHA"; git push origin refs/tags/dev-18 --force
+          gh release delete dev-18 -y || true
+          gh release create dev-18 $(find dist -maxdepth 1 -type f -print | sort) --prerelease --title 'dev-18 — 0.2.0-experimental.18' --notes 'Dev18 freezes the accepted dev17 3-node baseline and adds versioned scientific RF session schemas, native Ubuntu/Windows recorder, explicit WSL degradation, deterministic replay/session validation CLIs, calibration/feature primitives, reproducible cross-platform assets, SBOM and redownload SHA verification. No screenshots. Human detection/localization/rescue flags remain false until labelled blind physical gates pass.'
+          rm -rf verify && mkdir verify; gh release download dev-18 -D verify
+          (cd verify && sha256sum -c SHA256SUMS.txt)
+          python3 - <<'PY'
+          import json,pathlib,hashlib
+          d=pathlib.Path('verify');p=d/'release-verification.json';x=json.load(open(p));x['redownload_verified']=True;x['checksums_verified']=True;p.write_text(json.dumps(x,indent=2)+'\n');files=[f for f in sorted(d.iterdir()) if f.is_file() and f.name!='SHA256SUMS.txt'];(d/'SHA256SUMS.txt').write_text(''.join(f'{hashlib.sha256(f.read_bytes()).hexdigest()}  {f.name}\n' for f in files))
+          PY
+          gh release upload dev-18 verify/release-verification.json verify/SHA256SUMS.txt --clobber
+          rm -rf final-verify && mkdir final-verify; gh release download dev-18 -D final-verify
+          (cd final-verify && sha256sum -c SHA256SUMS.txt)
+          python3 - <<'PY'
+          import json
+          x=json.load(open('final-verify/release-verification.json'));assert x['ci_pass'] and x['dev17_baseline_pass'] and x['checksums_verified'] and x['redownload_verified'];assert x['physical_rf_acceptance_status']=='PENDING_USER_CAMPAIGN' and x['v1_ready'] is False
+          PY

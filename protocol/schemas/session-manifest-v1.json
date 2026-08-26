@@ -1,0 +1,22 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://body-finder.local/schemas/session-manifest-v1.json",
+  "title": "Body Finder SessionManifest v1",
+  "type": "object",
+  "required": ["schema_version","session_id","node_id","platform","software_build","started_unix_ms","monotonic_origin","capabilities","evidence_policy"],
+  "properties": {
+    "schema_version": {"const": 1},
+    "session_id": {"type":"string","minLength":1},
+    "node_id": {"type":"string","minLength":1},
+    "platform": {"type":"string","minLength":1},
+    "software_build": {"type":"string","minLength":1},
+    "started_unix_ms": {"type":"integer","minimum":0},
+    "ended_unix_ms": {"type":["integer","null"],"minimum":0},
+    "monotonic_origin": {"type":"string","enum":["PROCESS_START","BOOT_MONOTONIC","PLATFORM_MONOTONIC"]},
+    "sample_interval_ms": {"type":"integer","minimum":1},
+    "capabilities": {"type":"object","additionalProperties":{"type":"object","required":["state","detail"],"properties":{"state":{"type":"string"},"detail":{"type":"string"}},"additionalProperties":true}},
+    "device_inventory": {"type":"array","items":{"type":"object"}},
+    "evidence_policy": {"type":"object","required":["screenshots_required","json_self_contained","simulation_is_physical_proof"],"properties":{"screenshots_required":{"const":false},"json_self_contained":{"const":true},"simulation_is_physical_proof":{"const":false}},"additionalProperties":true}
+  },
+  "additionalProperties": true
+}
