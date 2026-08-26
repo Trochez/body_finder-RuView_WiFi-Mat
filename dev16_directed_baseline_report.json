@@ -1,0 +1,18 @@
+{
+  "schema_version": 1,
+  "release": "dev-17",
+  "source_release": "dev-16",
+  "validation_semantics": "dev17-strict-events-frozen-crosscheck",
+  "raw_evidence_redistributed_in_release": false,
+  "evidence_source": "original eight dev16 physical JSON exports supplied for validation",
+  "pass": true,
+  "unique_targeted_recovery_success_count": 2,
+  "campaign_errors": [],
+  "warnings": [],
+  "devices": {
+    "pixel-7-pro": {"long_run_id":"9aa44132-ce39-4296-9eb9-bce4d4fd30dc","short_run_id":"14facf4d-a7c6-4de1-8a8f-1fd3f3eac8ff","long_elapsed_ms":346735,"all_expected_peer_metric_uptime_percent_approx":99.92,"peer_expire_delta":0,"preflight_at_start_ready":true,"environment_valid":true,"end_strategy":"FILTERED_PRIMARY","active_recovery_generation":null,"rolling_recovery_max":1,"targeted_recovery":{"request":1,"first_valid":1,"success":1,"failure":0},"max_unfiltered_duration_ms":448,"max_filtered_probe_duration_ms":14107,"hard_breach_count":0,"history_equal":true,"short_isolated":true},
+    "pixel-10-pro": {"long_run_id":"9379d816-0987-4d3c-84e1-fc84a22ee9da","short_run_id":"d672edaf-36df-45a8-94fa-330d821028c5","long_elapsed_ms":344999,"all_expected_peer_metric_uptime_percent_approx":99.80,"peer_expire_delta":0,"preflight_at_start_ready":true,"environment_valid":true,"end_strategy":"FILTERED_PRIMARY","active_recovery_generation":null,"rolling_recovery_max":1,"targeted_recovery":{"request":1,"first_valid":1,"success":1,"failure":0},"max_unfiltered_duration_ms":533,"max_filtered_probe_duration_ms":14089,"hard_breach_count":0,"history_equal":true,"short_isolated":true}
+  },
+  "dedup_key": ["device_identity","run_id","recovery_generation"],
+  "note": "Baseline report from the eight original dev16 physical exports; raw user evidence is not redistributed."
+}
