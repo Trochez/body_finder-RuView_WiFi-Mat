@@ -28,15 +28,16 @@ jobs:
         continue-on-error: true
         run: |
           set -euxo pipefail
-          python3 -m py_compile scripts/apply_dev15_android_release.py scripts/generate_dev15_fixtures.py
+          python3 -m py_compile scripts/apply_dev15_android_release.py scripts/hotfix_dev15_two_device_smoke.py scripts/generate_dev15_fixtures.py
           python3 scripts/apply_dev15_android_release.py
+          python3 scripts/hotfix_dev15_two_device_smoke.py --no-release-trigger
           python3 scripts/generate_dev15_fixtures.py
       - id: gates
         if: steps.materialize.outcome == 'success'
         continue-on-error: true
         run: |
           set -euxo pipefail
-          python3 -m py_compile validation/analysis/dev15_validation.py validation/analysis/validate_dev15_acceptance.py validation/analysis/validate_dev15_hard_gates.py validation/analysis/build_acceptance_report.py validation/analysis/calculate_accuracy_report.py validation/analysis/test_dev15_tooling.py validation/android/check_dev15_frozen_truth_contract.py
+          python3 -m py_compile validation/analysis/dev15_validation.py validation/analysis/validate_dev15_acceptance.py validation/analysis/validate_dev15_directed_smoke.py validation/analysis/validate_dev15_hard_gates.py validation/analysis/build_acceptance_report.py validation/analysis/calculate_accuracy_report.py validation/analysis/test_dev15_tooling.py validation/android/check_dev15_frozen_truth_contract.py
           python3 validation/android/check_dev15_frozen_truth_contract.py
           python3 validation/analysis/test_dev15_tooling.py
           python3 -m json.tool protocol/schemas/validation-run-snapshot-v3.json >/dev/null
