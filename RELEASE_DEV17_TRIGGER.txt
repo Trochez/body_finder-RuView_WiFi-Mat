@@ -1,2 +1,3 @@
-dev-17 release trigger 2026-08-26T07:48Z
+dev-17 release trigger 2026-08-26T07:53Z
 implementation_merge=70e9f9b499340bfd86c76c2c58bf71bda7c6d46f
+validator_payload_fix=617d74e75156e837f81552c54d62e4f826bfbc04
