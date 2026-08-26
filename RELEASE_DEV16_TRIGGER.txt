@@ -1,2 +1,3 @@
-dev-16 release trigger 2026-08-26T06:18Z
+dev-16 release trigger 2026-08-26T06:26Z
 bootstrap_run=32937194075
+publisher_fix=6f7d4b5ec5c8948b123ea01e236214ba2b1a7209
