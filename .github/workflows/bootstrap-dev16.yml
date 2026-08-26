@@ -1,0 +1,86 @@
+name: Dev16 recovery contract hardening bootstrap
+
+on:
+  push:
+    branches: [main]
+    paths: ['DEV16_BOOTSTRAP_TRIGGER.txt']
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  apply:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with: {ref: main, fetch-depth: 0}
+      - uses: actions/setup-python@v5
+        with: {python-version: '3.12'}
+      - uses: actions/setup-node@v4
+        with: {node-version: '20'}
+      - uses: dtolnay/rust-toolchain@stable
+      - id: materialize
+        continue-on-error: true
+        run: |
+          set -euxo pipefail
+          python3 -m py_compile scripts/apply_dev16_contract_hardening.py
+          python3 scripts/apply_dev16_contract_hardening.py
+      - id: gates
+        if: steps.materialize.outcome == 'success'
+        continue-on-error: true
+        run: |
+          set -euxo pipefail
+          grep -q '0.2.0-experimental.16' apps/mobile/src/version.ts
+          grep -q 'reportVersion: 18' apps/mobile/src/version.ts
+          grep -q 'snapshotSchemaVersion: 4' apps/mobile/src/version.ts
+          grep -q '"versionCode": 16' apps/mobile/app.json
+          grep -q 'pub const PROTOCOL_VERSION: u16 = 2;' crates/body-finder-core/src/lib.rs
+          grep -q 'RECOVERY_UNFILTERED_ACTION_TARGET_MS = 9_500L' apps/mobile/modules/body-finder-native/android/src/main/java/com/trochez/bodyfindernative/BleAcquisitionPolicy.kt
+          grep -q 'FILTERED_PROBE_ACTION_TARGET_MS = 14_000L' apps/mobile/modules/body-finder-native/android/src/main/java/com/trochez/bodyfindernative/BleAcquisitionPolicy.kt
+          grep -q 'recoveryUnfilteredElapsedMs' apps/mobile/modules/body-finder-native/android/src/main/java/com/trochez/bodyfindernative/BodyFinderNativeModule.kt
+          grep -q 'dev16-self-contained-json-evidence-v4' apps/mobile/modules/body-finder-native/android/src/main/java/com/trochez/bodyfindernative/BodyFinderNativeModule.kt
+          python3 -m json.tool protocol/schemas/validation-run-snapshot-v4.json >/dev/null
+          python3 -m json.tool validation/contracts/dev16-evidence-contract.json >/dev/null
+          python3 -m json.tool validation/contracts/dev16-gates.json >/dev/null
+          python3 -m py_compile validation/analysis/dev16_validation.py validation/analysis/validate_dev16_acceptance.py validation/analysis/validate_dev16_directed_smoke.py validation/analysis/build_dev16_acceptance_report.py validation/analysis/test_dev16_tooling.py
+          python3 validation/analysis/test_dev16_tooling.py
+          test -s DEV16_FROZEN_TRUTH.md
+          test -s docs/TESTING_DEV16.md
+          # Frozen truth: no dev16 materialization may retune these components.
+          git diff --exit-code HEAD -- calibration apps/mobile/src/autogeometry.ts apps/mobile/src/rangeFusion.ts apps/mobile/modules/body-finder-native/android/src/main/java/com/trochez/bodyfindernative/BleContinuityPolicy.kt apps/mobile/modules/body-finder-native/android/src/main/java/com/trochez/bodyfindernative/BleRangeEstimator.kt apps/mobile/modules/body-finder-native/android/src/main/java/com/trochez/bodyfindernative/SystemRangingApi36.kt crates/body-finder-core protocol/schemas/validation-run-snapshot-v3.json
+          (cd apps/mobile && npm install --package-lock-only --ignore-scripts --no-audit --no-fund && npm ci --no-audit --no-fund && npx tsc --noEmit)
+          cargo test --workspace
+      - name: Commit dev16 implementation
+        if: steps.materialize.outcome == 'success' && steps.gates.outcome == 'success'
+        run: |
+          set -euxo pipefail
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git add apps/mobile validation protocol/schemas/validation-run-snapshot-v4.json docs/TESTING_DEV16.md DEV16_FROZEN_TRUTH.md RELEASE_DEV16_TRIGGER.txt
+          if ! git diff --cached --quiet; then git commit -m 'feat: implement dev16 recovery contract hardening'; fi
+      - name: Record bootstrap result
+        if: always()
+        env:
+          MATERIALIZE: ${{ steps.materialize.outcome }}
+          GATES: ${{ steps.gates.outcome }}
+        run: |
+          set -euxo pipefail
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          python3 - <<'PY'
+          import json,os,pathlib
+          ok=os.environ.get('MATERIALIZE')=='success' and os.environ.get('GATES')=='success'
+          pathlib.Path('DEV16_BOOTSTRAP_RESULT.json').write_text(json.dumps({'pass':ok,'materialize':os.environ.get('MATERIALIZE'),'gates':os.environ.get('GATES'),'run_id':os.environ.get('GITHUB_RUN_ID'),'sha':os.environ.get('GITHUB_SHA')},indent=2)+'\n')
+          PY
+          git add DEV16_BOOTSTRAP_RESULT.json
+          if ! git diff --cached --quiet; then git commit -m 'ci: record dev16 bootstrap result'; fi
+          git push origin HEAD:main
+      - name: Enforce success
+        if: always()
+        env:
+          MATERIALIZE: ${{ steps.materialize.outcome }}
+          GATES: ${{ steps.gates.outcome }}
+        run: |
+          test "$MATERIALIZE" = success
+          test "$GATES" = success
