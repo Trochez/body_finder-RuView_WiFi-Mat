@@ -1,0 +1,53 @@
+{
+  "schema_version": 1,
+  "source_release": "dev-18",
+  "device_alias": "pixel-10-pro",
+  "run_id": "5f5e9e90-ac44-4fd6-a1d6-069b5f3e6484",
+  "classification": {
+    "H2_peer_expiry_too_aggressive": "SUPPORTED_AS_IMMEDIATE_FAILURE_MECHANISM",
+    "H5_expected_peer_model_not_frozen": "CONFIRMED",
+    "H1_ranging_manager_causes_loss": "NOT_CONFIRMED",
+    "H3_multicast_rx_origin": "NOT_CONFIRMED",
+    "H4_scanner_restart_origin": "NOT_CONFIRMED",
+    "H6_ble_udp_coupling_origin": "NOT_CONFIRMED"
+  },
+  "evidence": {
+    "elapsed_ms": 379283,
+    "expected_peer_count_at_start": 2,
+    "peer_expire_delta": 28,
+    "scan_restart_delta": 6,
+    "environment_valid": false,
+    "environment_violation_types": ["EXPECTED_BLE_PEERS_LT_1"],
+    "all_peer_uptime_percent": 84.7309265113385,
+    "usable_metric_range_uptime_percent": 83.02771281602392,
+    "geometry_2d_uptime_percent": 87.94435817054811,
+    "all_expected_peer_metric_uptime_percent": 94.56949032780273,
+    "end_peer": {
+      "node_id": "fdffb29f-7c0f-46bb-b88f-87e742e0a10b",
+      "state": "EXPIRED",
+      "last_seen_age_ms": 6895,
+      "packets_received": 214
+    },
+    "end_environment": {
+      "foreground_service_state": "RUNNING",
+      "screen_state": "ON",
+      "power_save_mode": false,
+      "wake_lock_held": true,
+      "wifi_lock_held": true,
+      "multicast_lock_held": true,
+      "app_visibility": "active"
+    }
+  },
+  "source_contract_observation": {
+    "dev18_udp_peer_expiry_ms": 5000,
+    "mechanical_conclusion": "A peer with a 6895ms RX age is deterministically evicted by the 5000ms peer timeout. This proves the immediate expiry mechanism, not the upstream source of UDP jitter.",
+    "false_pass_conclusion": "The run started with two expected peers but runtime expected-peer accounting later normalized to the remaining active cohort; this can inflate all_expected_peer_metric_uptime and is forbidden in dev19."
+  },
+  "dev19_minimal_fix": {
+    "peer_state_machine": "ACTIVE -> STALE at 5000ms -> EXPIRED after 10000ms",
+    "hard_expiry_rationale": "Use the already-frozen 10000ms continuity hard bound; do not extend beyond it without new physical evidence.",
+    "expected_cohort": "immutable IDs and count captured at validation Start",
+    "causal_timeline": ["PEER_BECAME_STALE", "PEER_EXPIRED", "PEER_REACTIVATED"],
+    "ranging_manager_policy": "unchanged; A/B diagnostic evidence still required before blaming or disabling it"
+  }
+}
