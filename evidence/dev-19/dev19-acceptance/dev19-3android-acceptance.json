@@ -1,0 +1,19 @@
+{
+  "schema_version": 1,
+  "mode": "dev19-strict",
+  "pass": true,
+  "results": [
+    {
+      "device_alias": "pixel-10-pro",
+      "pass": true
+    },
+    {
+      "device_alias": "pixel-7-pro",
+      "pass": true
+    },
+    {
+      "device_alias": "lenovo-tb-j606l",
+      "pass": true
+    }
+  ]
+}
