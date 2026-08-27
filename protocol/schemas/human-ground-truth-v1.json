@@ -1,0 +1,18 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "human-ground-truth-v1.json",
+  "title": "HumanGroundTruth v1",
+  "type": "object",
+  "required": ["schema_version", "session_id", "ground_truth", "scenario", "environment_id", "day_id"],
+  "properties": {
+    "schema_version": {"const": 1},
+    "session_id": {"type": "string", "minLength": 1},
+    "ground_truth": {"enum": ["EMPTY", "HUMAN_PRESENT", "UNKNOWN"]},
+    "scenario": {"type": "string", "minLength": 1},
+    "environment_id": {"type": "string", "minLength": 1},
+    "day_id": {"type": "string", "minLength": 1},
+    "target_state": {"enum": ["STATIONARY", "MOVING", "NONE", "UNKNOWN"]},
+    "ground_truth_xy": {"type": ["array", "null"], "minItems": 2, "maxItems": 2, "items": {"type": "number"}}
+  },
+  "additionalProperties": true
+}
