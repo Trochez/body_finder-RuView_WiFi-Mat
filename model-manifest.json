@@ -1,0 +1,10 @@
+{
+  "schema_version":1,
+  "release":"dev-20",
+  "default_algorithm":"deterministic-rssi-change-v1",
+  "learned_model":null,
+  "learned_model_status":"NOT_SELECTED_UNTIL_PHYSICAL_CORPUS_EXISTS",
+  "training_data_policy":"GROUP_BY_PHYSICAL_SESSION_ENVIRONMENT_DEVICE",
+  "final_test_set_policy":"FROZEN_BEFORE_MODEL_SELECTION",
+  "calibration_required":true
+}
