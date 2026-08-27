@@ -1,0 +1,8 @@
+{
+  "build": "0.2.0-experimental.19",
+  "final_go": true,
+  "release": "dev-19",
+  "schema_version": 1,
+  "source_acceptance": "dev19-3android-acceptance.json",
+  "three_android_acceptance": "PASS"
+}

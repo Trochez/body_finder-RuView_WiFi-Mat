@@ -1,0 +1,197 @@
+{
+  "mode": "dev19-strict",
+  "pass": true,
+  "results": [
+    {
+      "device_alias": "pixel-10-pro",
+      "gates": [
+        {
+          "expected": "0.2.0-experimental.19",
+          "gate": "G0_BUILD",
+          "observed": "0.2.0-experimental.19",
+          "pass": true
+        },
+        {
+          "expected": 2,
+          "gate": "G0_PROTOCOL",
+          "observed": 2,
+          "pass": true
+        },
+        {
+          "expected": true,
+          "gate": "G0_JSON_SELF_CONTAINED",
+          "observed": true,
+          "pass": true
+        },
+        {
+          "expected": false,
+          "gate": "G0_NO_SCREENSHOTS",
+          "observed": false,
+          "pass": true
+        },
+        {
+          "expected": {"frozen": true, "schema": 4},
+          "gate": "G0_SNAPSHOT",
+          "observed": {"frozen": true, "schema": 4},
+          "pass": true
+        },
+        {
+          "expected": 2,
+          "gate": "G1_FROZEN_COHORT_COUNT",
+          "observed": 2,
+          "pass": true
+        },
+        {
+          "expected": "2 unique peer IDs",
+          "gate": "G1_FROZEN_COHORT_IDS",
+          "observed": ["377086e3-133d-4c81-a3e3-48386463e8b8", "fdffb29f-7c0f-46bb-b88f-87e742e0a10b"],
+          "pass": true
+        },
+        {
+          "expected": {"valid": true, "violation_count": 0},
+          "gate": "G2_ENVIRONMENT",
+          "observed": {"valid": true, "violation_count": 0},
+          "pass": true
+        },
+        {
+          "expected": ">=330000",
+          "gate": "G3_DURATION",
+          "observed": 353754,
+          "pass": true
+        },
+        {
+          "expected": 0,
+          "gate": "G4_PEER_EXPIRE",
+          "observed": 0,
+          "pass": true
+        },
+        {
+          "expected": ">=90",
+          "gate": "G5_METRIC_UPTIME",
+          "observed": 99.90925897657695,
+          "pass": true
+        },
+        {
+          "expected": ">=90",
+          "gate": "G6_GEOMETRY_2D",
+          "observed": 99.90925897657695,
+          "pass": true
+        },
+        {
+          "expected": "<=3/rolling 300000ms",
+          "gate": "G7_RECOVERY_BUDGET",
+          "observed": 1,
+          "pass": true
+        },
+        {
+          "expected": 0,
+          "gate": "G8_TIMING_HARD_BREACH",
+          "observed": 0,
+          "pass": true
+        },
+        {
+          "expected": {"active_recovery_generation": null, "strategy": "FILTERED_PRIMARY"},
+          "gate": "G9_END_STRATEGY",
+          "observed": {"active_recovery_generation": null, "strategy": "FILTERED_PRIMARY"},
+          "pass": true
+        },
+        {
+          "expected": "events,total_count,truncated",
+          "gate": "G10_FABRIC_TIMELINE_PRESENT",
+          "observed": {"keys": ["capacity", "events", "expected_peer_count_at_start", "expected_peer_ids_at_start", "run_id", "snapshot_wall_ms", "started_wall_ms", "total_count", "truncated"]},
+          "pass": true
+        },
+        {
+          "expected": "equal unless truncated",
+          "gate": "G10_FABRIC_TIMELINE_COUNT",
+          "observed": {"events": 1, "total_count": 1, "truncated": false},
+          "pass": true
+        },
+        {
+          "expected": "equal",
+          "gate": "G10_EXPIRE_RECONSTRUCTION",
+          "observed": {"expired_events": 0, "peer_expire_delta": 0},
+          "pass": true
+        },
+        {
+          "expected": "equal",
+          "gate": "G10_COHORT_MATCH",
+          "observed": {"fabric_count": 2, "fabric_ids": ["377086e3-133d-4c81-a3e3-48386463e8b8", "fdffb29f-7c0f-46bb-b88f-87e742e0a10b"], "run_count": 2, "run_ids": ["377086e3-133d-4c81-a3e3-48386463e8b8", "fdffb29f-7c0f-46bb-b88f-87e742e0a10b"]},
+          "pass": true
+        },
+        {
+          "expected": "all false",
+          "gate": "G11_HUMAN_FLAGS",
+          "observed": {"human_localization_validated": false, "human_scanning_enabled": false, "rescue_use_validated": false},
+          "pass": true
+        }
+      ],
+      "pass": true,
+      "run_id": "f9fd6431-85ca-4e0f-a8b1-9c7676b034e5",
+      "schema_version": 1,
+      "source": "pixel10-dev19-final.json",
+      "validator": "validate_dev19_session.py"
+    },
+    {
+      "device_alias": "pixel-7-pro",
+      "gates": [
+        {"expected":"0.2.0-experimental.19","gate":"G0_BUILD","observed":"0.2.0-experimental.19","pass":true},
+        {"expected":2,"gate":"G0_PROTOCOL","observed":2,"pass":true},
+        {"expected":true,"gate":"G0_JSON_SELF_CONTAINED","observed":true,"pass":true},
+        {"expected":false,"gate":"G0_NO_SCREENSHOTS","observed":false,"pass":true},
+        {"expected":{"frozen":true,"schema":4},"gate":"G0_SNAPSHOT","observed":{"frozen":true,"schema":4},"pass":true},
+        {"expected":2,"gate":"G1_FROZEN_COHORT_COUNT","observed":2,"pass":true},
+        {"expected":"2 unique peer IDs","gate":"G1_FROZEN_COHORT_IDS","observed":["377086e3-133d-4c81-a3e3-48386463e8b8","8bd95e83-b47a-4f79-8065-d7afd15b064a"],"pass":true},
+        {"expected":{"valid":true,"violation_count":0},"gate":"G2_ENVIRONMENT","observed":{"valid":true,"violation_count":0},"pass":true},
+        {"expected":">=330000","gate":"G3_DURATION","observed":354377,"pass":true},
+        {"expected":0,"gate":"G4_PEER_EXPIRE","observed":0,"pass":true},
+        {"expected":">=90","gate":"G5_METRIC_UPTIME","observed":99.97234583508524,"pass":true},
+        {"expected":">=90","gate":"G6_GEOMETRY_2D","observed":99.97234583508524,"pass":true},
+        {"expected":"<=3/rolling 300000ms","gate":"G7_RECOVERY_BUDGET","observed":1,"pass":true},
+        {"expected":0,"gate":"G8_TIMING_HARD_BREACH","observed":0,"pass":true},
+        {"expected":{"active_recovery_generation":null,"strategy":"FILTERED_PRIMARY"},"gate":"G9_END_STRATEGY","observed":{"active_recovery_generation":null,"strategy":"FILTERED_PRIMARY"},"pass":true},
+        {"expected":"events,total_count,truncated","gate":"G10_FABRIC_TIMELINE_PRESENT","observed":{"keys":["capacity","events","expected_peer_count_at_start","expected_peer_ids_at_start","run_id","snapshot_wall_ms","started_wall_ms","total_count","truncated"]},"pass":true},
+        {"expected":"equal unless truncated","gate":"G10_FABRIC_TIMELINE_COUNT","observed":{"events":1,"total_count":1,"truncated":false},"pass":true},
+        {"expected":"equal","gate":"G10_EXPIRE_RECONSTRUCTION","observed":{"expired_events":0,"peer_expire_delta":0},"pass":true},
+        {"expected":"equal","gate":"G10_COHORT_MATCH","observed":{"fabric_count":2,"fabric_ids":["377086e3-133d-4c81-a3e3-48386463e8b8","8bd95e83-b47a-4f79-8065-d7afd15b064a"],"run_count":2,"run_ids":["377086e3-133d-4c81-a3e3-48386463e8b8","8bd95e83-b47a-4f79-8065-d7afd15b064a"]},"pass":true},
+        {"expected":"all false","gate":"G11_HUMAN_FLAGS","observed":{"human_localization_validated":false,"human_scanning_enabled":false,"rescue_use_validated":false},"pass":true}
+      ],
+      "pass": true,
+      "run_id": "886acc56-e3ab-4d14-b4be-cf337ee914b5",
+      "schema_version": 1,
+      "source": "pixel7-dev19-final.json",
+      "validator": "validate_dev19_session.py"
+    },
+    {
+      "device_alias": "lenovo-tb-j606l",
+      "gates": [
+        {"expected":"0.2.0-experimental.19","gate":"G0_BUILD","observed":"0.2.0-experimental.19","pass":true},
+        {"expected":2,"gate":"G0_PROTOCOL","observed":2,"pass":true},
+        {"expected":true,"gate":"G0_JSON_SELF_CONTAINED","observed":true,"pass":true},
+        {"expected":false,"gate":"G0_NO_SCREENSHOTS","observed":false,"pass":true},
+        {"expected":{"frozen":true,"schema":4},"gate":"G0_SNAPSHOT","observed":{"frozen":true,"schema":4},"pass":true},
+        {"expected":2,"gate":"G1_FROZEN_COHORT_COUNT","observed":2,"pass":true},
+        {"expected":"2 unique peer IDs","gate":"G1_FROZEN_COHORT_IDS","observed":["8bd95e83-b47a-4f79-8065-d7afd15b064a","fdffb29f-7c0f-46bb-b88f-87e742e0a10b"],"pass":true},
+        {"expected":{"valid":true,"violation_count":0},"gate":"G2_ENVIRONMENT","observed":{"valid":true,"violation_count":0},"pass":true},
+        {"expected":">=330000","gate":"G3_DURATION","observed":354363,"pass":true},
+        {"expected":0,"gate":"G4_PEER_EXPIRE","observed":0,"pass":true},
+        {"expected":">=90","gate":"G5_METRIC_UPTIME","observed":99.98927653282087,"pass":true},
+        {"expected":">=90","gate":"G6_GEOMETRY_2D","observed":99.98927653282087,"pass":true},
+        {"expected":"<=3/rolling 300000ms","gate":"G7_RECOVERY_BUDGET","observed":0,"pass":true},
+        {"expected":0,"gate":"G8_TIMING_HARD_BREACH","observed":0,"pass":true},
+        {"expected":{"active_recovery_generation":null,"strategy":"FILTERED_PRIMARY"},"gate":"G9_END_STRATEGY","observed":{"active_recovery_generation":null,"strategy":"FILTERED_PRIMARY"},"pass":true},
+        {"expected":"events,total_count,truncated","gate":"G10_FABRIC_TIMELINE_PRESENT","observed":{"keys":["capacity","events","expected_peer_count_at_start","expected_peer_ids_at_start","run_id","snapshot_wall_ms","started_wall_ms","total_count","truncated"]},"pass":true},
+        {"expected":"equal unless truncated","gate":"G10_FABRIC_TIMELINE_COUNT","observed":{"events":1,"total_count":1,"truncated":false},"pass":true},
+        {"expected":"equal","gate":"G10_EXPIRE_RECONSTRUCTION","observed":{"expired_events":0,"peer_expire_delta":0},"pass":true},
+        {"expected":"equal","gate":"G10_COHORT_MATCH","observed":{"fabric_count":2,"fabric_ids":["8bd95e83-b47a-4f79-8065-d7afd15b064a","fdffb29f-7c0f-46bb-b88f-87e742e0a10b"],"run_count":2,"run_ids":["8bd95e83-b47a-4f79-8065-d7afd15b064a","fdffb29f-7c0f-46bb-b88f-87e742e0a10b"]},"pass":true},
+        {"expected":"all false","gate":"G11_HUMAN_FLAGS","observed":{"human_localization_validated":false,"human_scanning_enabled":false,"rescue_use_validated":false},"pass":true}
+      ],
+      "pass": true,
+      "run_id": "20befcc5-1b84-4e5b-a391-213fc848dce3",
+      "schema_version": 1,
+      "source": "lenovo-dev19-final.json",
+      "validator": "validate_dev19_session.py"
+    }
+  ],
+  "schema_version": 1
+}
