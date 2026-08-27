@@ -1,0 +1,9 @@
+{
+  "schema_version":1,
+  "baseline":"dev-19 / 0.2.0-experimental.19",
+  "release_tag_commit":"7d70bd3ac2cfc1bc8fe440be3b415120a6a69b43",
+  "accepted_evidence_commit":"46995694e8841eaf383b0fc43ea72dc77aeef072",
+  "unified_merge_commit":"95a29808b159fc601f9f05a363fcd738fa0a15dc",
+  "contracts":["three_android_frozen_two_peer_cohort","peer_expire_delta_zero","strict_validator_pass","self_contained_json","human_flags_false_on_dev19"],
+  "screenshots_required":false
+}
