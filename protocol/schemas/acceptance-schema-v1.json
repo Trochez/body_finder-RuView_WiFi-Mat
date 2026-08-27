@@ -1,0 +1,11 @@
+{
+  "$schema":"https://json-schema.org/draft/2020-12/schema",
+  "$id":"acceptance-schema-v1.json",
+  "type":"object",
+  "required":["release","baseline_regression","physical_acceptance","claims_allowed","claims_blocked","final_go"],
+  "properties":{
+    "release":{"type":"string"}, "baseline_regression":{"enum":["PASS","FAIL"]}, "physical_acceptance":{"enum":["PASS","FAIL","PENDING"]},
+    "claims_allowed":{"type":"array","items":{"type":"string"}}, "claims_blocked":{"type":"array","items":{"type":"string"}}, "final_go":{"type":"boolean"}
+  },
+  "additionalProperties":true
+}
