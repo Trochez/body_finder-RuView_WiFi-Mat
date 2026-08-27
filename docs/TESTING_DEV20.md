@@ -8,15 +8,18 @@ Install `BodyFinder-dev20-universal.apk` on the Pixels. If needed on Lenovo, use
 
 On all 3 phones: Wi-Fi/Bluetooth ON, Battery Saver OFF, screens ON, app foreground. Wait until each phone sees the other 2 nodes and acquisition/geometry is healthy.
 
-## 2. Record runs
+## 2. JSON share smoke test
+Before the full campaign, create a short diagnostic run (15-30 s) on each Android, end it, then tap **Share complete test JSON**. Android must open the system share chooser with a `.json` attachment. Save/share that file and confirm it parses as JSON. If the chooser or attachment does not appear, do not start the 5-minute campaign.
+
+## 3. Record runs
 For every condition, on **all 3 phones**: **Start validation run** → hold the condition for **≥5 min** → **End validation run** → **Share complete test JSON**.
 
 Minimum conditions: `EMPTY_CAL`, `EMPTY_TEST`, `HUMAN_STATIONARY_CENTER`, `HUMAN_MOVING`, `HUMAN_NEAR_NODE`, `HUMAN_OUTSIDE`, and one non-human motion negative control where practical. Use multiple physical sessions/days. Never split adjacent windows from one run between train/test.
 
-## 3. Label externally
+## 4. Label externally
 Copy `campaign-manifest-template.json` and set each `export`, `ground_truth`, `scenario`, `environment_id`, `day_id`, `calibration_id`, `role`, and `split`. Ground truth stays external to inference. Final acceptance runs use `split=TEST` and `used_for_model_selection=false`.
 
-## 4. Validate
+## 5. Validate
 Linux/WSL, Python 3.10+:
 
 ```bash
@@ -26,7 +29,7 @@ python3 validate_dev20_human_detection.py dev20-campaign.json --engineering-targ
 
 PASS requires dev-19 acquisition health, no session leakage, frozen TEST data, and engineering targets **recall ≥90% / specificity ≥85%** in the validated in-room regime. Static/moving and held-out-device metrics are separate. Low-quality evidence must become `INDETERMINATE`; `NO_HUMAN_EVIDENCE` is never proof of absence.
 
-## 5. Return evidence
+## 6. Return evidence
 Send `dev20-acceptance.json`, `dev20-campaign.json`, and the original exported JSON only if deeper diagnosis is needed. Screenshots are optional.
 
 The release also ships fail-closed forward validators for dev-21 localization/uncertainty, dev-22 tracking/clusters, dev-23 capability truth, controlled dev-24 NLOS/mock-debris evaluation, and the aggregate v1 gate. Those gates cannot pass without their required physical evidence.

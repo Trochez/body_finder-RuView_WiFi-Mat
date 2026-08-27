@@ -9,6 +9,7 @@ import android.bluetooth.le.ScanCallback
 import android.bluetooth.le.ScanFilter
 import android.bluetooth.le.ScanResult
 import android.bluetooth.le.ScanSettings
+import android.content.ClipData
 import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
@@ -18,10 +19,12 @@ import android.os.Build
 import android.os.PowerManager
 import android.os.SystemClock
 import android.view.WindowManager
+import androidx.core.content.FileProvider
 import expo.modules.kotlin.modules.Module
 import expo.modules.kotlin.modules.ModuleDefinition
 import org.json.JSONArray
 import org.json.JSONObject
+import java.io.File
 import java.net.DatagramPacket
 import java.net.InetAddress
 import java.net.InetSocketAddress
@@ -676,6 +679,28 @@ class BodyFinderNativeModule : Module() {
   override fun definition() = ModuleDefinition {
     Name("BodyFinderNative")
 
+    Function("shareJsonFile") { json: String, requestedFilename: String ->
+      val ctx = appContext.reactContext ?: return@Function false
+      val safeFilename = requestedFilename
+        .replace(Regex("[^A-Za-z0-9._-]"), "_")
+        .take(160)
+        .let { if (it.endsWith(".json")) it else "$it.json" }
+      val exportDir = File(ctx.cacheDir, "bodyfinder_exports").apply { mkdirs() }
+      val file = File(exportDir, safeFilename)
+      file.writeText(json, Charsets.UTF_8)
+      val uri = FileProvider.getUriForFile(ctx, "${ctx.packageName}.bodyfinder.fileprovider", file)
+      val sendIntent = Intent(Intent.ACTION_SEND).apply {
+        type = "application/json"
+        putExtra(Intent.EXTRA_STREAM, uri)
+        addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+        clipData = ClipData.newRawUri(safeFilename, uri)
+      }
+      val chooser = Intent.createChooser(sendIntent, "Body Finder JSON").apply {
+        addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+      }
+      ctx.startActivity(chooser)
+      true
+    }
     Function("getCapabilitiesJson") {
       val ctx = appContext.reactContext ?: return@Function "{}"
       deviceReport(ctx).toString()

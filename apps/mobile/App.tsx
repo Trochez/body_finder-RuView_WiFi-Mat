@@ -352,7 +352,13 @@ export default function App() {
       },
       instructions: 'Return the exported JSON files only. Screenshots are not required for dev-14 evidence. Use >=330 s for acceptance; short runs remain diagnostic only. Do not change calibration, minSamples, freshness, holdover or solver settings. Human scanning remains blocked.',
     };
-    await Share.share({ message: JSON.stringify(payload, null, 2), title: suggestedFilename });
+    const serializedPayload = JSON.stringify(payload, null, 2);
+    if (Platform.OS === 'android') {
+      const shared = BodyFinderNative.shareJsonFile(serializedPayload, suggestedFilename);
+      if (!shared) throw new Error(lang === 'es' ? 'No se pudo preparar el archivo JSON para compartir.' : 'Could not prepare the JSON file for sharing.');
+    } else {
+      await Share.share({ message: serializedPayload, title: suggestedFilename });
+    }
   }
 
   const scale = 18;

@@ -4,6 +4,13 @@
   <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
   <uses-permission android:name="android.permission.FOREGROUND_SERVICE_CONNECTED_DEVICE" />
   <application>
+    <provider
+      android:name="androidx.core.content.FileProvider"
+      android:authorities="${applicationId}.bodyfinder.fileprovider"
+      android:exported="false"
+      android:grantUriPermissions="true">
+      <meta-data android:name="android.support.FILE_PROVIDER_PATHS" android:resource="@xml/bodyfinder_file_paths" />
+    </provider>
     <service
       android:name="com.trochez.bodyfindernative.BodyFinderFieldService"
       android:exported="false"
