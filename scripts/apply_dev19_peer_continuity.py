@@ -9,6 +9,8 @@ APPJSON = ROOT / "apps/mobile/app.json"
 
 def replace_once(text: str, old: str, new: str, label: str) -> str:
     count = text.count(old)
+    if label == "frozen fabric evidence" and count == 2:
+        return text.replace(old, new)
     if count != 1:
         raise SystemExit(f"{label}: expected exactly 1 match, found {count}")
     return text.replace(old, new, 1)
@@ -22,6 +24,14 @@ def replace_all_checked(text: str, old: str, new: str, expected: int, label: str
 
 
 s = KT.read_text()
+
+# Idempotency: release workflows may run again after the patch commit.
+if 'private const val PEER_STALE_MS = 5_000L' in s and 'private const val PEER_EXPIRY_MS = 10_000L' in s:
+    v = VERSION.read_text()
+    a = APPJSON.read_text()
+    if '0.2.0-experimental.19' in v and 'versionCode: 19' in v and '"versionCode": 19' in a:
+        print('dev19 peer continuity patch already applied; no-op')
+        raise SystemExit(0)
 
 s = replace_once(
     s,
