@@ -1,0 +1,38 @@
+name: Bootstrap post-dev19 v1 readiness
+
+on:
+  push:
+    branches: [post-dev19-v1-readiness]
+    paths: [POST_DEV19_IMPLEMENT_TRIGGER.txt]
+
+permissions:
+  contents: write
+
+jobs:
+  implement:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with: {fetch-depth: 0}
+      - uses: actions/setup-python@v5
+        with: {python-version: '3.12'}
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Patch dev20 source
+        run: python3 scripts/apply_dev20_source_patches.py
+      - name: Fast gates
+        run: |
+          set -euxo pipefail
+          python3 -m py_compile validation/analysis/*.py scripts/*.py
+          python3 validation/analysis/test_post_dev19_v1.py
+          python3 validation/analysis/validate_dev19_baseline.py --output /tmp/dev19-baseline.json
+          cargo test --workspace
+      - name: Commit implementation
+        run: |
+          set -euxo pipefail
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          printf 'release=dev-20\nversion=0.2.0-experimental.20\nphysical_acceptance=PENDING_NEW_HUMAN_CAMPAIGN\n' > RELEASE_DEV20_TRIGGER.txt
+          git add -A
+          git diff --cached --check
+          git commit -m 'feat(dev20): human evidence source integration'
+          git push origin HEAD:post-dev19-v1-readiness
