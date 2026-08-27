@@ -1,0 +1,13 @@
+{
+  "schema_version":1,
+  "release":"dev-20.2",
+  "algorithm_version":"deterministic-multinode-rssi-fusion-v2",
+  "freeze_status":"FROZEN_BEFORE_PHYSICAL_TEST",
+  "primary_inference_unit":"SYNCHRONIZED_3_NODE_SCENARIO",
+  "parameters":{"min_samples_per_link":20,"min_observer_nodes":2,"min_physical_baselines":2,"max_alignment_span_ms":12000,"human_threshold":1.05,"no_human_threshold":0.42,"min_mean_quality":0.45,"deviation_band_sigma":2.5,"deviation_band_floor_db":3.0,"feature_clip":4.0},
+  "features":["median_shift_z","mean_shift_z","baseline_mad_db","observation_mad_db","variance_ratio_change","iqr_change_z","derivative_energy_change","slope_activity_change","deviation_occupancy_change","disturbance_persistence","spectral_energy_proxy","reciprocal_coherence","simultaneous_disturbed_links","observer_support","physical_baseline_support"],
+  "outputs":["HUMAN_EVIDENCE","NO_HUMAN_EVIDENCE","INDETERMINATE"],
+  "ground_truth_access_at_inference":false,
+  "human_localization_validated":false,
+  "rescue_use_validated":false
+}

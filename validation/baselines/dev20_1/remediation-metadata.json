@@ -1,0 +1,13 @@
+{
+  "schema_version":1,
+  "baseline_release":"dev-20.1",
+  "baseline_commit":"0e0d03a860cd352e65eb544a2ac8a5cbfa1a6012",
+  "source_fixture":"dev-20.zip",
+  "expected_export_count":27,
+  "fixture_availability_in_repository":false,
+  "fixture_availability_in_current_file_library":false,
+  "historical_result_from_approved_plan":{"readable_self_contained":27,"tp":2,"tn":9,"fp":0,"fn":11,"indeterminate":2,"recall":0.154,"specificity":1.0},
+  "new_detector_replay_status":"SOURCE_FIXTURE_UNAVAILABLE",
+  "policy":"Do not claim DEV20_1_REGRESSION_REPLAY_COMPLETE until the original 27 JSON are supplied. This does not convert physical acceptance to PASS; dev-21 remains blocked.",
+  "screenshots_required":false
+}

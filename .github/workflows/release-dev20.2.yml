@@ -1,0 +1,187 @@
+name: Dev20.2 multi-node human-detection remediation release
+
+on:
+  push:
+    branches: [main]
+    paths: [RELEASE_DEV20_2_TRIGGER.txt]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release-dev20-2
+  cancel-in-progress: false
+
+jobs:
+  requirements:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with: {fetch-depth: 0}
+      - uses: actions/setup-python@v5
+        with: {python-version: '3.12'}
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Remediation gates
+        run: |
+          set -euxo pipefail
+          grep -q "0.2.0-experimental.20.2" apps/mobile/src/version.ts
+          grep -q "versionCode: 22" apps/mobile/src/version.ts
+          grep -q "acceptanceMinimumMs: 330000" apps/mobile/src/version.ts
+          grep -q "humanLocalizationValidated: false" apps/mobile/src/version.ts
+          grep -q "rescueUseValidated: false" apps/mobile/src/version.ts
+          grep -q '"versionCode": 22' apps/mobile/app.json
+          grep -q '"releaseIteration": "experimental.20.2"' apps/mobile/app.json
+          grep -q 'deterministic-multinode-rssi-fusion-v2' validation/analysis/dev20_2_fusion.py
+          grep -q 'SYNCHRONIZED_3_NODE_SCENARIO' validation/analysis/build_dev20_campaign.py
+          grep -q 'ground_truth_external_to_inference' validation/analysis/validate_dev20_human_detection.py
+          grep -q 'dev20.2-self-contained-json-evidence-v5' apps/mobile/modules/body-finder-native/index.ts
+          grep -q 'SOURCE_FIXTURE_UNAVAILABLE' validation/baselines/dev20_1/remediation-metadata.json
+          python3 -m py_compile validation/analysis/*.py scripts/*.py
+          PYTHONPATH=validation/analysis python3 validation/analysis/test_dev20_2_fusion.py
+          python3 validation/analysis/test_post_dev19_v1.py
+          python3 validation/analysis/validate_dev19_baseline.py --output /tmp/dev19-baseline.json
+          cargo test --workspace
+
+  linux:
+    needs: requirements
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - run: cargo build --release -p body-finder-node -p body-finder-science
+      - run: |
+          set -euxo pipefail
+          mkdir -p dist/pkg dist/deb/DEBIAN dist/deb/usr/bin
+          cp target/release/body-finder-node dist/pkg/
+          tar -C dist/pkg -czf dist/body-finder-node-linux-x86_64.tar.gz body-finder-node
+          cp target/release/body-finder-node dist/deb/usr/bin/
+          printf 'Package: body-finder-node\nVersion: 0.2.0~experimental20.2\nSection: science\nPriority: optional\nArchitecture: amd64\nMaintainer: Trochez\nDescription: Body Finder RuView field node\n' > dist/deb/DEBIAN/control
+          dpkg-deb --build dist/deb dist/body-finder-node-linux-x86_64.deb
+          cp target/release/body-finder-replay dist/body-finder-replay-linux-x86_64
+          cp target/release/body-finder-validate-session dist/body-finder-validate-session-linux-x86_64
+          cp target/release/body-finder-rf-recorder dist/body-finder-rf-recorder-linux-x86_64
+      - uses: actions/upload-artifact@v4
+        with: {name: dev20-2-linux, path: 'dist/*'}
+
+  windows:
+    needs: requirements
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - run: cargo build --release -p body-finder-node -p body-finder-science
+      - shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force dist\win | Out-Null
+          Copy-Item target\release\body-finder-node.exe dist\win\
+          Copy-Item target\release\body-finder-replay.exe dist\win\
+          Copy-Item target\release\body-finder-validate-session.exe dist\win\
+          Copy-Item target\release\body-finder-rf-recorder.exe dist\win\
+          Compress-Archive dist\win\* dist\body-finder-windows-wsl-x86_64.zip
+      - uses: actions/upload-artifact@v4
+        with: {name: dev20-2-windows, path: 'dist/*.zip'}
+
+  android:
+    needs: requirements
+    runs-on: ubuntu-latest
+    defaults: {run: {working-directory: apps/mobile}}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: {node-version: '20'}
+      - uses: actions/setup-java@v4
+        with: {distribution: temurin, java-version: '17'}
+      - run: npm install --package-lock-only --ignore-scripts --no-audit --no-fund
+      - run: npm ci --no-audit --no-fund
+      - run: npx tsc --noEmit
+      - run: CI=1 npx expo prebuild --platform android --clean
+      - run: chmod +x android/gradlew && ./android/gradlew -p android testReleaseUnitTest assembleRelease bundleRelease --stacktrace
+      - run: |
+          mkdir -p ../../dist
+          cp android/app/build/outputs/apk/release/*.apk ../../dist/body-finder-ruview-universal.apk
+          cp ../../dist/body-finder-ruview-universal.apk ../../dist/BodyFinder-dev20.2-universal.apk
+          cp android/app/build/outputs/bundle/release/*.aab ../../dist/body-finder-ruview.aab
+      - uses: actions/upload-artifact@v4
+        with: {name: dev20-2-android, path: 'dist/*'}
+
+  android-legacy:
+    needs: requirements
+    runs-on: ubuntu-latest
+    defaults: {run: {working-directory: apps/android-legacy}}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with: {distribution: temurin, java-version: '17'}
+      - uses: gradle/actions/setup-gradle@v4
+        with: {gradle-version: '8.10.2'}
+      - run: |
+          mkdir -p "$HOME/.android"
+          keytool -genkeypair -keystore "$HOME/.android/debug.keystore" -storepass android -alias androiddebugkey -keypass android -dname 'CN=Android Debug,O=Android,C=US' -keyalg RSA -keysize 2048 -validity 10000
+          gradle :app:testReleaseUnitTest :app:assembleRelease --stacktrace
+          mkdir -p ../../dist
+          cp app/build/outputs/apk/release/*.apk ../../dist/body-finder-ruview-legacy-minsdk21.apk
+      - uses: actions/upload-artifact@v4
+        with: {name: dev20-2-android-legacy, path: 'dist/*'}
+
+  release:
+    needs: [requirements, linux, windows, android, android-legacy]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with: {fetch-depth: 0}
+      - uses: actions/setup-python@v5
+        with: {python-version: '3.12'}
+      - uses: actions/download-artifact@v4
+        with: {pattern: 'dev20-2-*', path: dist, merge-multiple: true}
+      - name: Package test kit
+        run: |
+          set -euxo pipefail
+          cp docs/TESTING_DEV20_2.md dist/TESTING_DEV20_2.md
+          cp capability-truth-matrix.json dist/
+          cp protocol/schemas/dev20.2-evidence-schema-v5.json dist/dev20.2-evidence-schema-v5.json
+          cp protocol/schemas/dev20.2-campaign-schema-v2.json dist/dev20.2-campaign-schema-v2.json
+          cp validation/fixtures/dev20/detector-parameter-manifest.json dist/detector-parameter-manifest.json
+          cp validation/baselines/dev20_1/remediation-metadata.json dist/dev20.1-regression-replay-result.json
+          mkdir -p kit/validation/analysis kit/validation/fixtures/dev20 kit/protocol/schemas
+          cp validation/analysis/dev20_2_fusion.py validation/analysis/test_dev20_2_fusion.py validation/analysis/build_dev20_campaign.py validation/analysis/validate_dev20_human_detection.py kit/validation/analysis/
+          cp -r validation/fixtures/dev20/* kit/validation/fixtures/dev20/
+          cp protocol/schemas/dev20.2-evidence-schema-v5.json protocol/schemas/dev20.2-campaign-schema-v2.json kit/protocol/schemas/
+          (cd kit && zip -qr ../dist/validators-dev20.2.zip .)
+          (cd validation/fixtures && zip -qr ../../dist/fixtures-dev20.2.zip dev20)
+          python3 validation/analysis/validate_dev19_baseline.py --output dist/dev19-baseline-verification.json
+          SHA=$(git rev-parse HEAD); TS=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+          PARAM_HASH=$(PYTHONPATH=validation/analysis python3 -c 'from dev20_2_fusion import PARAMETER_HASH; print(PARAMETER_HASH)')
+          python3 - <<PY
+          import json
+          manifest={'schema_version':22,'release':'dev-20.2','version':'0.2.0-experimental.20.2','commit_sha':'$SHA','build_timestamp':'$TS','protocol_version':2,'snapshot_schema_version':5,'acceptance_minimum_ms':330000,'screenshots_required_for_acceptance':False,'json_evidence_self_contained':True,'evidence_contract':'dev20.2-self-contained-json-evidence-v5','campaign_contract':'dev20.2-campaign-v2','primary_inference_unit':'SYNCHRONIZED_3_NODE_SCENARIO','detector_algorithm':'deterministic-multinode-rssi-fusion-v2','detector_parameter_hash':'$PARAM_HASH','dev19_acquisition_regression':'PASS','dev20_1_regression_replay':'SOURCE_FIXTURE_UNAVAILABLE','human_presence_physical_acceptance_status':'PENDING_NEW_TWO_DAY_54_JSON_CAMPAIGN','human_localization_validated':False,'rescue_use_validated':False,'dev21_blocked':True}
+          json.dump(manifest,open('dist/release-manifest.json','w'),indent=2)
+          json.dump({'release':'dev-20.2','ci_pass':True,'dev19_regression_pass':True,'dev20_1_regression_replay_complete':False,'dev20_1_regression_reason':'Original dev-20.zip/27 JSON are not present in repository or connected file library; historical baseline is included but new-detector replay is not falsely claimed.','checksums_verified':False,'redownload_verified':False,'physical_acceptance':'PENDING','final_go':False,'dev21_blocked':True},open('dist/release-verification.json','w'),indent=2)
+          PY
+      - uses: anchore/sbom-action@v0
+        with: {path: '.', format: spdx-json, output-file: dist/SBOM.spdx.json}
+      - name: Assert assets and checksums
+        run: |
+          python3 - <<'PY'
+          import hashlib,json,pathlib
+          d=pathlib.Path('dist'); required='BodyFinder-dev20.2-universal.apk body-finder-ruview-universal.apk body-finder-ruview-legacy-minsdk21.apk body-finder-ruview.aab body-finder-node-linux-x86_64.tar.gz body-finder-node-linux-x86_64.deb body-finder-rf-recorder-linux-x86_64 body-finder-replay-linux-x86_64 body-finder-validate-session-linux-x86_64 body-finder-windows-wsl-x86_64.zip validators-dev20.2.zip fixtures-dev20.2.zip dev20.2-evidence-schema-v5.json dev20.2-campaign-schema-v2.json detector-parameter-manifest.json release-manifest.json release-verification.json capability-truth-matrix.json SBOM.spdx.json TESTING_DEV20_2.md dev20.1-regression-replay-result.json dev19-baseline-verification.json'.split()
+          missing=[x for x in required if not (d/x).is_file() or (d/x).stat().st_size==0]
+          if missing: raise SystemExit('missing: '+','.join(missing))
+          p=d/'release-manifest.json'; m=json.load(open(p)); files=[f for f in sorted(d.iterdir()) if f.is_file() and f.name not in ('SHA256SUMS.txt','release-manifest.json')]; m['artifacts']=[{'name':f.name,'size_bytes':f.stat().st_size,'sha256':hashlib.sha256(f.read_bytes()).hexdigest()} for f in files]; p.write_text(json.dumps(m,indent=2)+'\n')
+          files=[f for f in sorted(d.iterdir()) if f.is_file() and f.name!='SHA256SUMS.txt']; (d/'SHA256SUMS.txt').write_text(''.join(f'{hashlib.sha256(f.read_bytes()).hexdigest()}  {f.name}\n' for f in files))
+          PY
+      - name: Publish and verify prerelease
+        env: {GH_TOKEN: '${{ github.token }}'}
+        run: |
+          set -euxo pipefail
+          SHA=$(git rev-parse HEAD)
+          git tag -f dev-20.2 "$SHA"; git push origin refs/tags/dev-20.2 --force
+          gh release delete dev-20.2 -y || true
+          gh release create dev-20.2 $(find dist -maxdepth 1 -type f -print | sort) --prerelease --title 'Release dev-20.2 — multi-node human-detection remediation' --notes 'Six-directional-link / three-node deterministic RF fusion, temporal and variance features, reciprocal/cross-link evidence, fail-closed topology, evidence-v5/campaign-v2, Android/Linux/Windows tools and screenshot-free physical protocol. Physical HUMAN/EMPTY acceptance is PENDING. Original dev-20.zip is not present, so its new-detector regression replay is explicitly NOT claimed; dev-21 remains blocked.'
+          rm -rf verify && mkdir verify; gh release download dev-20.2 -D verify; (cd verify && sha256sum -c SHA256SUMS.txt)
+          python3 - <<'PY'
+          import json,pathlib,hashlib
+          d=pathlib.Path('verify'); p=d/'release-verification.json'; x=json.load(open(p)); x['redownload_verified']=True; x['checksums_verified']=True; p.write_text(json.dumps(x,indent=2)+'\n'); files=[f for f in sorted(d.iterdir()) if f.is_file() and f.name!='SHA256SUMS.txt']; (d/'SHA256SUMS.txt').write_text(''.join(f'{hashlib.sha256(f.read_bytes()).hexdigest()}  {f.name}\n' for f in files))
+          PY
+          gh release upload dev-20.2 verify/release-verification.json verify/SHA256SUMS.txt --clobber
+          rm -rf final-verify && mkdir final-verify; gh release download dev-20.2 -D final-verify; (cd final-verify && sha256sum -c SHA256SUMS.txt)

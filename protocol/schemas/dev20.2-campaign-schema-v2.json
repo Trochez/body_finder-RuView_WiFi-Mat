@@ -1,0 +1,11 @@
+{
+  "$schema":"https://json-schema.org/draft/2020-12/schema",
+  "$id":"dev20.2-campaign-schema-v2.json",
+  "title":"Body Finder dev-20.2 fused campaign v2",
+  "type":"object",
+  "required":["schema_version","release","ground_truth_external_to_inference","primary_inference_unit","acceptance_minimum_ms","scenarios"],
+  "properties":{
+    "schema_version":{"const":2},"release":{"const":"dev-20.2"},"ground_truth_external_to_inference":{"const":true},"primary_inference_unit":{"const":"SYNCHRONIZED_3_NODE_SCENARIO"},"acceptance_minimum_ms":{"const":330000},
+    "scenarios":{"type":"array","items":{"type":"object","required":["campaign_scenario_id","scenario","ground_truth","split","role","calibration_id","observer_nodes","source_exports","links","acquisition_health"],"properties":{"campaign_scenario_id":{"type":"string","minLength":1},"ground_truth":{"enum":["HUMAN_PRESENT","EMPTY","UNKNOWN"]},"split":{"enum":["TRAIN","VALIDATION","TEST"]},"role":{"enum":["CALIBRATION","OBSERVATION"]},"used_for_model_selection":{"type":"boolean"},"observer_nodes":{"type":"array","items":{"type":"string"}},"links":{"type":"object","additionalProperties":{"type":"array","items":{"type":"object","required":["wall_ms","rssi_dbm"],"properties":{"wall_ms":{"type":"integer"},"rssi_dbm":{"type":"number","minimum":-126,"maximum":0}},"additionalProperties":true}}}},"additionalProperties":true}}
+  },"additionalProperties":true
+}
