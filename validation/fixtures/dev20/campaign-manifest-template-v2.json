@@ -1,0 +1,10 @@
+{
+  "campaign_id":"dev20.2-two-day-final-test",
+  "sessions":[
+    {"export":"evidence-dev20.2/day1/EMPTY_CAL/pixel10.json","campaign_scenario_id":"day1::EMPTY_CAL","physical_session_id":"day1::EMPTY_CAL","day_id":"day1","environment_id":"room-day1","scenario":"EMPTY_CAL","ground_truth":"EMPTY","split":"TEST","role":"CALIBRATION","calibration_id":"day1-empty-cal","used_for_model_selection":false},
+    {"export":"evidence-dev20.2/day1/EMPTY_CAL/pixel7.json","campaign_scenario_id":"day1::EMPTY_CAL","physical_session_id":"day1::EMPTY_CAL","day_id":"day1","environment_id":"room-day1","scenario":"EMPTY_CAL","ground_truth":"EMPTY","split":"TEST","role":"CALIBRATION","calibration_id":"day1-empty-cal","used_for_model_selection":false},
+    {"export":"evidence-dev20.2/day1/EMPTY_CAL/lenovo.json","campaign_scenario_id":"day1::EMPTY_CAL","physical_session_id":"day1::EMPTY_CAL","day_id":"day1","environment_id":"room-day1","scenario":"EMPTY_CAL","ground_truth":"EMPTY","split":"TEST","role":"CALIBRATION","calibration_id":"day1-empty-cal","used_for_model_selection":false},
+    {"export":"evidence-dev20.2/day1/HUMAN_MOVING/pixel10.json","campaign_scenario_id":"day1::HUMAN_MOVING","physical_session_id":"day1::HUMAN_MOVING","day_id":"day1","environment_id":"room-day1","scenario":"HUMAN_MOVING","ground_truth":"HUMAN_PRESENT","split":"TEST","role":"OBSERVATION","calibration_id":"day1-empty-cal","used_for_model_selection":false}
+  ],
+  "note":"Expand to all 54 exports: 3 files for each of 9 scenarios on two days. Day 2 uses day2-empty-cal. Final TEST rows must keep used_for_model_selection=false."
+}

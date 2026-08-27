@@ -1,0 +1,19 @@
+{
+  "$schema":"https://json-schema.org/draft/2020-12/schema",
+  "$id":"dev20.2-evidence-schema-v5.json",
+  "title":"Body Finder dev-20.2 self-contained evidence v5",
+  "type":"object",
+  "required":["build","json_self_contained","screenshots_required","evidence_contract","human_presence_preview","human_localization_validated","rescue_use_validated","validation_run"],
+  "properties":{
+    "build":{"const":"0.2.0-experimental.20.2"},
+    "json_self_contained":{"const":true},
+    "screenshots_required":{"const":false},
+    "acceptance_minimum_ms":{"const":330000},
+    "evidence_contract":{"type":"object","required":["schema","screenshots_required","json_self_contained"],"properties":{"schema":{"const":"dev20.2-self-contained-json-evidence-v5"},"screenshots_required":{"const":false},"json_self_contained":{"const":true}},"additionalProperties":true},
+    "human_presence_preview":{"type":"object","required":["prediction","human_confidence","evidence_quality","aggregate_change_score","contributing_nodes","reason","algorithm_version"],"properties":{"prediction":{"enum":["HUMAN_EVIDENCE","NO_HUMAN_EVIDENCE","INDETERMINATE"]},"human_confidence":{"type":"number","minimum":0,"maximum":1},"contributing_nodes":{"type":"integer","minimum":0},"contributing_links":{"type":"integer","minimum":0},"physical_baselines":{"type":"integer","minimum":0},"component_scores":{"type":"object"}},"additionalProperties":true},
+    "validation_run":{"type":["object","null"]},
+    "human_localization_validated":{"const":false},
+    "rescue_use_validated":{"const":false}
+  },
+  "additionalProperties":true
+}
