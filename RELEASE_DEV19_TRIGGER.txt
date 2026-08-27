@@ -1,0 +1,4 @@
+dev-19 release trigger
+requested_at=2026-08-27T02:40:00Z
+scope=peer-continuity-hardening
+physical_acceptance=PENDING_REAL_3ANDROID_CAMPAIGN
