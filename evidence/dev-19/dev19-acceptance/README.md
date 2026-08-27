@@ -2,13 +2,22 @@
 
 This directory records the final three-Android physical acceptance for `dev-19` / `0.2.0-experimental.19`.
 
-Expected evidence set:
+Evidence set:
 
-- `pixel10-dev19-final.json`
-- `pixel7-dev19-final.json`
-- `lenovo-dev19-final.json`
-- `dev19-3android-acceptance.json`
-- `dev19-final-acceptance.json`
+- `pixel10-dev19-final.json.gz` — lossless gzip of the complete Pixel 10 Pro JSON export
+- `pixel7-dev19-final.json.gz` — lossless gzip of the complete Pixel 7 Pro JSON export
+- `lenovo-dev19-final.json.gz` — lossless gzip of the complete Lenovo TB-J606L JSON export
+- `dev19-3android-acceptance.json` — strict dev-19 validator result
+- `dev19-final-acceptance.json` — final acquisition-baseline decision
+- `SOURCE_RUNS.md` — exact run IDs and compressed-file integrity hashes
+
+To recover an original JSON export:
+
+```bash
+gzip -dc pixel10-dev19-final.json.gz > pixel10-dev19-final.json
+gzip -dc pixel7-dev19-final.json.gz > pixel7-dev19-final.json
+gzip -dc lenovo-dev19-final.json.gz > lenovo-dev19-final.json
+```
 
 Decision:
 
