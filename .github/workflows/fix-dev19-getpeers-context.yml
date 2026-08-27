@@ -1,0 +1,33 @@
+name: Fix dev19 getPeers context
+on:
+  push:
+    branches: [dev-19]
+    paths: [FIX_DEV19_GETPEERS_TRIGGER.txt]
+permissions:
+  contents: write
+jobs:
+  fix:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with: {ref: dev-19, fetch-depth: 0}
+      - name: Patch getPeers expiry call
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          p=Path('apps/mobile/modules/body-finder-native/android/src/main/java/com/trochez/bodyfindernative/BodyFinderNativeModule.kt')
+          s=p.read_text()
+          old='''    Function("getPeersJson") {\n      expirePeers(System.currentTimeMillis())\n      val arr = JSONArray()\n'''
+          new='''    Function("getPeersJson") {\n      val ctx = appContext.reactContext\n      if (ctx != null) expirePeers(ctx.applicationContext, System.currentTimeMillis())\n      val arr = JSONArray()\n'''
+          if s.count(old) != 1:
+              raise SystemExit(f'expected one getPeers expiry call, found {s.count(old)}')
+          p.write_text(s.replace(old,new,1))
+          PY
+          git diff --check
+      - name: Commit source fix
+        run: |
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git add apps/mobile/modules/body-finder-native/android/src/main/java/com/trochez/bodyfindernative/BodyFinderNativeModule.kt
+          git commit -m 'fix(android): pass context to peer expiry in getPeers [dev19]'
+          git push origin HEAD:dev-19
