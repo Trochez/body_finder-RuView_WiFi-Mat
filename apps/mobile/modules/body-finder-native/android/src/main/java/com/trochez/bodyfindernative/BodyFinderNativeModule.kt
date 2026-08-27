@@ -792,7 +792,8 @@ class BodyFinderNativeModule : Module() {
       true
     }
     Function("getPeersJson") {
-      expirePeers(System.currentTimeMillis())
+      val ctx = appContext.reactContext
+      if (ctx != null) expirePeers(ctx.applicationContext, System.currentTimeMillis())
       val arr = JSONArray()
       FabricRuntime.peers.values.forEach { pair ->
         try { arr.put(JSONObject(pair.first)) } catch (_: Throwable) {}
