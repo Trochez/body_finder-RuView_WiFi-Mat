@@ -1,6 +1,6 @@
 [package]
 name = "body-finder-science"
-version = "0.2.0-experimental.18"
+version = "0.2.0-experimental.20"
 edition.workspace = true
 license.workspace = true
 

@@ -1,11 +1,11 @@
 export const RELEASE = Object.freeze({
-  build: '0.2.0-experimental.19',
-  reportVersion: 20,
-  versionCode: 19,
-  releaseIteration: 'experimental.19',
+  build: '0.2.0-experimental.20',
+  reportVersion: 21,
+  versionCode: 20,
+  releaseIteration: 'experimental.20',
   protocolVersion: 2,
-  snapshotSchemaVersion: 4,
-  humanScanningEnabled: false,
+  snapshotSchemaVersion: 5,
+  humanScanningEnabled: true,
   humanLocalizationValidated: false,
   rescueUseValidated: false,
 });

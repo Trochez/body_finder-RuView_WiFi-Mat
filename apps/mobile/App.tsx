@@ -25,6 +25,7 @@ import {
 import { diagnoseGeometryGraph } from './src/geometryDiagnostics';
 import { applyReciprocalFusion } from './src/rangeFusion';
 import { BUILD, REPORT_VERSION, HUMAN_SCANNING_ENABLED, RELEASE } from './src/version';
+import { estimateHumanPresence } from './src/humanPresence';
 
 const T = {
   en: {
@@ -34,7 +35,7 @@ const T = {
     peers: 'nodes', share: 'Share complete test JSON', empty: 'Keep the target area empty while calibrating.',
     network: 'OPEN / UNTRUSTED FIELD NETWORK', relative: 'POSITION RELATIVE TO THIS DEVICE', geometry: 'SENSOR GEOMETRY',
     estimating: 'Estimating automatically…', positioned: 'nodes positioned', residual: 'solver residual', condition: 'graph condition',
-    noTarget: 'Human scanning remains intentionally blocked until the experimental.16 validation-integrity gate is reviewed. This build validates sensor geometry acquisition continuity only.',
+    noTarget: 'Presence-only experimental mode. A negative RF result is not proof that no person is present. Localization remains blocked until dev-21 physical acceptance.',
     confidence: 'human confidence', uncertainty: 'position uncertainty',
     evidence: 'Evidence: connected-Wi-Fi RSSI disturbance (not CSI). Sensor metric coordinates require validated pairwise ranging.',
     unresolved: 'unresolved nodes are intentionally not placed on the radar', startRun: 'Start validation run', endRun: 'End validation run',
@@ -46,7 +47,7 @@ const T = {
     peers: 'nodos', share: 'Compartir JSON completo de prueba', empty: 'Mantén vacía el área objetivo durante la calibración.',
     network: 'RED DE CAMPO ABIERTA / NO CONFIABLE', relative: 'POSICIÓN RELATIVA A ESTE DISPOSITIVO', geometry: 'GEOMETRÍA DE SENSORES',
     estimating: 'Estimando automáticamente…', positioned: 'nodos posicionados', residual: 'residual del solver', condition: 'condición del grafo',
-    noTarget: 'El escaneo humano permanece bloqueado intencionalmente hasta revisar el gate de continuidad de adquisición BLE de experimental.16. Esta build valida únicamente la continuidad de adquisición de la geometría de sensores.',
+    noTarget: 'Modo experimental solo de presencia. Un resultado RF negativo no prueba ausencia de personas. La localización sigue bloqueada hasta la aceptación física dev-21.',
     confidence: 'confianza humana', uncertainty: 'incertidumbre de posición',
     evidence: 'Evidencia: perturbación RSSI de Wi‑Fi conectado (no CSI). Las coordenadas métricas requieren ranging entre nodos validado.',
     unresolved: 'los nodos no resueltos no se colocan artificialmente en el radar', startRun: 'Iniciar corrida de validación', endRun: 'Finalizar corrida de validación',
@@ -197,9 +198,10 @@ export default function App() {
     visualFrame.current = geometry.frame_id;
   }, [geometry]);
 
+  const presence = useMemo(() => estimateHumanPresence(nodes), [nodes]);
   const arrayTarget = useMemo(() => estimateHuman(geometryNodes, geometry), [geometryNodes, geometry]);
   const localGeometry = useMemo(() => geometry?.positions.find(position => position.node_id === local?.node_id), [geometry, local?.node_id]);
-  const target = useMemo(() => relativeTarget(arrayTarget, localGeometry), [arrayTarget, localGeometry]);
+  const target = useMemo(() => RELEASE.humanLocalizationValidated ? relativeTarget(arrayTarget, localGeometry) : null, [arrayTarget, localGeometry]);
   const evidenceCount = nodes.reduce((count, node) => count + (node.ranges?.length ?? 0), 0);
   const metricCount = graphDiagnostics.metric_sample_count;
   const proximityCount = graphDiagnostics.proximity_only_sample_count;
@@ -305,6 +307,7 @@ export default function App() {
         diagnostic_source: 'this JSON export',
       },
       manual_geometry_override: false, human_scanning_enabled: HUMAN_SCANNING_ENABLED,
+      human_presence_preview: presence,
       human_localization_validated: RELEASE.humanLocalizationValidated, rescue_use_validated: RELEASE.rescueUseValidated,
       export_auto_finalized_validation_run: autoFinalizedValidationRun,
       node_id: local?.node_id ?? null, capabilities: caps,
@@ -396,7 +399,7 @@ export default function App() {
           {target && scanning ? <View style={s.card}><Text style={s.h2}>{target.state.replace('_', ' ')}</Text><Text style={s.big}>{target.range_m.toFixed(1)} m · {target.bearing_deg.toFixed(0)}°</Text>
             <Text style={s.text}>x {target.x_m.toFixed(2)} m · y {target.y_m.toFixed(2)} m</Text><Text style={s.text}>{tx.confidence}: {(target.human_confidence * 100).toFixed(0)}%</Text>
             <Text style={s.text}>{tx.uncertainty}: {target.uncertainty_percent.toFixed(0)}% · ±{target.error_radius_95_m.toFixed(1)} m (95%)</Text><Text style={s.muted}>{tx.evidence}</Text></View>
-            : <View style={s.card}><Text style={s.text}>{tx.noTarget}</Text></View>}
+            : <View style={s.card}><Text style={s.h2}>{scanning ? presence.prediction.replaceAll('_', ' ') : 'PRESENCE SCAN IDLE'}</Text><Text style={s.text}>{scanning ? `${tx.confidence}: ${(presence.human_confidence * 100).toFixed(0)}% · ${presence.evidence_quality}` : tx.noTarget}</Text><Text style={s.muted}>{scanning ? presence.reason : tx.evidence}</Text></View>}
           <View style={s.card}><Text style={s.h2}>Validation run</Text><Text style={s.text}>run: {validationRun?.run_id ?? '—'} · active: {String(Boolean(validationRun?.active))}</Text>
             <Text style={s.text}>elapsed: {validationRun?.elapsed_ms ?? 0} ms · acceptance ≥300s: {String(Boolean(validationRun?.acceptance_duration_eligible))} · frozen: {String(Boolean(validationRun?.snapshot_frozen))} · schema: {validationRun?.snapshot_schema_version ?? RELEASE.snapshotSchemaVersion}</Text>
             <Text style={s.text}>ended: {validationRun?.ended_wall_ms ?? '—'} · retained: {diagnostics?.completed_validation_runs_summary?.length ?? 0}/5 · selected: {diagnostics?.selected_validation_run_id?.slice?.(-8) ?? '—'}</Text>

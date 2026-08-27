@@ -151,6 +151,7 @@ private object ValidationRuntime {
     expectedPeerIdsAtStart = (0 until frozenPeerIds.length()).mapNotNull { frozenPeerIds.optString(it).takeIf(String::isNotBlank) }.distinct().sorted()
     expectedPeerCountAtStart = max(frozenPreflight.optInt("expected_ble_peer_count", expectedPeerIdsAtStart.size), expectedPeerIdsAtStart.size)
     FabricEventTimeline.start(id, now, expectedPeerIdsAtStart)
+    HumanEvidenceTimeline.start(id, now)
     authorizedStrategyTransitionCount = 0
     authorizedRecoveryIntervalCount = 0
     unauthorizedStrategyViolationCount = 0
@@ -213,6 +214,7 @@ private object ValidationRuntime {
     endedWallMs = now
     lastObserveWallMs = now
     ValidationEventLog.record("VALIDATION_RUN_ENDED", id, now = now)
+    HumanEvidenceTimeline.end(now)
     val base = liveDiagnostics(now, peerExpire, rebind, scanRestart, tx, rx)
     val timeline = ValidationEventLog.snapshotSince(baselineEventSeq, startedWallMs ?: now)
     val events = timeline.optJSONArray("events") ?: JSONArray()
@@ -302,11 +304,12 @@ private object ValidationRuntime {
       .put("peer_starvation_recovery_failure_delta", base.optLong("peer_starvation_recovery_failure_delta"))
     base
       .put("snapshot_frozen", true)
-      .put("snapshot_schema_version", 4)
+      .put("snapshot_schema_version", 5)
       .put("expected_peer_count_at_start", expectedPeerCountAtStart)
       .put("expected_peer_ids_at_start", JSONArray(expectedPeerIdsAtStart))
       .put("preflight_at_start", try { JSONObject(preflightAtStartJson) } catch (_: Throwable) { JSONObject() })
       .put("fabric_event_timeline", FabricEventTimeline.snapshot(now))
+      .put("human_evidence", HumanEvidenceTimeline.snapshot(now))
       .put("expected_peer_loss_intervals", FabricEventTimeline.lossIntervals(now))
       .put("environment", environment)
       .put("environment_violation_events", environmentIntervals.optJSONArray("events"))
@@ -433,7 +436,7 @@ private object ValidationRuntime {
       .put("ranging_real_result_delta", ((if (Build.VERSION.SDK_INT >= 36) SystemRangingApi36.counterSnapshot().realDistanceResults else 0) - baselineRangingReal).coerceAtLeast(0))
       .put("ranging_close_failure_delta", ((if (Build.VERSION.SDK_INT >= 36) SystemRangingApi36.counterSnapshot().closeFailures else 0) - baselineRangingClose).coerceAtLeast(0))
       .put("snapshot_frozen", false)
-      .put("snapshot_schema_version", 4)
+      .put("snapshot_schema_version", 5)
       .put("expected_peer_count_at_start", expectedPeerCountAtStart)
       .put("expected_peer_ids_at_start", JSONArray(expectedPeerIdsAtStart))
   }
@@ -1498,6 +1501,7 @@ class BodyFinderNativeModule : Module() {
       FabricRuntime.lastValidRssiWallMsByIdentity[id] = now
       FabricRuntime.lastValidBodyFinderRssiWallMs = now
       trimValidQueue(queue, now)
+      HumanEvidenceTimeline.recordBle(FabricRuntime.nodeId, id, result.rssi, advertisedTx, now)
     } else {
       FabricRuntime.invalidRssiTotalCount.incrementAndGet()
       FabricRuntime.invalidRssiCountByIdentity.computeIfAbsent(id) { AtomicLong(0) }.incrementAndGet()
