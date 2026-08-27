@@ -67,8 +67,8 @@ jobs:
           grep -q "versionCode: 19" apps/mobile/src/version.ts
           grep -q 'private const val PROTOCOL = 2' apps/mobile/modules/body-finder-native/android/src/main/java/com/trochez/bodyfindernative/BodyFinderNativeModule.kt
           grep -q 'snapshot_schema_version", 4' apps/mobile/modules/body-finder-native/android/src/main/java/com/trochez/bodyfindernative/BodyFinderNativeModule.kt
-          grep -q 'rssiAt1mDbm = -69.19' apps/mobile/modules/body-finder-native/android/src/main/java/com/trochez/bodyfindernative/BleRangeEstimator.kt
-          grep -q 'pathLossExponent = 3.62' apps/mobile/modules/body-finder-native/android/src/main/java/com/trochez/bodyfindernative/BleRangeEstimator.kt
+          grep -q 'rssiAtOneMeter = RssiAtOneMeterDbm(-69.19)' apps/mobile/modules/body-finder-native/android/src/main/java/com/trochez/bodyfindernative/BleRangeEstimator.kt
+          grep -q 'pathLossExponent = PathLossExponent(3.62)' apps/mobile/modules/body-finder-native/android/src/main/java/com/trochez/bodyfindernative/BleRangeEstimator.kt
           grep -q 'humanScanningEnabled: false' apps/mobile/src/version.ts
           grep -q 'humanLocalizationValidated: false' apps/mobile/src/version.ts
           grep -q 'rescueUseValidated: false' apps/mobile/src/version.ts
