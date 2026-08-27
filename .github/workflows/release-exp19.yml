@@ -1,0 +1,280 @@
+name: Dev Release experimental.19
+
+on:
+  push:
+    branches: [dev-19]
+    paths: [RELEASE_DEV19_TRIGGER.txt]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release-exp19
+  cancel-in-progress: false
+
+jobs:
+  prepare:
+    runs-on: ubuntu-latest
+    outputs:
+      sha: ${{ steps.commit.outputs.sha }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: dev-19
+          fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with: {python-version: '3.12'}
+      - name: Apply evidence-bounded dev19 source patch
+        run: |
+          set -euxo pipefail
+          python3 scripts/apply_dev19_peer_continuity.py
+          grep -q 'PEER_STALE_MS = 5_000L' apps/mobile/modules/body-finder-native/android/src/main/java/com/trochez/bodyfindernative/BodyFinderNativeModule.kt
+          grep -q 'PEER_EXPIRY_MS = 10_000L' apps/mobile/modules/body-finder-native/android/src/main/java/com/trochez/bodyfindernative/BodyFinderNativeModule.kt
+          grep -q 'FabricEventTimeline' apps/mobile/modules/body-finder-native/android/src/main/java/com/trochez/bodyfindernative/BodyFinderNativeModule.kt
+          grep -q '0.2.0-experimental.19' apps/mobile/src/version.ts
+          grep -q 'versionCode: 19' apps/mobile/src/version.ts
+          grep -q '"versionCode": 19' apps/mobile/app.json
+          grep -q '"releaseIteration": "experimental.19"' apps/mobile/app.json
+      - name: Commit implementation source
+        id: commit
+        run: |
+          set -euxo pipefail
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git add apps/mobile/modules/body-finder-native/android/src/main/java/com/trochez/bodyfindernative/BodyFinderNativeModule.kt apps/mobile/src/version.ts apps/mobile/app.json
+          if ! git diff --cached --quiet; then
+            git commit -m 'dev19: apply peer continuity hardening [dev19-applied]'
+            git push origin HEAD:dev-19
+          fi
+          echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+
+  requirements:
+    needs: prepare
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.prepare.outputs.sha }}
+          fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with: {python-version: '3.12'}
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Dev19 contracts and historical regression
+        run: |
+          set -euxo pipefail
+          grep -q "0.2.0-experimental.19" apps/mobile/src/version.ts
+          grep -q "versionCode: 19" apps/mobile/src/version.ts
+          grep -q 'private const val PROTOCOL = 2' apps/mobile/modules/body-finder-native/android/src/main/java/com/trochez/bodyfindernative/BodyFinderNativeModule.kt
+          grep -q 'snapshot_schema_version", 4' apps/mobile/modules/body-finder-native/android/src/main/java/com/trochez/bodyfindernative/BodyFinderNativeModule.kt
+          grep -q 'rssiAt1mDbm = -69.19' apps/mobile/modules/body-finder-native/android/src/main/java/com/trochez/bodyfindernative/BleRangeEstimator.kt
+          grep -q 'pathLossExponent = 3.62' apps/mobile/modules/body-finder-native/android/src/main/java/com/trochez/bodyfindernative/BleRangeEstimator.kt
+          grep -q 'humanScanningEnabled: false' apps/mobile/src/version.ts
+          grep -q 'humanLocalizationValidated: false' apps/mobile/src/version.ts
+          grep -q 'rescueUseValidated: false' apps/mobile/src/version.ts
+          python3 -m py_compile validation/analysis/validate_dev19_session.py
+          python3 -m json.tool validation/baselines/dev18-second-run/dev18-second-run-summary.json >/dev/null
+          python3 -m json.tool validation/baselines/dev18-second-run/dev18-pixel10-failure-reconstruction.json >/dev/null
+          mkdir -p /tmp/dev18-regression
+          python3 - <<'PY'
+          import json,pathlib
+          s=json.load(open('validation/baselines/dev18-second-run/dev18-second-run-summary.json'))
+          d=pathlib.Path('/tmp/dev18-regression')
+          for r in s['runs']:
+              doc={'build':'0.2.0-experimental.18','validation_run':{
+                  'run_id':r['run_id'],'elapsed_ms':r['elapsed_ms'],'environment_valid':r['environment_valid'],
+                  'peer_expire_delta':r['peer_expire_delta'],
+                  'usable_metric_range_uptime_percent':r['usable_metric_range_uptime_percent'],
+                  'geometry_2d_uptime_percent':r['geometry_2d_uptime_percent']}}
+              (d/(r['device_alias']+'.json')).write_text(json.dumps(doc))
+          PY
+          python3 validation/analysis/validate_dev19_session.py --historical-dev18 --expect-historical-pattern \
+            /tmp/dev18-regression/lenovo-tb-j606l.json \
+            /tmp/dev18-regression/pixel-7-pro.json \
+            /tmp/dev18-regression/pixel-10-pro.json \
+            --output /tmp/dev18-regression-result.json
+          cargo test --workspace
+
+  linux:
+    needs: [prepare, requirements]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with: {ref: '${{ needs.prepare.outputs.sha }}'}
+      - uses: dtolnay/rust-toolchain@stable
+      - run: cargo build --release -p body-finder-node -p body-finder-science
+      - run: |
+          set -euxo pipefail
+          mkdir -p dist/pkg dist/deb/DEBIAN dist/deb/usr/bin
+          cp target/release/body-finder-node dist/pkg/
+          tar -C dist/pkg -czf dist/body-finder-node-linux-x86_64.tar.gz body-finder-node
+          cp target/release/body-finder-node dist/deb/usr/bin/
+          printf 'Package: body-finder-node\nVersion: 0.2.0~experimental19\nSection: science\nPriority: optional\nArchitecture: amd64\nMaintainer: Trochez\nDescription: Body Finder RuView field node\n' > dist/deb/DEBIAN/control
+          dpkg-deb --build dist/deb dist/body-finder-node-linux-x86_64.deb
+          cp target/release/body-finder-replay dist/body-finder-replay-linux-x86_64
+          cp target/release/body-finder-validate-session dist/body-finder-validate-session-linux-x86_64
+          cp target/release/body-finder-rf-recorder dist/body-finder-rf-recorder-linux-x86_64
+      - uses: actions/upload-artifact@v4
+        with: {name: dev19-linux, path: 'dist/*'}
+
+  windows:
+    needs: [prepare, requirements]
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+        with: {ref: '${{ needs.prepare.outputs.sha }}'}
+      - uses: dtolnay/rust-toolchain@stable
+      - run: cargo build --release -p body-finder-node -p body-finder-science
+      - shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force dist\win | Out-Null
+          Copy-Item target\release\body-finder-node.exe dist\win\
+          Copy-Item target\release\body-finder-replay.exe dist\win\
+          Copy-Item target\release\body-finder-validate-session.exe dist\win\
+          Copy-Item target\release\body-finder-rf-recorder.exe dist\win\
+          Compress-Archive dist\win\* dist\body-finder-windows-x86_64.zip
+      - uses: actions/upload-artifact@v4
+        with: {name: dev19-windows, path: 'dist/*.zip'}
+
+  android:
+    needs: [prepare, requirements]
+    runs-on: ubuntu-latest
+    defaults: {run: {working-directory: apps/mobile}}
+    steps:
+      - uses: actions/checkout@v4
+        with: {ref: '${{ needs.prepare.outputs.sha }}'}
+      - uses: actions/setup-node@v4
+        with: {node-version: '20'}
+      - uses: actions/setup-java@v4
+        with: {distribution: temurin, java-version: '17'}
+      - run: npm install --package-lock-only --ignore-scripts --no-audit --no-fund
+      - run: npm ci --no-audit --no-fund
+      - run: npx tsc --noEmit
+      - run: CI=1 npx expo prebuild --platform android --clean
+      - run: chmod +x android/gradlew && ./android/gradlew -p android testReleaseUnitTest assembleRelease bundleRelease --stacktrace
+      - run: |
+          mkdir -p ../../dist
+          cp android/app/build/outputs/apk/release/*.apk ../../dist/body-finder-ruview-universal.apk
+          cp ../../dist/body-finder-ruview-universal.apk ../../dist/BodyFinder-dev19-universal.apk
+          cp android/app/build/outputs/bundle/release/*.aab ../../dist/body-finder-ruview.aab
+      - uses: actions/upload-artifact@v4
+        with: {name: dev19-android, path: 'dist/*'}
+
+  android-legacy:
+    needs: [prepare, requirements]
+    runs-on: ubuntu-latest
+    defaults: {run: {working-directory: apps/android-legacy}}
+    steps:
+      - uses: actions/checkout@v4
+        with: {ref: '${{ needs.prepare.outputs.sha }}'}
+      - uses: actions/setup-java@v4
+        with: {distribution: temurin, java-version: '17'}
+      - uses: gradle/actions/setup-gradle@v4
+        with: {gradle-version: '8.10.2'}
+      - run: |
+          mkdir -p "$HOME/.android"
+          keytool -genkeypair -keystore "$HOME/.android/debug.keystore" -storepass android -alias androiddebugkey -keypass android -dname 'CN=Android Debug,O=Android,C=US' -keyalg RSA -keysize 2048 -validity 10000
+          gradle :app:testReleaseUnitTest :app:assembleRelease --stacktrace
+          mkdir -p ../../dist
+          cp app/build/outputs/apk/release/*.apk ../../dist/body-finder-ruview-legacy-minsdk21.apk
+      - uses: actions/upload-artifact@v4
+        with: {name: dev19-android-legacy, path: 'dist/*'}
+
+  release:
+    needs: [prepare, requirements, linux, windows, android, android-legacy]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.prepare.outputs.sha }}
+          fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with: {python-version: '3.12'}
+      - uses: actions/download-artifact@v4
+        with: {pattern: 'dev19-*', path: dist, merge-multiple: true}
+      - name: Package dev19 evidence and validators
+        run: |
+          set -euxo pipefail
+          cp docs/TESTING_DEV19.md dist/TESTING_DEV19.md
+          cp IMPLEMENTATION_STATUS_POST_DEV18.md dist/IMPLEMENTATION_STATUS_POST_DEV18.md
+          cp docs/ADR-DEV19-ROADMAP-SHIFT.md dist/ADR-DEV19-ROADMAP-SHIFT.md
+          cp docs/ADR-PIXEL10-PEER-CONTINUITY-ROOT-CAUSE.md dist/ADR-PIXEL10-PEER-CONTINUITY-ROOT-CAUSE.md
+          cp validation/baselines/dev18-second-run/dev18-second-run-summary.json dist/dev18-second-run-summary.json
+          cp validation/baselines/dev18-second-run/dev18-pixel10-failure-reconstruction.json dist/dev18-pixel10-failure-reconstruction.json
+          mkdir -p kit/validation/analysis kit/validation/baselines/dev18-second-run
+          cp validation/analysis/validate_dev19_session.py kit/validation/analysis/
+          cp validation/baselines/dev18-second-run/*.json kit/validation/baselines/dev18-second-run/
+          (cd kit && zip -qr ../dist/validators-dev19.zip .)
+          SHA='${{ needs.prepare.outputs.sha }}'; TS=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+          python3 - <<PY
+          import json
+          json.dump({
+            'schema_version':19,'release':'dev-19','version':'0.2.0-experimental.19','commit_sha':'$SHA','build_timestamp':'$TS',
+            'protocol_version':2,'snapshot_schema_version':4,'screenshots_required_for_acceptance':False,'json_evidence_self_contained':True,
+            'peer_continuity_hardening':'ACTIVE_STALE_EXPIRED','peer_stale_ms':5000,'peer_expiry_ms':10000,
+            'expected_peer_cohort':'FROZEN_AT_START','dev18_regression_contract_pass':True,
+            'physical_3android_acceptance_status':'PENDING_USER_CAMPAIGN',
+            'human_scanning_enabled':False,'human_localization_validated':False,'rescue_use_validated':False,
+            'human_work_unblocked':False
+          },open('dist/release-manifest.json','w'),indent=2)
+          json.dump({
+            'release':'dev-19','ci_pass':True,'historical_dev18_regression_pass':True,
+            'checksums_verified':False,'redownload_verified':False,
+            'physical_3android_acceptance_status':'PENDING_USER_CAMPAIGN',
+            'human_work_unblocked':False,
+            'warnings':['Physical 3-Android acceptance cannot be fabricated by CI; run TESTING_DEV19.md on the real devices.']
+          },open('dist/release-verification.json','w'),indent=2)
+          PY
+      - name: Required-asset gate
+        run: |
+          python3 - <<'PY'
+          import pathlib
+          d=pathlib.Path('dist')
+          required='BodyFinder-dev19-universal.apk body-finder-ruview-universal.apk body-finder-ruview-legacy-minsdk21.apk body-finder-ruview.aab body-finder-node-linux-x86_64.tar.gz body-finder-node-linux-x86_64.deb body-finder-rf-recorder-linux-x86_64 body-finder-replay-linux-x86_64 body-finder-validate-session-linux-x86_64 body-finder-windows-x86_64.zip validators-dev19.zip TESTING_DEV19.md IMPLEMENTATION_STATUS_POST_DEV18.md ADR-DEV19-ROADMAP-SHIFT.md ADR-PIXEL10-PEER-CONTINUITY-ROOT-CAUSE.md dev18-second-run-summary.json dev18-pixel10-failure-reconstruction.json release-manifest.json release-verification.json'.split()
+          missing=[x for x in required if not (d/x).is_file() or (d/x).stat().st_size==0]
+          if missing: raise SystemExit('missing/non-empty gate: '+','.join(missing))
+          PY
+      - uses: anchore/sbom-action@v0
+        with: {path: '.', format: spdx-json, output-file: dist/SBOM.spdx.json}
+      - name: Manifest and checksums
+        run: |
+          python3 - <<'PY'
+          import hashlib,json,pathlib
+          d=pathlib.Path('dist'); p=d/'release-manifest.json'; m=json.load(open(p))
+          files=[f for f in sorted(d.iterdir()) if f.is_file() and f.name not in ('SHA256SUMS.txt','release-manifest.json')]
+          m['artifacts']=[{'name':f.name,'size_bytes':f.stat().st_size,'sha256':hashlib.sha256(f.read_bytes()).hexdigest()} for f in files]
+          p.write_text(json.dumps(m,indent=2)+'\n')
+          files=[f for f in sorted(d.iterdir()) if f.is_file() and f.name!='SHA256SUMS.txt']
+          (d/'SHA256SUMS.txt').write_text(''.join(f'{hashlib.sha256(f.read_bytes()).hexdigest()}  {f.name}\n' for f in files))
+          PY
+      - name: Publish, redownload and verify dev19 prerelease
+        env: {GH_TOKEN: '${{ github.token }}'}
+        run: |
+          set -euxo pipefail
+          SHA='${{ needs.prepare.outputs.sha }}'
+          git tag -f dev-19 "$SHA"
+          git push origin refs/tags/dev-19 --force
+          gh release delete dev-19 -y || true
+          gh release create dev-19 $(find dist -maxdepth 1 -type f -print | sort) --prerelease --title 'Release dev-19 — 0.2.0-experimental.19' --notes 'Peer-continuity hardening after dev18 Pixel10 failure: immutable 2-peer cohort, ACTIVE→STALE→EXPIRED continuity, self-contained causal fabric timeline, strict no-false-PASS validator, reproducible Android/Linux/Windows artifacts, SBOM and redownload SHA verification. Calibration/fusion/geometry remain frozen. Human detection/localization/rescue remain disabled until the real 3-Android acceptance passes.'
+          rm -rf verify && mkdir verify
+          gh release download dev-19 -D verify
+          (cd verify && sha256sum -c SHA256SUMS.txt)
+          python3 - <<'PY'
+          import json,pathlib,hashlib
+          d=pathlib.Path('verify'); p=d/'release-verification.json'; x=json.load(open(p))
+          x['redownload_verified']=True; x['checksums_verified']=True
+          p.write_text(json.dumps(x,indent=2)+'\n')
+          files=[f for f in sorted(d.iterdir()) if f.is_file() and f.name!='SHA256SUMS.txt']
+          (d/'SHA256SUMS.txt').write_text(''.join(f'{hashlib.sha256(f.read_bytes()).hexdigest()}  {f.name}\n' for f in files))
+          PY
+          gh release upload dev-19 verify/release-verification.json verify/SHA256SUMS.txt --clobber
+          rm -rf final-verify && mkdir final-verify
+          gh release download dev-19 -D final-verify
+          (cd final-verify && sha256sum -c SHA256SUMS.txt)
+          python3 - <<'PY'
+          import json
+          x=json.load(open('final-verify/release-verification.json'))
+          assert x['ci_pass'] and x['historical_dev18_regression_pass'] and x['checksums_verified'] and x['redownload_verified']
+          assert x['physical_3android_acceptance_status']=='PENDING_USER_CAMPAIGN'
+          assert x['human_work_unblocked'] is False
+          PY
