@@ -1,0 +1,7 @@
+{
+  "campaign_id":"dev20-3android-YYYYMMDD",
+  "sessions":[
+    {"export":"pixel10-empty-cal.json","ground_truth":"EMPTY","scenario":"EMPTY_CAL","environment_id":"lab-a","day_id":"day-1","calibration_id":"lab-a-day-1","role":"CALIBRATION","split":"TRAIN","used_for_model_selection":false},
+    {"export":"pixel10-human-test.json","ground_truth":"HUMAN_PRESENT","scenario":"HUMAN_STATIONARY_CENTER","environment_id":"lab-a","day_id":"day-2","calibration_id":"lab-a-day-1","role":"OBSERVATION","split":"TEST","used_for_model_selection":false}
+  ]
+}
