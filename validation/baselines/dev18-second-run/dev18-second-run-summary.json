@@ -1,0 +1,63 @@
+{
+  "schema_version": 1,
+  "source_release": "dev-18",
+  "source_version": "0.2.0-experimental.18",
+  "evidence_kind": "derived_compact_regression_fixture",
+  "raw_exports_retained_externally": true,
+  "runs": [
+    {
+      "device_alias": "lenovo-tb-j606l",
+      "run_id": "c86d2fb1-8504-46fd-975a-43626e8eacf0",
+      "elapsed_ms": 364634,
+      "environment_valid": true,
+      "peer_expire_delta": 0,
+      "usable_metric_range_uptime_percent": 99.89688290175903,
+      "geometry_2d_uptime_percent": 99.89688290175903,
+      "recovery_attempt_delta": 0,
+      "expected_result": "PASS"
+    },
+    {
+      "device_alias": "pixel-7-pro",
+      "run_id": "9471a340-4fa0-4b6f-98c8-55bcc92f1f1b",
+      "elapsed_ms": 352572,
+      "environment_valid": true,
+      "peer_expire_delta": 0,
+      "usable_metric_range_uptime_percent": 99.92341989721248,
+      "geometry_2d_uptime_percent": 99.92341989721248,
+      "recovery_attempt_delta": 1,
+      "expected_result": "PASS"
+    },
+    {
+      "device_alias": "pixel-10-pro",
+      "run_id": "5f5e9e90-ac44-4fd6-a1d6-069b5f3e6484",
+      "elapsed_ms": 379283,
+      "environment_valid": false,
+      "peer_expire_delta": 28,
+      "scan_restart_delta": 6,
+      "all_peer_uptime_percent": 84.7309265113385,
+      "usable_metric_range_uptime_percent": 83.02771281602392,
+      "geometry_2d_uptime_percent": 87.94435817054811,
+      "single_remote_peer_metric_uptime_percent": 96.2727040231173,
+      "all_expected_peer_metric_uptime_percent": 94.56949032780273,
+      "expected_peer_count_at_start": 2,
+      "observed_expected_peer_count_after_loss": 1,
+      "recovery_attempt_delta": 2,
+      "expected_result": "FAIL"
+    }
+  ],
+  "frozen_truth_unchanged": {
+    "protocol_version": 2,
+    "snapshot_schema_version": 4,
+    "ble_calibration_profile": "android-ble-lab-v1",
+    "rssi_at_1m_dbm": -69.19,
+    "path_loss_exponent": 3.62,
+    "valid_domain_m": [0.5, 5.0],
+    "range_fresh_ms": 5000,
+    "range_hard_expiry_ms": 10000,
+    "reciprocal_fusion": "frozen",
+    "automatic_geometry": "frozen",
+    "human_scanning_enabled": false,
+    "human_localization_validated": false,
+    "rescue_use_validated": false
+  }
+}
