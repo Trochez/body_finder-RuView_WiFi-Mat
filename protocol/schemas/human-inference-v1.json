@@ -1,0 +1,15 @@
+{
+  "$schema":"https://json-schema.org/draft/2020-12/schema",
+  "$id":"human-inference-v1.json",
+  "type":"object",
+  "required":["prediction","human_confidence","evidence_quality","feature_provenance","algorithm_version"],
+  "properties":{
+    "prediction":{"enum":["HUMAN_EVIDENCE","NO_HUMAN_EVIDENCE","INDETERMINATE"]},
+    "human_confidence":{"type":"number","minimum":0,"maximum":1},
+    "evidence_quality":{"enum":["LOW","MEDIUM","HIGH"]},
+    "feature_provenance":{"type":"array"},
+    "algorithm_version":{"type":"string"},
+    "reason":{"type":"string"}
+  },
+  "additionalProperties":true
+}
