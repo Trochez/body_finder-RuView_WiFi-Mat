@@ -1,3 +1,4 @@
 release=dev-20
 version=0.2.0-experimental.20
 physical_acceptance=PENDING_NEW_HUMAN_CAMPAIGN
+attempt=1
