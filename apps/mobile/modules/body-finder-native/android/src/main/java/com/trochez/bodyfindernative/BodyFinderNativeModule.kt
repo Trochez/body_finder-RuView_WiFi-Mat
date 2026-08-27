@@ -39,7 +39,8 @@ private const val GROUP = "239.255.77.77"
 private const val PROTOCOL = 2
 private const val MANUFACTURER_ID = 0x05F1
 private const val RANGE_PERMISSION = "android.permission.RANGING"
-private const val PEER_EXPIRY_MS = 5_000L
+private const val PEER_STALE_MS = 5_000L
+private const val PEER_EXPIRY_MS = 10_000L
 private const val RANGE_FRESHNESS_MS = 5_000L
 private const val WINDOW_RETENTION_MS = 8_000L
 private const val MIN_SAMPLES_FOR_RANGE = 3
@@ -82,6 +83,8 @@ private object ValidationRuntime {
   @Volatile private var usableMetricRangeUptimeMs: Long = 0
   @Volatile private var singleRemotePeerMetricUptimeMs: Long = 0
   @Volatile private var allExpectedPeerMetricUptimeMs: Long = 0
+  @Volatile private var expectedPeerCountAtStart: Int = 0
+  @Volatile private var expectedPeerIdsAtStart: List<String> = emptyList()
   @Volatile private var holdoverMetricUptimeMs: Long = 0
   @Volatile private var geometry2dUptimeMs: Long = 0
   @Volatile private var baselinePeerExpire: Long = 0
@@ -142,7 +145,12 @@ private object ValidationRuntime {
     firstEnvironmentViolationWallMs = null
     environmentViolationTypes = ""
     EnvironmentViolationTracker.reset()
-    preflightAtStartJson = try { JSONObject(preflightJson).toString() } catch (_: Throwable) { "{}" }
+    val frozenPreflight = try { JSONObject(preflightJson) } catch (_: Throwable) { JSONObject() }
+    preflightAtStartJson = frozenPreflight.toString()
+    val frozenPeerIds = frozenPreflight.optJSONArray("expected_ble_peer_ids") ?: JSONArray()
+    expectedPeerIdsAtStart = (0 until frozenPeerIds.length()).mapNotNull { frozenPeerIds.optString(it).takeIf(String::isNotBlank) }.distinct().sorted()
+    expectedPeerCountAtStart = max(frozenPreflight.optInt("expected_ble_peer_count", expectedPeerIdsAtStart.size), expectedPeerIdsAtStart.size)
+    FabricEventTimeline.start(id, now, expectedPeerIdsAtStart)
     authorizedStrategyTransitionCount = 0
     authorizedRecoveryIntervalCount = 0
     unauthorizedStrategyViolationCount = 0
@@ -170,17 +178,24 @@ private object ValidationRuntime {
   }
 
   @Synchronized
+  fun frozenExpectedPeerCount(): Int = expectedPeerCountAtStart
+
+  @Synchronized
+  fun frozenExpectedPeerIds(): List<String> = expectedPeerIdsAtStart.toList()
+
+  @Synchronized
   fun observe(now: Long, activePeerCount: Int, evidenceReadyPeerCount: Int, freshMetricReadyPeerCount: Int, usableMetricReadyPeerCount: Int) {
     if (runId == null || endedWallMs != null) return
     val previous = lastObserveWallMs ?: now
     val dt = (now - previous).coerceIn(0L, 5_000L)
-    if (activePeerCount >= 2) peerFullUptimeMs += dt
-    if (evidenceReadyPeerCount >= 2) rangeEvidenceUptimeMs += dt
-    if (freshMetricReadyPeerCount >= 2) freshMetricRangeUptimeMs += dt
-    if (usableMetricReadyPeerCount >= 2) usableMetricRangeUptimeMs += dt
+    val expected = expectedPeerCountAtStart.coerceAtLeast(2)
+    if (activePeerCount >= expected) peerFullUptimeMs += dt
+    if (evidenceReadyPeerCount >= expected) rangeEvidenceUptimeMs += dt
+    if (freshMetricReadyPeerCount >= expected) freshMetricRangeUptimeMs += dt
+    if (usableMetricReadyPeerCount >= expected) usableMetricRangeUptimeMs += dt
     if (usableMetricReadyPeerCount >= 1) singleRemotePeerMetricUptimeMs += dt
-    if (activePeerCount > 0 && usableMetricReadyPeerCount >= activePeerCount) allExpectedPeerMetricUptimeMs += dt
-    if (usableMetricReadyPeerCount >= 2 && freshMetricReadyPeerCount < 2) holdoverMetricUptimeMs += dt
+    if (usableMetricReadyPeerCount >= expected) allExpectedPeerMetricUptimeMs += dt
+    if (usableMetricReadyPeerCount >= expected && freshMetricReadyPeerCount < expected) holdoverMetricUptimeMs += dt
     if (geometryState == "GEOMETRY_2D") geometry2dUptimeMs += dt
     lastObserveWallMs = now
   }
@@ -288,7 +303,11 @@ private object ValidationRuntime {
     base
       .put("snapshot_frozen", true)
       .put("snapshot_schema_version", 4)
+      .put("expected_peer_count_at_start", expectedPeerCountAtStart)
+      .put("expected_peer_ids_at_start", JSONArray(expectedPeerIdsAtStart))
       .put("preflight_at_start", try { JSONObject(preflightAtStartJson) } catch (_: Throwable) { JSONObject() })
+      .put("fabric_event_timeline", FabricEventTimeline.snapshot(now))
+      .put("expected_peer_loss_intervals", FabricEventTimeline.lossIntervals(now))
       .put("environment", environment)
       .put("environment_violation_events", environmentIntervals.optJSONArray("events"))
       .put("validation_counters", counters)
@@ -394,6 +413,8 @@ private object ValidationRuntime {
       .put("first_environment_violation_wall_ms", firstEnvironmentViolationWallMs ?: JSONObject.NULL)
       .put("environment_violation_types", if (environmentViolationTypes.isBlank()) JSONArray() else JSONArray(environmentViolationTypes.split(',')))
       .put("preflight_at_start", try { JSONObject(preflightAtStartJson) } catch (_: Throwable) { JSONObject() })
+      .put("fabric_event_timeline", FabricEventTimeline.snapshot(now))
+      .put("expected_peer_loss_intervals", FabricEventTimeline.lossIntervals(now))
       .put("authorized_strategy_transition_count", authorizedStrategyTransitionCount)
       .put("authorized_recovery_interval_count", authorizedRecoveryIntervalCount)
       .put("unauthorized_strategy_violation_count", unauthorizedStrategyViolationCount)
@@ -413,6 +434,8 @@ private object ValidationRuntime {
       .put("ranging_close_failure_delta", ((if (Build.VERSION.SDK_INT >= 36) SystemRangingApi36.counterSnapshot().closeFailures else 0) - baselineRangingClose).coerceAtLeast(0))
       .put("snapshot_frozen", false)
       .put("snapshot_schema_version", 4)
+      .put("expected_peer_count_at_start", expectedPeerCountAtStart)
+      .put("expected_peer_ids_at_start", JSONArray(expectedPeerIdsAtStart))
   }
 
   @Synchronized
@@ -491,6 +514,8 @@ private object FabricRuntime {
   val peers = ConcurrentHashMap<String, Pair<String, Long>>()
   val peerPacketCounts = ConcurrentHashMap<String, AtomicLong>()
   val peerLastSeenWallMs = ConcurrentHashMap<String, Long>()
+  val peerLastSeenMonotonicNs = ConcurrentHashMap<String, Long>()
+  val peerStaleSinceWallMs = ConcurrentHashMap<String, Long>()
   val rssiWindows = ConcurrentHashMap<String, ConcurrentLinkedDeque<RssiSample>>()
   val invalidRssiEventsByIdentity = ConcurrentHashMap<String, ConcurrentLinkedDeque<InvalidRssiEvent>>()
   val invalidRssiCountByIdentity = ConcurrentHashMap<String, AtomicLong>()
@@ -568,6 +593,8 @@ private object FabricRuntime {
     BleAcquisitionPolicy.reset(System.currentTimeMillis())
     peerPacketCounts.clear()
     peerLastSeenWallMs.clear()
+    peerLastSeenMonotonicNs.clear()
+    peerStaleSinceWallMs.clear()
     bleLastSeenWallMsByIdentity.clear()
     bleSeenCountByIdentity.clear()
     acquisitionStatsByIdentity.clear()
@@ -828,7 +855,9 @@ class BodyFinderNativeModule : Module() {
     if (manager?.adapter?.isEnabled != true) issues += "BLUETOOTH_OFF"
     if (!bluetoothPermissionsGranted(ctx)) issues += "BLE_PERMISSIONS_MISSING"
     if (Build.VERSION.SDK_INT < 31 && locationServiceEnabled(ctx) == false) issues += "LOCATION_OFF"
-    if (expectedKnownPeerCount() < 1) issues += "EXPECTED_BLE_PEERS_LT_1"
+    val expectedNow = expectedKnownPeerCount()
+    val requiredExpected = if (ValidationRuntime.runId != null && ValidationRuntime.endedWallMs == null) ValidationRuntime.frozenExpectedPeerCount().coerceAtLeast(2) else 2
+    if (expectedNow < requiredExpected) issues += "EXPECTED_BLE_PEER_COHORT_LOSS"
     if (!FabricRuntime.bleScanning) issues += "BLE_SCANNER_NOT_RUNNING"
     return issues.distinct()
   }
@@ -882,7 +911,8 @@ class BodyFinderNativeModule : Module() {
       .put("ble_scanner_running", FabricRuntime.bleScanning)
       .put("expected_ble_peer_count", expectedKnownPeerCount())
       .put("expected_ble_peers", expectedKnownPeerCount())
-      .put("expected_ble_peers_ready", expectedKnownPeerCount() >= 1)
+      .put("expected_ble_peer_ids", JSONArray(FabricRuntime.peers.keys.toList().sorted()))
+      .put("expected_ble_peers_ready", expectedKnownPeerCount() >= 2)
       .put("acquisition_strategy", strategy.name)
       .put("filter_mode", filterMode)
       .put("hardware_filter_count", hardwareFilterCount)
@@ -1933,7 +1963,11 @@ class BodyFinderNativeModule : Module() {
         .put("node_id", nodeId)
         .put("last_seen_age_ms", ageMs(now, lastSeen))
         .put("packets_received", count.get())
-        .put("state", if (FabricRuntime.peers.containsKey(nodeId)) "ACTIVE" else "EXPIRED"))
+        .put("state", when {
+          !FabricRuntime.peers.containsKey(nodeId) -> "EXPIRED"
+          FabricRuntime.peerStaleSinceWallMs.containsKey(nodeId) -> "STALE"
+          else -> "ACTIVE"
+        }))
     }
     put("peers", peers)
   }
@@ -2053,13 +2087,61 @@ class BodyFinderNativeModule : Module() {
     }
   }
 
-  private fun expirePeers(now: Long) {
+  private fun fabricTransitionDetails(ctx: Context, now: Long, nodeId: String, payload: String?, lastRxWallMs: Long?, stateBefore: String, stateAfter: String, reason: String): JSONObject {
+    val peer = try { payload?.let(::JSONObject) } catch (_: Throwable) { null }
+    val identity = peer?.optString("ble_identity")?.takeIf { it.isNotBlank() && it != "null" }
+    val bleLast = identity?.let { FabricRuntime.lastValidRssiWallMsByIdentity[it] }
+    val ranging = if (Build.VERSION.SDK_INT >= 36) SystemRangingApi36.diagnostics(now) else JSONObject().put("state", "UNSUPPORTED")
+    return JSONObject()
+      .put("wall_ms", now)
+      .put("peer_id", nodeId)
+      .put("reason", reason)
+      .put("last_rx_wall_ms", lastRxWallMs ?: JSONObject.NULL)
+      .put("last_rx_monotonic_ns", FabricRuntime.peerLastSeenMonotonicNs[nodeId] ?: JSONObject.NULL)
+      .put("rx_gap_ms_at_transition", lastRxWallMs?.let { (now - it).coerceAtLeast(0L) } ?: JSONObject.NULL)
+      .put("rx_packets_at_transition", FabricRuntime.peerPacketCounts[nodeId]?.get() ?: 0L)
+      .put("peer_state_before", stateBefore)
+      .put("peer_state_after", stateAfter)
+      .put("expected_peer_count_at_start", ValidationRuntime.frozenExpectedPeerCount())
+      .put("expected_peer_ids_at_start", JSONArray(ValidationRuntime.frozenExpectedPeerIds()))
+      .put("active_peer_count_at_transition", FabricRuntime.peers.size)
+      .put("scan_generation", FabricRuntime.scanGeneration.get())
+      .put("ranging_manager_state", ranging.optString("state"))
+      .put("ranging_yield_active", ranging.optBoolean("ble_yield_active"))
+      .put("system_ranging", ranging)
+      .put("ble_identity", identity ?: JSONObject.NULL)
+      .put("ble_last_sample_age_ms", bleLast?.let { (now - it).coerceAtLeast(0L) } ?: JSONObject.NULL)
+      .put("socket_state", FabricRuntime.socketState)
+      .put("multicast_join_state", FabricRuntime.multicastJoinState)
+      .put("lifecycle", lifecycleDiagnostics(ctx))
+  }
+
+  private fun expirePeers(ctx: Context, now: Long) {
+    FabricRuntime.peers.entries.forEach { entry ->
+      val nodeId = entry.key
+      val gap = now - entry.value.second
+      if (gap > PEER_STALE_MS && gap <= PEER_EXPIRY_MS && FabricRuntime.peerStaleSinceWallMs.putIfAbsent(nodeId, now) == null) {
+        FabricEventTimeline.record(
+          "PEER_BECAME_STALE",
+          fabricTransitionDetails(ctx, now, nodeId, entry.value.first, entry.value.second, "ACTIVE", "STALE", "UDP_RX_GAP_EXCEEDED_STALE_THRESHOLD")
+        )
+      }
+    }
     val expired = FabricRuntime.peers.entries
       .filter { now - it.value.second > PEER_EXPIRY_MS }
       .map { it.key }
     for (nodeId in expired) {
+      val pair = FabricRuntime.peers[nodeId]
+      val lastSeen = pair?.second ?: FabricRuntime.peerLastSeenWallMs[nodeId]
+      if (pair != null) {
+        FabricEventTimeline.record(
+          "PEER_EXPIRED",
+          fabricTransitionDetails(ctx, now, nodeId, pair.first, lastSeen, if (FabricRuntime.peerStaleSinceWallMs.containsKey(nodeId)) "STALE" else "ACTIVE", "EXPIRED", "UDP_RX_GAP_EXCEEDED_HARD_EXPIRY")
+        )
+      }
       if (FabricRuntime.peers.remove(nodeId) != null) {
         FabricRuntime.peerExpireCount.incrementAndGet()
+        FabricRuntime.peerStaleSinceWallMs.remove(nodeId)
         FabricRuntime.lastValidRangeByPeer.remove(nodeId)
       }
     }
@@ -2147,13 +2229,26 @@ class BodyFinderNativeModule : Module() {
               remoteId.isNotBlank() && remoteId != FabricRuntime.nodeId
             ) {
               val seen = System.currentTimeMillis()
+              val previousPair = FabricRuntime.peers[remoteId]
+              val previousLastSeen = FabricRuntime.peerLastSeenWallMs[remoteId]
+              val wasKnown = FabricRuntime.peerPacketCounts.containsKey(remoteId)
+              val wasActive = previousPair != null
+              val wasStale = FabricRuntime.peerStaleSinceWallMs.containsKey(remoteId)
               FabricRuntime.peers[remoteId] = text to seen
               FabricRuntime.peerLastSeenWallMs[remoteId] = seen
+              FabricRuntime.peerLastSeenMonotonicNs[remoteId] = SystemClock.elapsedRealtimeNanos()
               FabricRuntime.peerPacketCounts.computeIfAbsent(remoteId) { AtomicLong(0) }.incrementAndGet()
+              if (wasKnown && (!wasActive || wasStale)) {
+                FabricEventTimeline.record(
+                  "PEER_REACTIVATED",
+                  fabricTransitionDetails(ctx, seen, remoteId, text, previousLastSeen, if (!wasActive) "EXPIRED" else "STALE", "ACTIVE", "UDP_RX_RESUMED")
+                )
+              }
+              FabricRuntime.peerStaleSinceWallMs.remove(remoteId)
             }
           } catch (_: java.net.SocketTimeoutException) {
           } catch (_: Throwable) {}
-          expirePeers(now)
+          expirePeers(ctx, now)
         }
       } catch (e: Throwable) {
         FabricRuntime.socketState = "FAILED:${e.javaClass.simpleName}"
