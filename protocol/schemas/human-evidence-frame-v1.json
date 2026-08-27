@@ -1,0 +1,18 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "human-evidence-frame-v1.json",
+  "title": "HumanEvidenceFrame v1",
+  "type": "object",
+  "required": ["schema_version", "run_id", "samples", "screenshots_required", "ground_truth_in_runtime"],
+  "properties": {
+    "schema_version": {"const": 1},
+    "run_id": {"type": "string", "minLength": 1},
+    "screenshots_required": {"const": false},
+    "ground_truth_in_runtime": {"const": false},
+    "dropped_sample_count": {"type": "integer", "minimum": 0},
+    "samples": {"type": "array", "items": {"type": "object", "required": ["seq","wall_ms","monotonic_ns","observer_node_id","peer_ble_identity","modality","rssi_dbm"], "properties": {
+      "seq":{"type":"integer","minimum":1}, "wall_ms":{"type":"integer"}, "monotonic_ns":{"type":"integer"}, "observer_node_id":{"type":"string"}, "peer_ble_identity":{"type":"string"}, "modality":{"const":"BLE_RSSI_DBM"}, "rssi_dbm":{"type":"integer","minimum":-126,"maximum":0}, "provenance":{"const":"ANDROID_BLE_SCAN_CALLBACK_REAL"}
+    }, "additionalProperties": true}}
+  },
+  "additionalProperties": true
+}
