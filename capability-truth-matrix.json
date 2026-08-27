@@ -1,0 +1,11 @@
+{
+  "schema_version":1,
+  "release":"dev-20",
+  "rules":{"model_name_whitelist":false,"functional_probe_required_for_verified_real":true},
+  "modalities":{
+    "BLE_RSSI":{"state":"VERIFIED_REAL_BASELINE","required":true},
+    "WIFI_CONNECTED_RSSI":{"state":"AVAILABLE_WHEN_OS_EXPOSES","required":false},
+    "RTT_FTM":{"state":"SUPPORTED_UNVERIFIED_UNTIL_REAL_RESULT","required":false},
+    "CSI_RUVIEW":{"state":"UNVALIDATED_ON_LOCAL_PHYSICAL_HARDWARE","required":false}
+  }
+}
