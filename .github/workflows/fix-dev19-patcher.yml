@@ -1,0 +1,40 @@
+name: Repair dev19 source patcher
+on:
+  push:
+    branches: [dev-19]
+    paths: [FIX_DEV19_PATCHER_TRIGGER.txt]
+permissions:
+  contents: write
+jobs:
+  repair:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with: {ref: dev-19, fetch-depth: 0}
+      - uses: actions/setup-python@v5
+        with: {python-version: '3.12'}
+      - name: Repair transform contract and make idempotent
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          p=Path('scripts/apply_dev19_peer_continuity.py')
+          s=p.read_text()
+          old='''    if count != 1:\n        raise SystemExit(f"{label}: expected exactly 1 match, found {count}")\n    return text.replace(old, new, 1)\n'''
+          new='''    if label == "frozen fabric evidence" and count == 2:\n        return text.replace(old, new)\n    if count != 1:\n        raise SystemExit(f"{label}: expected exactly 1 match, found {count}")\n    return text.replace(old, new, 1)\n'''
+          if old not in s: raise SystemExit('replace_once helper contract not found')
+          s=s.replace(old,new,1)
+          marker='s = KT.read_text()\n\n'
+          guard='''s = KT.read_text()\n\n# Idempotency: release workflows may run again after the patch commit.\nif 'private const val PEER_STALE_MS = 5_000L' in s and 'private const val PEER_EXPIRY_MS = 10_000L' in s:\n    v = VERSION.read_text()\n    a = APPJSON.read_text()\n    if '0.2.0-experimental.19' in v and 'versionCode: 19' in v and '\"versionCode\": 19' in a:\n        print('dev19 peer continuity patch already applied; no-op')\n        raise SystemExit(0)\n\n'''
+          if marker not in s: raise SystemExit('KT read marker not found')
+          s=s.replace(marker,guard,1)
+          p.write_text(s)
+          PY
+          python3 -m py_compile scripts/apply_dev19_peer_continuity.py
+          git diff --check
+      - name: Commit repair
+        run: |
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git add scripts/apply_dev19_peer_continuity.py
+          git commit -m 'ci: repair dev19 patch transform [patcher-fixed]'
+          git push origin HEAD:dev-19
