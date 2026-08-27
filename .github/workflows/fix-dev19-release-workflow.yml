@@ -1,0 +1,36 @@
+name: Repair dev19 release gates
+on:
+  push:
+    branches: [dev-19]
+    paths: [FIX_DEV19_RELEASE_TRIGGER.txt]
+permissions:
+  contents: write
+jobs:
+  repair:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with: {ref: dev-19, fetch-depth: 0}
+      - name: Repair frozen-calibration grep contracts
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          p=Path('.github/workflows/release-exp19.yml')
+          s=p.read_text()
+          pairs={
+            "grep -q 'rssiAt1mDbm = -69.19'":"grep -q 'rssiAtOneMeter = RssiAtOneMeterDbm(-69.19)'",
+            "grep -q 'pathLossExponent = 3.62'":"grep -q 'pathLossExponent = PathLossExponent(3.62)'",
+          }
+          for old,new in pairs.items():
+              if old not in s: raise SystemExit('missing workflow marker: '+old)
+              s=s.replace(old,new,1)
+          p.write_text(s)
+          PY
+          git diff --check
+      - name: Commit repair
+        run: |
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git add .github/workflows/release-exp19.yml
+          git commit -m 'ci: validate actual frozen calibration symbols [release-gates-fixed]'
+          git push origin HEAD:dev-19
