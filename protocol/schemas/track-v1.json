@@ -1,0 +1,11 @@
+{
+  "$schema":"https://json-schema.org/draft/2020-12/schema",
+  "$id":"track-v1.json",
+  "type":"object",
+  "required":["state"],
+  "properties":{
+    "state":{"enum":["SIGNAL","POSSIBLE_HUMAN","PROBABLE_HUMAN","CONFIRMED_TRACK","LOST","REACQUIRED","POSSIBLE_CLUSTER"]},
+    "track_id":{"type":["string","null"]}, "covariance_2x2":{"type":["array","null"]}, "age_frames":{"type":"integer","minimum":0}
+  },
+  "additionalProperties":true
+}
