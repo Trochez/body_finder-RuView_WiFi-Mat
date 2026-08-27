@@ -1,0 +1,14 @@
+{
+  "$schema":"https://json-schema.org/draft/2020-12/schema",
+  "$id":"localization-v1.json",
+  "type":"object",
+  "required":["status","localization_tier","method"],
+  "properties":{
+    "status":{"enum":["ESTIMATE","WITHHELD"]},
+    "x_m":{"type":["number","null"]}, "y_m":{"type":["number","null"]},
+    "covariance_2x2":{"type":["array","null"]}, "error_radius_95_m":{"type":["number","null"],"minimum":0},
+    "localization_tier":{"enum":["GOOD","USABLE","COARSE","PRESENCE_ONLY"]}, "method":{"type":"string"}, "reason":{"type":"string"}
+  },
+  "allOf":[{"if":{"properties":{"status":{"const":"ESTIMATE"}}},"then":{"required":["x_m","y_m","covariance_2x2","error_radius_95_m"]}}],
+  "additionalProperties":true
+}
