@@ -46,7 +46,7 @@ jobs:
           set -euxo pipefail
           git config user.name github-actions[bot]
           git config user.email 41898282+github-actions[bot]@users.noreply.github.com
-          git add apps validation protocol docs capability-truth-matrix.json .github/workflows/release-dev20.3.yml
+          git add apps validation protocol docs capability-truth-matrix.json
           git diff --cached --check
           git commit -m 'feat: implement dev-20.3 physical acceptance remediation'
           git push origin HEAD:main
