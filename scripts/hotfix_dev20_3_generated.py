@@ -5,6 +5,11 @@ p=R/'validation/analysis/dev20_3_detector.py'; s=p.read_text()
 manifest=json.loads((R/'validation/fixtures/dev20_3/detector-parameter-manifest.json').read_text())
 h=manifest['parameter_hash']
 s=re.sub(r'PARAMETER_HASH = sha256\([^\n]+\)\.hexdigest\(\)',f'PARAMETER_HASH = "{h}"',s,1)
+# The dev20.2 source uses double-quoted dict keys; force the frozen dev20.3 topology/decision gates.
+s=s.replace('"min_observer_nodes": 2','"min_observer_nodes": 3')
+s=s.replace('"min_physical_baselines": 2','"min_physical_baselines": 3')
+s=s.replace('"human_threshold": 1.05','"human_threshold": 0.66')
+s=s.replace('"no_human_threshold": 0.42','"no_human_threshold": 0.25')
 s=s.replace('    score=.15*medz+.10*meanz+.16*vr+.10*iqr+.18*de+.10*sa+.13*occ+.08*pscore',
 '''    madc=clip(abs(mad(o)-mad(b))/max(1.0,mad(b)))
     score=.07*medz+.06*meanz+.08*madc+.16*vr+.12*iqr+.18*de+.10*sa+.12*occ+.11*pscore''')
@@ -21,7 +26,8 @@ s=s.replace('    disturbed=sum(1 for f in features if f.disturbance_score>=.9)',
 s=s.replace('    if fused>=float(PARAMETERS["human_threshold"]): pred="HUMAN_EVIDENCE"; conf=p; reason="multi-node temporal/variance disturbance exceeds fused threshold"\n    elif fused<=float(PARAMETERS["no_human_threshold"]): pred="NO_HUMAN_EVIDENCE"; conf=1-p; reason="multi-node evidence is compatible with calibrated background; not proof of absence"',
 '''    if fused>=float(PARAMETERS["human_threshold"]) and disturbed>=2 and disturbed_baselines>=2: pred="HUMAN_EVIDENCE"; conf=p; reason="distributed multi-feature disturbance evidence"
     elif fused<=float(PARAMETERS["no_human_threshold"]) and disturbed==0: pred="NO_HUMAN_EVIDENCE"; conf=1-p; reason="affirmative clean calibrated background evidence; not proof of absence"''')
-if 'fewer than six directional links contribute' not in s: raise SystemExit('topology hardening patch failed')
-if f'PARAMETER_HASH = "{h}"' not in s: raise SystemExit('parameter hash patch failed')
+required=['"min_observer_nodes": 3','"min_physical_baselines": 3','fewer than six directional links contribute',f'PARAMETER_HASH = "{h}"']
+missing=[x for x in required if x not in s]
+if missing: raise SystemExit('generated hardening incomplete: '+repr(missing))
 p.write_text(s)
 print('DEV20_3_GENERATED_HARDENING_APPLIED',h)
