@@ -1,0 +1,35 @@
+name: Fix dev20.3 native duration semantics
+on:
+  push:
+    branches: [main]
+permissions:
+  contents: write
+jobs:
+  fix:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+      - name: Enforce 330000 ms everywhere in native validation runtime
+        shell: bash
+        run: |
+          set -euo pipefail
+          FILE='apps/mobile/modules/body-finder-native/android/src/main/java/com/trochez/bodyfindernative/BodyFinderNativeModule.kt'
+          sed -i 's/elapsed >= 300_000L/elapsed >= 330_000L/g' "$FILE"
+          sed -i 's/elapsed in 1 until 300_000L/elapsed in 1 until 330_000L/g' "$FILE"
+          if grep -nE 'acceptance_duration_eligible.*300_000L|short_diagnostic_run.*300_000L' "$FILE"; then
+            echo 'Conflicting 300000 ms native acceptance semantics remain' >&2
+            exit 1
+          fi
+          git diff --check
+          if git diff --quiet; then
+            echo 'Already fixed.'
+            exit 0
+          fi
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add "$FILE"
+          git commit -m 'fix: use 330s native acceptance eligibility'
+          git push origin HEAD:main
