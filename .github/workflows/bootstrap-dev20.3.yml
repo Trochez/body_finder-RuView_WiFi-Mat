@@ -24,6 +24,7 @@ jobs:
           set -euxo pipefail
           python3 scripts/apply_dev20_3_remediation.py
           python3 scripts/hotfix_dev20_3_generated.py
+          python3 scripts/hotfix_dev20_3_mobile.py
           python3 -m py_compile validation/analysis/dev20_3_detector.py validation/analysis/build_dev20_3_campaign.py validation/analysis/validate_dev20_3_human_detection.py validation/analysis/test_dev20_3_detector.py
           PYTHONPATH=validation/analysis python3 validation/analysis/test_dev20_3_detector.py
           grep -q "0.2.0-experimental.20.3" apps/mobile/src/version.ts
@@ -33,6 +34,7 @@ jobs:
           ! grep -R 'deterministic-multinode-rssi-fusion-v2-online' apps/mobile/src validation/analysis
           grep -q 'dev20.3-self-contained-json-evidence-v6' apps/mobile/App.tsx
           grep -q 'physical_smoke_parity.*PENDING' validation/baselines/dev20_2/online-offline-parity-report.json
+          grep -q 'HISTORY_MS=120000' apps/mobile/src/humanPresence.ts
       - name: Typecheck mobile
         working-directory: apps/mobile
         run: |
