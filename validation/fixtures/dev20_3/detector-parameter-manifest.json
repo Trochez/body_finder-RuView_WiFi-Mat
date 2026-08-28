@@ -1,0 +1,40 @@
+{
+  "acceptance_minimum_ms": 330000,
+  "algorithm_version": "deterministic-multinode-rssi-fusion-v3",
+  "deviation_band_floor_db": 3.0,
+  "deviation_band_sigma": 2.5,
+  "feature_clip": 4.0,
+  "final_physical_acceptance": "PENDING",
+  "fusion": {
+    "baseline_support": 0.08,
+    "cross_link_support": 0.18,
+    "observer_support": 0.08,
+    "reciprocal_support": 0.16
+  },
+  "human_min_disturbed_baselines": 2,
+  "human_min_disturbed_links": 2,
+  "human_support_score": 0.66,
+  "max_alignment_span_ms": 12000,
+  "min_directional_links": 6,
+  "min_mean_quality": 0.45,
+  "min_observer_nodes": 3,
+  "min_physical_baselines": 3,
+  "min_samples_per_link": 20,
+  "no_human_max_disturbed_links": 0,
+  "no_human_max_score": 0.25,
+  "parameter_hash": "f30d69c379ffb266581d6616fa4ad46b62fed40d9c0c643fb73ecf9cb4be0ccf",
+  "schema": "dev20.3-detector-parameters-v1",
+  "selection_note": "Feature redesign follows dev-20.2 diagnosis. Raw dev-20.2 archive was unavailable to this implementation executor, so no false 54-file replay or held-out performance claim is made.",
+  "selection_status": "FROZEN_FOR_DEV20_3_PHYSICAL_SMOKE",
+  "weights": {
+    "derivative_energy": 0.18,
+    "deviation_occupancy": 0.12,
+    "iqr_change": 0.12,
+    "mad_change": 0.08,
+    "mean_shift": 0.06,
+    "median_shift": 0.07,
+    "persistence": 0.11,
+    "slope_activity": 0.1,
+    "variance_change": 0.16
+  }
+}

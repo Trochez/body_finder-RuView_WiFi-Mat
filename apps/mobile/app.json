@@ -8,7 +8,7 @@
     "newArchEnabled": false,
     "android": {
       "package": "com.trochez.bodyfinderruview",
-      "versionCode": 22,
+      "versionCode": 23,
       "permissions": [
         "android.permission.INTERNET",
         "android.permission.ACCESS_NETWORK_STATE",
@@ -41,7 +41,7 @@
     "extra": {
       "truthMode": "experimental-auto-geometry",
       "protocolVersion": 2,
-      "releaseIteration": "experimental.20.2"
+      "releaseIteration": "experimental.20.3"
     }
   }
 }

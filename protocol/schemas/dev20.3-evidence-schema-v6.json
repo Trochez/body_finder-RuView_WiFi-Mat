@@ -1,0 +1,39 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "dev20.3 evidence v6",
+  "type": "object",
+  "required": [
+    "build",
+    "protocol_version",
+    "human_presence_preview",
+    "validation_run",
+    "range_observations"
+  ],
+  "properties": {
+    "build": {
+      "const": "0.2.0-experimental.20.3"
+    },
+    "protocol_version": {
+      "const": 2
+    },
+    "human_presence_preview": {
+      "type": "object",
+      "required": [
+        "prediction",
+        "algorithm_version",
+        "parameter_hash",
+        "decision_id",
+        "authoritative",
+        "contributing_nodes",
+        "contributing_links",
+        "physical_baselines"
+      ]
+    },
+    "human_localization_validated": {
+      "const": false
+    },
+    "rescue_use_validated": {
+      "const": false
+    }
+  }
+}

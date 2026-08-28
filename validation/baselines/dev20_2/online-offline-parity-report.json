@@ -1,0 +1,8 @@
+{
+  "algorithm_version": "deterministic-multinode-rssi-fusion-v3",
+  "parameter_hash": "f30d69c379ffb266581d6616fa4ad46b62fed40d9c0c643fb73ecf9cb4be0ccf",
+  "golden_parity": "CI_REQUIRED",
+  "physical_smoke_parity": "PENDING",
+  "peer_authoritative_consistency": "PENDING",
+  "note": "Physical parity must be proven with published APK before 54-JSON campaign."
+}

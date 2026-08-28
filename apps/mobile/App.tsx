@@ -25,7 +25,7 @@ import {
 import { diagnoseGeometryGraph } from './src/geometryDiagnostics';
 import { applyReciprocalFusion } from './src/rangeFusion';
 import { BUILD, REPORT_VERSION, HUMAN_SCANNING_ENABLED, RELEASE } from './src/version';
-import { estimateHumanPresence } from './src/humanPresence';
+import { estimateHumanPresence, selectAuthoritativePresence } from './src/humanPresence';
 
 const T = {
   en: {
@@ -150,6 +150,8 @@ export default function App() {
   const coordinator = useMemo(() => nodes.filter(node => node.protocol_version === 2).slice()
     .sort((a, b) => b.coordinator_score - a.coordinator_score || a.node_id.localeCompare(b.node_id))[0]?.node_id ?? null, [nodes]);
   const computedGeometry = useMemo(() => solveGeometry(geometryNodes), [geometryNodes]);
+  const localPresenceDiagnostic = useMemo(() => estimateHumanPresence(nodes, coordinator === local?.node_id ? 'coordinator' : 'diagnostic'), [nodes, coordinator, local?.node_id]);
+  const presence = useMemo(() => selectAuthoritativePresence(nodes, coordinator, local?.node_id ?? null, localPresenceDiagnostic), [nodes, coordinator, local?.node_id, localPresenceDiagnostic]);
   const geometrySelection = useMemo(() => chooseCoordinatorGeometry(nodes, coordinator, local?.node_id ?? null, computedGeometry),
     [nodes, coordinator, local?.node_id, computedGeometry]);
   const geometry = geometrySelection.solution;
@@ -161,6 +163,8 @@ export default function App() {
   const validationTruth = useMemo(() => ({
     geometry,
     locally_computed_geometry: computedGeometry,
+    authoritative_presence: presence,
+    coordinator_node_id: coordinator,
     fused_range_observations: geometryNodes.flatMap(node => node.ranges ?? []),
     graph_diagnostics: graphDiagnostics,
     reciprocal_fusion: fused.diagnostics,
@@ -171,7 +175,7 @@ export default function App() {
       holdover_metric_edge_count: graphDiagnostics.holdover_metric_edge_count,
       geometry_temporal_quality: graphDiagnostics.geometry_temporal_quality,
     },
-  }), [geometry, computedGeometry, geometryNodes, graphDiagnostics, fused.diagnostics]);
+  }), [geometry, computedGeometry, presence, coordinator, geometryNodes, graphDiagnostics, fused.diagnostics]);
 
   useEffect(() => {
     try { BodyFinderNative.updateValidationTruthJson(JSON.stringify(validationTruth)); } catch {}
@@ -179,8 +183,9 @@ export default function App() {
 
   useEffect(() => {
     const elected = Boolean(local?.node_id && coordinator === local.node_id);
-    try { BodyFinderNative.updatePublishedGeometry(elected, elected && computedGeometry ? JSON.stringify(computedGeometry) : null); } catch {}
-  }, [local?.node_id, coordinator, computedGeometry]);
+    const publication = elected && computedGeometry ? {...computedGeometry, authoritative_presence: {...localPresenceDiagnostic, authoritative:true, source:'coordinator'}} : null;
+    try { BodyFinderNative.updatePublishedGeometry(elected, publication ? JSON.stringify(publication) : null); } catch {}
+  }, [local?.node_id, coordinator, computedGeometry, localPresenceDiagnostic]);
 
   useEffect(() => {
     if (!geometry) { visualFrame.current = null; setVisualPositions({}); return; }
@@ -198,7 +203,6 @@ export default function App() {
     visualFrame.current = geometry.frame_id;
   }, [geometry]);
 
-  const presence = useMemo(() => estimateHumanPresence(nodes), [nodes]);
   const arrayTarget = useMemo(() => estimateHuman(geometryNodes, geometry), [geometryNodes, geometry]);
   const localGeometry = useMemo(() => geometry?.positions.find(position => position.node_id === local?.node_id), [geometry, local?.node_id]);
   const target = useMemo(() => RELEASE.humanLocalizationValidated ? relativeTarget(arrayTarget, localGeometry) : null, [arrayTarget, localGeometry]);
@@ -302,8 +306,8 @@ export default function App() {
       },
       truth: 'LIVE_DEVICE_CAPABILITIES__VALIDATED_COARSE_BLE_METRIC_0P5_TO_5M__BOUNDED_HOLDOVER__ADAPTIVE_FILTERED_PRIMARY_WITH_FULL_COHORT_AND_PER_PEER_STARVATION_RECOVERY__RANGING_MANAGER_BLE_YIELD__RECIPROCAL_FUSION__AUTOGEOMETRY_EXPERIMENTAL_NOT_RESCUE_VALIDATED',
       evidence_contract: {
-        schema: 'dev16-self-contained-json-evidence-v4', screenshots_required: false, json_self_contained: true,
-        required_external_input: 'ground_truth_distances_only_for_accuracy_report',
+        schema: 'dev20.3-self-contained-json-evidence-v6', screenshots_required: false, json_self_contained: true,
+        required_external_input: 'ground_truth_and_scenario_metadata_only_for_final_validator',
         diagnostic_source: 'this JSON export',
       },
       manual_geometry_override: false, human_scanning_enabled: HUMAN_SCANNING_ENABLED,
@@ -350,7 +354,7 @@ export default function App() {
         peer_expire_gate_pass: freshDiagnostics?.validation_run?.peer_expire_delta === 0,
         recovery_budget_gate_pass: typeof freshDiagnostics?.validation_run?.recovery_attempt_delta === 'number' && freshDiagnostics.validation_run.recovery_attempt_delta <= 3,
       },
-      instructions: 'Return the exported JSON files only. Screenshots are not required for dev-14 evidence. Use >=330 s for acceptance; short runs remain diagnostic only. Do not change calibration, minSamples, freshness, holdover or solver settings. Human scanning remains blocked.',
+      instructions: 'Return exported JSON files only; screenshots are unnecessary. Acceptance requires >=330 s, valid EMPTY_CAL, 3 nodes/6 directional links/3 baselines, peer authoritative consistency and offline replay parity. Human localization and rescue use remain unvalidated.',
     };
     const serializedPayload = JSON.stringify(payload, null, 2);
     if (Platform.OS === 'android') {

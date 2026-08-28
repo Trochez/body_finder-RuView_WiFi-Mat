@@ -1,0 +1,13 @@
+{
+  "gate": "calibration_health",
+  "acceptance_minimum_ms": 330000,
+  "invalid_if": [
+    "environment_valid=false",
+    "elapsed_ms<330000",
+    "peer_expire_delta!=0",
+    "dropped_sample_count>0",
+    "insufficient_3node_6link_topology"
+  ],
+  "dev20_2_day1_pixel10_empty_cal_expected": "REJECT",
+  "known_violation": "BATTERY_SAVER_ON ~212316 ms"
+}

@@ -1,0 +1,30 @@
+{
+  "release": "dev-20.3",
+  "source_release": "dev-20.2",
+  "source_commit": "ea1adfd3990ed2e3dcf7aa1c0d30fed281c038bd",
+  "evidence_role": "DEVELOPMENT_REGRESSION",
+  "raw_archive_available_to_executor": false,
+  "replay_complete": false,
+  "reason": "dev-20.2_evidence.zip not present in repository or retrievable File Library; diagnosis-derived metrics are preserved but are not substituted for raw replay",
+  "diagnosed_metrics": {
+    "tp": 0,
+    "tn": 5,
+    "fp": 0,
+    "fn": 6,
+    "indeterminate": 5,
+    "recall": 0.0,
+    "specificity": 1.0,
+    "indeterminate_rate": 0.3125,
+    "stationary_recall": 0.0
+  },
+  "known_integrity": {
+    "acceptance_exports": 54,
+    "scenario_groups": 18,
+    "nodes_per_group": 3,
+    "directional_links_per_group": 6,
+    "physical_baselines_per_group": 3,
+    "dropped_sample_count": 0,
+    "all_duration_at_least_330000": true
+  },
+  "final_test_eligible": false
+}

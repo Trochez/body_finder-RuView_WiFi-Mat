@@ -1,0 +1,22 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "dev20.3 campaign v3",
+  "type": "object",
+  "required": [
+    "schema_version",
+    "sessions",
+    "scenarios"
+  ],
+  "properties": {
+    "schema_version": {
+      "const": 3
+    },
+    "sessions": {
+      "type": "array",
+      "minItems": 3
+    },
+    "scenarios": {
+      "type": "array"
+    }
+  }
+}

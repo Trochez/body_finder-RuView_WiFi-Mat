@@ -394,7 +394,7 @@ private object ValidationRuntime {
       .put("snapshot_wall_ms", effectiveEnd)
       .put("snapshot_elapsed_ms", elapsed)
       .put("elapsed_ms", elapsed)
-      .put("acceptance_minimum_ms", 300_000L)
+      .put("acceptance_minimum_ms", 330_000L)
       .put("acceptance_duration_eligible", elapsed >= 300_000L)
       .put("short_diagnostic_run", elapsed in 1 until 300_000L)
       .put("keep_awake_policy", "FLAG_KEEP_SCREEN_ON_DURING_ACTIVE_VALIDATION")
@@ -949,7 +949,7 @@ class BodyFinderNativeModule : Module() {
       .put("location_service_enabled", if (locationApplicable) (locationServiceEnabled(ctx) ?: JSONObject.NULL) else JSONObject.NULL)
       .put("blocking_reasons", JSONArray(blocking.distinct()))
       .put("issues", JSONArray(blocking.distinct()))
-      .put("acceptance_minimum_ms", 300_000L)
+      .put("acceptance_minimum_ms", 330_000L)
       .put("recommended_long_run_ms", 330_000L)
   }
 
