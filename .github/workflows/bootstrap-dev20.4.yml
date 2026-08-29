@@ -33,13 +33,15 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
         with:
           components: rustfmt
-      - name: Align bootstrap to compact native API declaration
+      - name: Normalize generator for current repository and Rust
         run: |
           python3 - <<'PY'
+          import re
           from pathlib import Path
           p=Path('scripts/apply_dev20_4_remediation.py')
           t=p.read_text()
           t=t.replace('anchor = "  updateAppVisibility(state: string): void;"', 'anchor = "  getCapabilitiesJson(): string; getDiagnosticsJson(): string; shareJsonFile(json: string, filename: string): boolean;"')
+          t=re.sub(r'(?<![A-Za-z0-9_])\.(\d+)', r'0.\1', t)
           p.write_text(t)
           PY
       - name: Apply deterministic dev20.4 source remediation
