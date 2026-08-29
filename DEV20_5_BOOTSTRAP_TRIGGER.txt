@@ -1,0 +1,2 @@
+dev20.5 final scenario selector + validator parity recheck
+base: f930c12c570fe012f72b40b34881a505d521538b
