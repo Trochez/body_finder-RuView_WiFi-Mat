@@ -49,6 +49,9 @@ jobs:
           git config user.name 'body-finder-release-bot'
           git config user.email 'actions@github.com'
           git add -A
+          # GitHub's workflow token cannot create/update another workflow file.
+          # The verified release workflow is installed separately by the authenticated connector.
+          git reset -- .github/workflows/release-dev20.6.yml
           git diff --cached --check
           if git diff --cached --quiet; then
             echo 'No generated implementation delta'
