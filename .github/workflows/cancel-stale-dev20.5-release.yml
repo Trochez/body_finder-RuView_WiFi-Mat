@@ -1,0 +1,18 @@
+name: Cancel stale dev20.5 release build
+
+on:
+  push:
+    paths: [CANCEL_STALE_DEV20_5_TRIGGER.txt]
+
+permissions:
+  actions: write
+  contents: read
+
+jobs:
+  cancel-stale:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Cancel obsolete preliminary release run
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh run cancel 33244464418 -R Trochez/body_finder-RuView_WiFi-Mat || true
