@@ -88,6 +88,13 @@ function relativeTarget(target: HumanEstimate | null, origin: GeometryPosition |
     uncertainty_percent: uncertainty, quality: uncertainty <= 20 ? 'HIGH' : uncertainty <= 40 ? 'MEDIUM' : uncertainty <= 70 ? 'LOW' : 'VERY_LOW' };
 }
 
+const VALIDATION_SCENARIOS = [
+  'SMOKE_CAL_EMPTY', 'HUMAN_MOVING',
+  'EMPTY_CAL', 'EMPTY_TEST', 'HUMAN_STATIONARY_CENTER',
+  'HUMAN_NEAR_LENOVO', 'HUMAN_NEAR_PIXEL10', 'HUMAN_NEAR_PIXEL7',
+  'HUMAN_OUTSIDE', 'NON_HUMAN_MOTION',
+] as const;
+
 export default function App() {
   const [lang, setLang] = useState<'en' | 'es'>('es');
   const [mode, setMode] = useState<'radar' | 'expert'>('radar');
@@ -103,7 +110,7 @@ export default function App() {
   const [visualPositions, setVisualPositions] = useState<Record<string, VisualPosition>>({});
   const [validationRun, setValidationRun] = useState<any>(null);
   const [validationNotice, setValidationNotice] = useState<string | null>(null);
-  const [validationScenario, setValidationScenario] = useState<'SMOKE_CAL_EMPTY'|'HUMAN_MOVING'|'UNSPECIFIED'>('UNSPECIFIED');
+  const [validationScenario, setValidationScenario] = useState<string>('UNSPECIFIED');
   const validationActionLock = useRef(false);
   const exportSequenceByRun = useRef<Record<string, number>>({});
   const visualFrame = useRef<string | null>(null);
@@ -423,8 +430,7 @@ export default function App() {
             <Text style={s.text}>{tx.uncertainty}: {target.uncertainty_percent.toFixed(0)}% · ±{target.error_radius_95_m.toFixed(1)} m (95%)</Text><Text style={s.muted}>{tx.evidence}</Text></View>
             : <View style={s.card}><Text style={s.h2}>{scanning ? presence.prediction.replaceAll('_', ' ') : 'PRESENCE SCAN IDLE'}</Text><Text style={s.text}>{scanning ? `${tx.confidence}: ${(presence.human_confidence * 100).toFixed(0)}% · ${presence.evidence_quality}` : tx.noTarget}</Text><Text style={s.muted}>{scanning ? presence.reason : tx.evidence}</Text><Text style={s.text}>calibration: {presence.calibration_state} · {presence.calibration_id?.slice?.(-12) ?? '—'}</Text></View>}
           <View style={s.card}><Text style={s.h2}>Scenario</Text><Text style={s.text}>{validationScenario}</Text>
-            <View style={s.statusRow}><Pressable onPress={() => setValidationScenario('SMOKE_CAL_EMPTY')}><Text style={s.link}>EMPTY</Text></Pressable>
-            <Pressable onPress={() => setValidationScenario('HUMAN_MOVING')}><Text style={s.link}>HUMAN MOVING</Text></Pressable></View></View>
+            <Pressable onPress={() => { const i = VALIDATION_SCENARIOS.indexOf(validationScenario as any); setValidationScenario(VALIDATION_SCENARIOS[(i + 1) % VALIDATION_SCENARIOS.length]); }}><Text style={s.link}>NEXT SCENARIO</Text></Pressable></View>
           <View style={s.card}><Text style={s.h2}>Validation run</Text><Text style={s.text}>run: {validationRun?.run_id ?? '—'} · active: {String(Boolean(validationRun?.active))}</Text>
             <Text style={s.text}>elapsed: {validationRun?.elapsed_ms ?? 0} ms · acceptance ≥300s: {String(Boolean(validationRun?.acceptance_duration_eligible))} · frozen: {String(Boolean(validationRun?.snapshot_frozen))} · schema: {validationRun?.snapshot_schema_version ?? RELEASE.snapshotSchemaVersion}</Text>
             <Text style={s.text}>ended: {validationRun?.ended_wall_ms ?? '—'} · retained: {diagnostics?.completed_validation_runs_summary?.length ?? 0}/5 · selected: {diagnostics?.selected_validation_run_id?.slice?.(-8) ?? '—'}</Text>
