@@ -42,6 +42,8 @@ jobs:
           t=p.read_text()
           t=t.replace('anchor = "  updateAppVisibility(state: string): void;"', 'anchor = "  getCapabilitiesJson(): string; getDiagnosticsJson(): string; shareJsonFile(json: string, filename: string): boolean;"')
           t=re.sub(r'(?<![A-Za-z0-9_.])\.(\d+)', r'0.\1', t)
+          t=t.replace('#[derive(Debug, Clone, Serialize, Deserialize, Default)]\npub struct AcquisitionHealth', '#[derive(Debug, Clone, Serialize, Deserialize)]\npub struct AcquisitionHealth')
+          t=t.replace('fn yes() -> bool { true }', 'fn yes() -> bool { true }\nimpl Default for AcquisitionHealth { fn default() -> Self { Self { environment_valid: true, acquisition_valid: true } } }')
           p.write_text(t)
           PY
       - name: Apply deterministic dev20.4 source remediation
