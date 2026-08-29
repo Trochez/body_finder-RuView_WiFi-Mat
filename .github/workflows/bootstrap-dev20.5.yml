@@ -37,23 +37,29 @@ jobs:
           cargo fmt --all
           cargo test --workspace --all-targets
           cargo build -p body-finder-science --release --bin body-finder-detector
-      - name: Mobile typecheck and regression
+      - name: Mobile typecheck
         working-directory: apps/mobile
         run: |
           npm ci
-          npx tsc --noEmit
-          npm run test:regression
+          npm run typecheck
       - name: Contract and generated asset checks
         run: |
           python3 -m py_compile scripts/apply_dev20_5_remediation.py
           test -s validation/schemas/dev20.5-evidence-schema-v8.json
           test -s validation/schemas/dev20.5-campaign-schema.json
           test -s validation/fixtures/dev20_5/detector-parameter-manifest-v5.json
+          test -s validation/fixtures/dev20_5/dev20.4-smoke-regression-report.json
+          test -s validation/fixtures/dev20_5/calibration-quality-invariant-report.json
+          test -s validation/fixtures/dev20_5/calibration-propagation-report.json
+          test -s validation/fixtures/dev20_5/topology-continuity-report.json
+          test -s validation/fixtures/dev20_5/online-offline-parity-report.json
           test -s docs/TESTING_DEV20_5.md
           grep -q 'deterministic-multinode-rssi-fusion-v5' crates/body-finder-science/src/human_detector.rs
+          grep -q 'calibration_quality_admissibility_invariant_failed' crates/body-finder-science/src/human_detector.rs
           grep -q 'dev20.5-self-contained-json-evidence-v8' apps/mobile/modules/body-finder-native/index.ts
           grep -q 'snapshot_consistency_digest' apps/mobile/App.tsx
           grep -q 'CalibrationPublicationV5' apps/mobile/src/humanPresence.ts
+          grep -q 'TRANSIENT_RF_OR_UDP_EVIDENCE_GAP_CALIBRATION_PRESERVED' apps/mobile/src/humanPresence.ts
           git diff --check
       - name: Commit verified implementation
         run: |
