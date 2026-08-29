@@ -1,1 +1,1 @@
-created by dev20.6 implementation; touch externally after bootstrap success
+2026-08-29T06:45-05:00 release dev20.6 verified cross-platform build
