@@ -25,7 +25,7 @@ import {
 import { diagnoseGeometryGraph } from './src/geometryDiagnostics';
 import { applyReciprocalFusion } from './src/rangeFusion';
 import { BUILD, REPORT_VERSION, HUMAN_SCANNING_ENABLED, RELEASE } from './src/version';
-import { estimateHumanPresence, selectAuthoritativePresence } from './src/humanPresence';
+import { beginSessionPresenceCalibration, estimateHumanPresence, getSessionPresenceCalibration, selectAuthoritativePresence } from './src/humanPresence';
 
 const T = {
   en: {
@@ -150,7 +150,7 @@ export default function App() {
   const coordinator = useMemo(() => nodes.filter(node => node.protocol_version === 2).slice()
     .sort((a, b) => b.coordinator_score - a.coordinator_score || a.node_id.localeCompare(b.node_id))[0]?.node_id ?? null, [nodes]);
   const computedGeometry = useMemo(() => solveGeometry(geometryNodes), [geometryNodes]);
-  const localPresenceDiagnostic = useMemo(() => estimateHumanPresence(nodes, coordinator === local?.node_id ? 'coordinator' : 'diagnostic'), [nodes, coordinator, local?.node_id]);
+  const localPresenceDiagnostic = useMemo(() => estimateHumanPresence(nodes, coordinator === local?.node_id ? 'coordinator' : 'diagnostic', coordinator, local?.node_id ?? null), [nodes, coordinator, local?.node_id]);
   const presence = useMemo(() => selectAuthoritativePresence(nodes, coordinator, local?.node_id ?? null, localPresenceDiagnostic), [nodes, coordinator, local?.node_id, localPresenceDiagnostic]);
   const geometrySelection = useMemo(() => chooseCoordinatorGeometry(nodes, coordinator, local?.node_id ?? null, computedGeometry),
     [nodes, coordinator, local?.node_id, computedGeometry]);
@@ -218,6 +218,9 @@ export default function App() {
 
   async function calibrate() {
     setCalibrating(true); setScanning(false); setError(null);
+    const sessionCalibration = beginSessionPresenceCalibration(nodes, coordinator, local?.node_id ?? null);
+    if (sessionCalibration.state === 'WAIT_COORDINATOR') { setError(lang === 'es' ? 'Inicia la calibración EMPTY en el coordinador elegido.' : 'Start EMPTY calibration on the elected coordinator.'); setCalibrating(false); return; }
+    if (sessionCalibration.state === 'INVALID') { setError(lang === 'es' ? 'Calibración requiere 3 nodos, 6 enlaces y 3 baselines saludables.' : 'Calibration requires healthy 3 nodes, 6 links and 3 baselines.'); setCalibrating(false); return; }
     const samples: number[] = [];
     try {
       for (let i = 0; i < 32; i++) { const rssi = BodyFinderNative.getWifiRssi(); if (typeof rssi === 'number') samples.push(rssi); await sleep(250); }
@@ -306,12 +309,13 @@ export default function App() {
       },
       truth: 'LIVE_DEVICE_CAPABILITIES__VALIDATED_COARSE_BLE_METRIC_0P5_TO_5M__BOUNDED_HOLDOVER__ADAPTIVE_FILTERED_PRIMARY_WITH_FULL_COHORT_AND_PER_PEER_STARVATION_RECOVERY__RANGING_MANAGER_BLE_YIELD__RECIPROCAL_FUSION__AUTOGEOMETRY_EXPERIMENTAL_NOT_RESCUE_VALIDATED',
       evidence_contract: {
-        schema: 'dev20.3-self-contained-json-evidence-v6', screenshots_required: false, json_self_contained: true,
+        schema: 'dev20.4-self-contained-json-evidence-v7', screenshots_required: false, json_self_contained: true,
         required_external_input: 'ground_truth_and_scenario_metadata_only_for_final_validator',
         diagnostic_source: 'this JSON export',
       },
       manual_geometry_override: false, human_scanning_enabled: HUMAN_SCANNING_ENABLED,
       human_presence_preview: presence,
+      human_presence_calibration_status: getSessionPresenceCalibration(),
       human_localization_validated: RELEASE.humanLocalizationValidated, rescue_use_validated: RELEASE.rescueUseValidated,
       export_auto_finalized_validation_run: autoFinalizedValidationRun,
       node_id: local?.node_id ?? null, capabilities: caps,
@@ -354,7 +358,7 @@ export default function App() {
         peer_expire_gate_pass: freshDiagnostics?.validation_run?.peer_expire_delta === 0,
         recovery_budget_gate_pass: typeof freshDiagnostics?.validation_run?.recovery_attempt_delta === 'number' && freshDiagnostics.validation_run.recovery_attempt_delta <= 3,
       },
-      instructions: 'Return exported JSON files only; screenshots are unnecessary. Acceptance requires >=330 s, valid EMPTY_CAL, 3 nodes/6 directional links/3 baselines, peer authoritative consistency and offline replay parity. Human localization and rescue use remain unvalidated.',
+      instructions: 'Return exported JSON files only; screenshots are unnecessary. Acceptance requires >=330 s, a frozen shared EMPTY calibration, 3 nodes/6 directional links/3 baselines, peer authoritative consistency and exact canonical Rust replay parity. Human localization and rescue use remain unvalidated.',
     };
     const serializedPayload = JSON.stringify(payload, null, 2);
     if (Platform.OS === 'android') {
@@ -409,7 +413,7 @@ export default function App() {
           {target && scanning ? <View style={s.card}><Text style={s.h2}>{target.state.replace('_', ' ')}</Text><Text style={s.big}>{target.range_m.toFixed(1)} m · {target.bearing_deg.toFixed(0)}°</Text>
             <Text style={s.text}>x {target.x_m.toFixed(2)} m · y {target.y_m.toFixed(2)} m</Text><Text style={s.text}>{tx.confidence}: {(target.human_confidence * 100).toFixed(0)}%</Text>
             <Text style={s.text}>{tx.uncertainty}: {target.uncertainty_percent.toFixed(0)}% · ±{target.error_radius_95_m.toFixed(1)} m (95%)</Text><Text style={s.muted}>{tx.evidence}</Text></View>
-            : <View style={s.card}><Text style={s.h2}>{scanning ? presence.prediction.replaceAll('_', ' ') : 'PRESENCE SCAN IDLE'}</Text><Text style={s.text}>{scanning ? `${tx.confidence}: ${(presence.human_confidence * 100).toFixed(0)}% · ${presence.evidence_quality}` : tx.noTarget}</Text><Text style={s.muted}>{scanning ? presence.reason : tx.evidence}</Text></View>}
+            : <View style={s.card}><Text style={s.h2}>{scanning ? presence.prediction.replaceAll('_', ' ') : 'PRESENCE SCAN IDLE'}</Text><Text style={s.text}>{scanning ? `${tx.confidence}: ${(presence.human_confidence * 100).toFixed(0)}% · ${presence.evidence_quality}` : tx.noTarget}</Text><Text style={s.muted}>{scanning ? presence.reason : tx.evidence}</Text><Text style={s.text}>calibration: {presence.calibration_state} · {presence.calibration_id?.slice?.(-12) ?? '—'}</Text></View>}
           <View style={s.card}><Text style={s.h2}>Validation run</Text><Text style={s.text}>run: {validationRun?.run_id ?? '—'} · active: {String(Boolean(validationRun?.active))}</Text>
             <Text style={s.text}>elapsed: {validationRun?.elapsed_ms ?? 0} ms · acceptance ≥300s: {String(Boolean(validationRun?.acceptance_duration_eligible))} · frozen: {String(Boolean(validationRun?.snapshot_frozen))} · schema: {validationRun?.snapshot_schema_version ?? RELEASE.snapshotSchemaVersion}</Text>
             <Text style={s.text}>ended: {validationRun?.ended_wall_ms ?? '—'} · retained: {diagnostics?.completed_validation_runs_summary?.length ?? 0}/5 · selected: {diagnostics?.selected_validation_run_id?.slice?.(-8) ?? '—'}</Text>

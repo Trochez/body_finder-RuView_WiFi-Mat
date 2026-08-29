@@ -1,0 +1,22 @@
+{
+  "schema_version": 1,
+  "baseline_sha": "cef31e5fb6990f4c3d269f12ae2efd95fe4909c6",
+  "source_release": "dev-20.3",
+  "classification": "DEVELOPMENT_REGRESSION",
+  "smoke_export_count": 6,
+  "observed_online_topology": {
+    "contributing_nodes": 0,
+    "contributing_links": 0,
+    "physical_baselines": 0
+  },
+  "reconstructed_raw_topology": {
+    "observer_nodes": 3,
+    "directional_links": 6,
+    "physical_baselines": 3
+  },
+  "clock_root_cause": "Date.now() wall clock was compared to source_observation_monotonic_ns/1e6",
+  "v3_human_moving_regression_fused_score_approx": 0.555,
+  "v3_human_moving_prediction": "INDETERMINATE",
+  "acceptance_reuse_forbidden": true,
+  "screenshots_required": false
+}

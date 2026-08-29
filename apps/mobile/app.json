@@ -1,6 +1,6 @@
 {
   "expo": {
-    "name": "Body Finder – RuView",
+    "name": "Body Finder \u2013 RuView",
     "slug": "body-finder-ruview",
     "version": "0.2.0",
     "orientation": "portrait",
@@ -43,5 +43,9 @@
       "protocolVersion": 2,
       "releaseIteration": "experimental.20.3"
     }
+  },
+  "version": "0.2.0",
+  "android": {
+    "versionCode": 24
   }
 }

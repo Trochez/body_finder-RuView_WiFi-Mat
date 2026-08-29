@@ -2,6 +2,7 @@ import { requireNativeModule } from 'expo-modules-core';
 
 export type NativeApi = {
   getCapabilitiesJson(): string; getDiagnosticsJson(): string; shareJsonFile(json: string, filename: string): boolean;
+  evaluateHumanPresenceJson(inputJson: string): string;
   getWifiRssi(): number | null; updateLocalState(baseline: number | null, sigma: number | null, scanning: boolean): boolean;
   updatePublishedGeometry(publish: boolean, geometryJson: string | null): boolean; updateGeometryState(geometryState: string): boolean;
   updateValidationTruthJson(truthJson: string): boolean; updateAppVisibility(visibility: string): boolean; startValidationRun(): string;

@@ -1,0 +1,34 @@
+{
+  "algorithm_version": "deterministic-multinode-rssi-fusion-v4",
+  "schema_version": 4,
+  "min_samples_per_link": 20,
+  "min_observer_nodes": 3,
+  "min_directional_links": 6,
+  "min_physical_baselines": 3,
+  "min_overlap_ms": 1000,
+  "min_mean_quality": 0.45,
+  "deviation_band_sigma": 2.0,
+  "deviation_band_floor_db": 2.5,
+  "human_threshold": 0.58,
+  "no_human_threshold": 0.28,
+  "disturbed_link_threshold": 0.44,
+  "min_disturbed_links": 2,
+  "min_disturbed_baselines": 2,
+  "weights": {
+    "shift": 0.18,
+    "spread": 0.19,
+    "dynamic": 0.27,
+    "occupancy": 0.19,
+    "persistence": 0.17
+  },
+  "fusion": {
+    "base": 1.0,
+    "reciprocal": 0.1,
+    "cross_link": 0.08,
+    "baseline_support": 0.08,
+    "quality_penalty": 0.08
+  },
+  "parameter_hash": "9d111630f6109316b65650a5c119dbff2fdc990528d58826641d56b29fd9daa6",
+  "selection_data_classification": "DEVELOPMENT_REGRESSION_ONLY",
+  "physical_acceptance": "PENDING"
+}

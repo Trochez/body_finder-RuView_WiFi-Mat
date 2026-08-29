@@ -1,0 +1,28 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Body Finder dev20.4 campaign v4",
+  "type": "object",
+  "required": [
+    "schema_version",
+    "release",
+    "smoke_gate_signature",
+    "sessions"
+  ],
+  "properties": {
+    "schema_version": {
+      "const": 4
+    },
+    "release": {
+      "const": "dev-20.4"
+    },
+    "smoke_gate_signature": {
+      "type": "string",
+      "pattern": "^sha256:"
+    },
+    "sessions": {
+      "type": "array",
+      "minItems": 54,
+      "maxItems": 54
+    }
+  }
+}

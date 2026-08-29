@@ -1,0 +1,35 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Body Finder dev20.4 evidence v7",
+  "type": "object",
+  "required": [
+    "build",
+    "json_self_contained",
+    "screenshots_required",
+    "human_presence_preview",
+    "validation_run"
+  ],
+  "properties": {
+    "build": {
+      "const": "0.2.0-experimental.20.4"
+    },
+    "json_self_contained": {
+      "const": true
+    },
+    "screenshots_required": {
+      "const": false
+    },
+    "human_presence_preview": {
+      "type": "object",
+      "required": [
+        "prediction",
+        "algorithm_version",
+        "parameter_hash",
+        "calibration_state"
+      ]
+    },
+    "validation_run": {
+      "type": "object"
+    }
+  }
+}

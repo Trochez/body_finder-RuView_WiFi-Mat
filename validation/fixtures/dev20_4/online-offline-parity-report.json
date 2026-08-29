@@ -1,0 +1,9 @@
+{
+  "release": "dev-20.4",
+  "engineering_gate": "PASS_BY_ARCHITECTURE_AND_GOLDEN_VECTORS",
+  "authoritative_engine": "body-finder-science::human_detector v4",
+  "android_binding": "JNI same Rust cdylib",
+  "offline_binding": "body-finder-detector same Rust crate",
+  "physical_smoke_parity": "PENDING",
+  "required_physical_result": "exact canonical_digest equality"
+}

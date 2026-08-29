@@ -1,0 +1,16 @@
+{
+  "release": "dev-20.4",
+  "state_machine": [
+    "UNCALIBRATED",
+    "CALIBRATING",
+    "READY",
+    "INVALID"
+  ],
+  "required_nodes": 3,
+  "required_directional_links": 6,
+  "required_physical_baselines": 3,
+  "min_samples_per_link": 20,
+  "freshness_clock": "LOCAL_RECEIVE_WALL_MS",
+  "source_monotonic_role": "PROVENANCE_ONLY",
+  "physical_smoke": "PENDING"
+}

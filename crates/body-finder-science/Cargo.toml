@@ -20,3 +20,12 @@ path = "src/bin/body-finder-validate-session.rs"
 [[bin]]
 name = "body-finder-rf-recorder"
 path = "src/bin/body-finder-rf-recorder.rs"
+
+[lib]
+crate-type = ["rlib", "cdylib"]
+
+[dependencies.sha2]
+version = "0.10"
+
+[dependencies.jni]
+version = "0.21"

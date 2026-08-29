@@ -676,8 +676,15 @@ private object FabricRuntime {
 }
 
 class BodyFinderNativeModule : Module() {
+  companion object { init { System.loadLibrary("body_finder_science") } }
+  private external fun nativeEvaluateHumanPresence(inputJson: String): String
+
   override fun definition() = ModuleDefinition {
     Name("BodyFinderNative")
+
+    Function("evaluateHumanPresenceJson") { inputJson: String ->
+      nativeEvaluateHumanPresence(inputJson)
+    }
 
     Function("shareJsonFile") { json: String, requestedFilename: String ->
       val ctx = appContext.reactContext ?: return@Function false
