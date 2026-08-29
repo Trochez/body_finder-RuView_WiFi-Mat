@@ -31,10 +31,8 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
         with:
           components: rustfmt
-      - name: Apply dev20.5 remediation
-        run: |
-          python3 scripts/apply_dev20_5_remediation.py
-          python3 scripts/apply_dev20_5_scenario_selector.py
+      - name: Apply final dev20.5 scenario tooling
+        run: python3 scripts/apply_dev20_5_scenario_selector.py
       - name: Rust format and tests
         run: |
           cargo fmt --all
