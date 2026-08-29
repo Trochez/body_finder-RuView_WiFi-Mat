@@ -1,0 +1,69 @@
+name: Bootstrap dev20.4 remediation
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - DEV20_4_BOOTSTRAP_TRIGGER.txt
+      - scripts/apply_dev20_4_remediation.py
+      - .github/workflows/bootstrap-dev20.4.yml
+
+permissions:
+  contents: write
+
+concurrency:
+  group: bootstrap-dev20-4
+  cancel-in-progress: false
+
+jobs:
+  remediate:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: apps/mobile/package-lock.json
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt
+      - name: Apply deterministic dev20.4 source remediation
+        run: python3 scripts/apply_dev20_4_remediation.py
+      - name: Python syntax and structural contract
+        run: |
+          python3 -m py_compile validation/analysis/validate_dev20_4_smoke.py validation/analysis/build_dev20_4_campaign.py validation/analysis/validate_dev20_4_human_detection.py scripts/test_dev20_4_contract.py
+          python3 scripts/test_dev20_4_contract.py
+      - name: Canonical Rust engine tests
+        run: |
+          cargo fmt --all -- --check || cargo fmt --all
+          cargo test -p body-finder-science
+          cargo build --release -p body-finder-science --bin body-finder-detector
+      - name: Mobile TypeScript gate
+        working-directory: apps/mobile
+        run: |
+          npm ci
+          npm run typecheck
+      - name: Regression guards
+        run: |
+          ! grep -R "source_observation_monotonic_ns/1e6" -n apps/mobile/src
+          ! grep -R "SESSION_EMPTY_CAL_REQUIRED" -n apps/mobile/src/humanPresence.ts
+          grep -q "canonical_shared_rust_engine" apps/mobile/src/humanPresence.ts
+          grep -q "schema_version.*4" validation/analysis/build_dev20_4_campaign.py
+          git diff --check
+      - name: Commit generated implementation
+        run: |
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git add Cargo.lock crates/body-finder-science apps/mobile validation docs scripts/test_dev20_4_contract.py
+          if git diff --cached --quiet; then
+            echo "No generated changes"
+          else
+            git commit -m "feat(dev20.4): canonical calibrated human presence remediation"
+            git push origin HEAD:main
+          fi
