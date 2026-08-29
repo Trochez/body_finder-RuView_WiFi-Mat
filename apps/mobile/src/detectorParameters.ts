@@ -1,23 +1,29 @@
-export const DETECTOR_ALGORITHM = 'deterministic-multinode-rssi-fusion-v5';
-export const DETECTOR_PARAMETER_HASH = 'aaf97ff75573489ebc525a080e96ce09247b405f4c3d88136895c87263793b8e';
-export const DETECTOR_V5 = Object.freeze({
+export const DETECTOR_ALGORITHM = 'deterministic-multinode-rssi-fusion-v6';
+export const DETECTOR_PARAMETER_HASH = '0fdb8a3b9ae003cc6d138c970ecdc0237bc2186b440e5469763e2d6c2e49f2f1';
+export const DETECTOR_V6 = Object.freeze({
   calibrationMinSamplesPerLink: 30,
-  observationMinSamplesPerLink: 30,
-  qualityReferenceSamples: 30,
-  minMeanQuality: 0.90,
+  observationMinSamplesPerLink: 24,
+  qualityReferenceSamples: 24,
+  minMeanQuality: 0.80,
   calibrationMinOverlapMs: 1500,
-  inferenceMinOverlapMs: 1000,
+  inferenceMinOverlapMs: 1500,
   minObserverNodes: 3,
   minDirectionalLinks: 6,
   minPhysicalBaselines: 3,
-  humanThreshold: 0.58,
-  noHumanThreshold: 0.30,
-  disturbedLinkThreshold: 0.44,
-  minDisturbedLinks: 2,
-  minDisturbedBaselines: 2,
-  dynamicFloor: 0.35,
-  calibrationTimeoutMs: 60000,
-  authorityPublicationLeaseMs: 15000,
-  membershipChangeGraceMs: 12000,
+  humanThreshold: 0.50,
+  noHumanThreshold: 0.27,
+  disturbedLinkThreshold: 0.32,
+  dynamicFloor: 0.20,
+  dynamicHumanLinkThreshold: 0.55,
+  persistenceHumanThreshold: 0.34,
+  minDynamicLinks: 3,
+  minDynamicBaselines: 2,
+  observationWindowMs: 60_000,
+  transportEvidenceFreshMs: 8_000,
+  calibrationTimeoutMs: 120_000,
+  authorityPublicationLeaseMs: 30_000,
+  membershipChangeGraceMs: 45_000,
+  coordinatorFailoverGraceMs: 30_000,
 });
-export const DETECTOR_V4 = DETECTOR_V5; // compatibility alias; runtime contract is v5.
+export const DETECTOR_V5 = DETECTOR_V6; // compatibility alias; runtime contract is v6.
+export const DETECTOR_V4 = DETECTOR_V6;
