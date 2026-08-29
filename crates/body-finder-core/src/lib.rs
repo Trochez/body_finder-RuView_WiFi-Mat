@@ -242,7 +242,10 @@ fn canonical_pair(a: &str, b: &str) -> (String, String) {
 
 fn preferred_session(nodes: &[NodeAdvertisement]) -> Option<String> {
     let mut counts: BTreeMap<&str, usize> = BTreeMap::new();
-    for node in nodes.iter().filter(|n| n.protocol_version == PROTOCOL_VERSION) {
+    for node in nodes
+        .iter()
+        .filter(|n| n.protocol_version == PROTOCOL_VERSION)
+    {
         *counts.entry(node.session_id.as_str()).or_default() += 1;
     }
     let mut best: Option<(&str, usize)> = None;
@@ -293,12 +296,12 @@ fn active_nodes<'a>(
     active
 }
 
-fn collect_edges(
-    nodes: &[&NodeAdvertisement],
-    rejected: &mut Vec<RejectedEdge>,
-) -> Vec<Edge> {
+fn collect_edges(nodes: &[&NodeAdvertisement], rejected: &mut Vec<RejectedEdge>) -> Vec<Edge> {
     let node_ids: BTreeSet<&str> = nodes.iter().map(|n| n.node_id.as_str()).collect();
-    let session = nodes.first().map(|n| n.session_id.as_str()).unwrap_or_default();
+    let session = nodes
+        .first()
+        .map(|n| n.session_id.as_str())
+        .unwrap_or_default();
 
     let mut latest_by_source: BTreeMap<(String, String, RangingTechnology), u64> = BTreeMap::new();
     for node in nodes {
@@ -317,10 +320,8 @@ fn collect_edges(
         }
     }
 
-    let mut grouped: BTreeMap<
-        (String, String, RangingTechnology),
-        Vec<&PairwiseRangeObservation>,
-    > = BTreeMap::new();
+    let mut grouped: BTreeMap<(String, String, RangingTechnology), Vec<&PairwiseRangeObservation>> =
+        BTreeMap::new();
 
     for node in nodes {
         for obs in &node.ranges {
@@ -348,11 +349,7 @@ fn collect_edges(
                 });
                 continue;
             }
-            if obs.monotonic_ns
-                > node
-                    .monotonic_ns
-                    .saturating_add(RANGE_REORDER_TOLERANCE_NS)
-            {
+            if obs.monotonic_ns > node.monotonic_ns.saturating_add(RANGE_REORDER_TOLERANCE_NS) {
                 rejected.push(RejectedEdge {
                     edge_id,
                     reason: "range sample timestamp is implausibly ahead of its observer".into(),
@@ -489,9 +486,7 @@ fn largest_component(node_ids: &[String], edges: &[Edge]) -> Vec<String> {
             }
         }
         component.sort();
-        if component.len() > best.len()
-            || (component.len() == best.len() && component < best)
-        {
+        if component.len() > best.len() || (component.len() == best.len() && component < best) {
             best = component;
         }
     }
@@ -563,8 +558,7 @@ fn initialize_positions(
         let Some(bc) = edge_lookup(edges, axis, candidate) else {
             continue;
         };
-        let x = (ac.distance.powi(2) + d_ab.powi(2) - bc.distance.powi(2))
-            / (2.0 * d_ab.max(1e-6));
+        let x = (ac.distance.powi(2) + d_ab.powi(2) - bc.distance.powi(2)) / (2.0 * d_ab.max(1e-6));
         let y_squared = ac.distance.powi(2) - x.powi(2);
         if y_squared <= 0.0 {
             continue;
@@ -627,8 +621,7 @@ fn initialize_positions(
                         .iter()
                         .map(|(known, edge)| {
                             let p = positions[known];
-                            (((candidate_x - p.0).powi(2) + (candidate_y - p.1).powi(2))
-                                .sqrt()
+                            (((candidate_x - p.0).powi(2) + (candidate_y - p.1).powi(2)).sqrt()
                                 - edge.distance)
                                 .abs()
                                 / edge.sigma.max(0.15)
@@ -673,10 +666,7 @@ fn optimize_positions(
             let predicted = (dx * dx + dy * dy).sqrt().max(1e-6);
             let residual = predicted - edge.distance;
             // Huber-like clipping keeps a single bad edge from moving the whole frame.
-            let robust = residual.clamp(
-                -2.0 * edge.sigma.max(0.25),
-                2.0 * edge.sigma.max(0.25),
-            );
+            let robust = residual.clamp(-2.0 * edge.sigma.max(0.25), 2.0 * edge.sigma.max(0.25));
             let strength = (edge.quality_weight / edge.sigma.powi(2).max(0.04)).clamp(0.02, 20.0);
             let correction = robust * (0.20 * strength / (1.0 + strength));
             let ux = dx / predicted;
@@ -876,9 +866,7 @@ pub fn solve_geometry(nodes: &[NodeAdvertisement]) -> Option<GeometrySolution> {
         let (Some(a), Some(b)) = (positions.get(&edge.a), positions.get(&edge.b)) else {
             continue;
         };
-        let residual = (((a.0 - b.0).powi(2) + (a.1 - b.1).powi(2)).sqrt()
-            - edge.distance)
-            .abs();
+        let residual = (((a.0 - b.0).powi(2) + (a.1 - b.1).powi(2)).sqrt() - edge.distance).abs();
         let threshold = (3.0 * edge.sigma).max(1.0).max(0.35 * edge.distance);
         if residual > threshold {
             rejected.push(RejectedEdge {
@@ -900,16 +888,17 @@ pub fn solve_geometry(nodes: &[NodeAdvertisement]) -> Option<GeometrySolution> {
         .filter_map(|edge| {
             let a = positions.get(&edge.a)?;
             let b = positions.get(&edge.b)?;
-            Some(
-                ((a.0 - b.0).powi(2) + (a.1 - b.1).powi(2)).sqrt() - edge.distance,
-            )
+            Some(((a.0 - b.0).powi(2) + (a.1 - b.1).powi(2)).sqrt() - edge.distance)
         })
         .collect();
     let residual_rms = if residuals.is_empty() {
         None
     } else {
         Some(
-            (residuals.iter().map(|residual| residual * residual).sum::<f64>()
+            (residuals
+                .iter()
+                .map(|residual| residual * residual)
+                .sum::<f64>()
                 / residuals.len() as f64)
                 .sqrt(),
         )
@@ -921,16 +910,14 @@ pub fn solve_geometry(nodes: &[NodeAdvertisement]) -> Option<GeometrySolution> {
     for i in 0..values.len() {
         for j in i + 1..values.len() {
             max_span = max_span.max(
-                ((values[i].0 - values[j].0).powi(2) + (values[i].1 - values[j].1).powi(2))
-                    .sqrt(),
+                ((values[i].0 - values[j].0).powi(2) + (values[i].1 - values[j].1).powi(2)).sqrt(),
             );
             for k in j + 1..values.len() {
                 let a = values[i];
                 let b = values[j];
                 let c = values[k];
-                max_cross = max_cross.max(
-                    ((b.0 - a.0) * (c.1 - a.1) - (b.1 - a.1) * (c.0 - a.0)).abs(),
-                );
+                max_cross =
+                    max_cross.max(((b.0 - a.0) * (c.1 - a.1) - (b.1 - a.1) * (c.0 - a.0)).abs());
             }
         }
     }
@@ -946,9 +933,8 @@ pub fn solve_geometry(nodes: &[NodeAdvertisement]) -> Option<GeometrySolution> {
             .filter(|edge| edge.a == *id || edge.b == *id)
             .map(|edge| edge.quality_weight / edge.sigma.powi(2).max(0.04))
             .sum::<f64>();
-        let sigma = (1.0 / information.max(0.05)).sqrt().max(0.15)
-            + rms * 0.5
-            + (1.0 - condition) * 0.5;
+        let sigma =
+            (1.0 / information.max(0.05)).sqrt().max(0.15) + rms * 0.5 + (1.0 - condition) * 0.5;
         estimates.push(NodePositionEstimate {
             node_id: id.clone(),
             x_m: *x,
@@ -1109,11 +1095,8 @@ pub fn estimate_from_rssi_with_geometry(
     let error_95 = (2.4477 * sigma_radial).max(1.0);
     let range = (x * x + y * y).sqrt();
     let uncertainty = (100.0 * error_95 / range.max(2.0)).clamp(0.0, 100.0);
-    let mean_anomaly = usable
-        .iter()
-        .map(|(_, _, anomaly)| *anomaly)
-        .sum::<f64>()
-        / usable.len() as f64;
+    let mean_anomaly =
+        usable.iter().map(|(_, _, anomaly)| *anomaly).sum::<f64>() / usable.len() as f64;
     let confidence = (1.0 - (-0.35 * (mean_anomaly - 0.75).max(0.0)).exp()).clamp(0.0, 0.95);
     let state = if mean_anomaly >= 5.0 {
         "PROBABLE_HUMAN"
@@ -1220,21 +1203,9 @@ mod tests {
 
     fn triangle() -> Vec<NodeAdvertisement> {
         vec![
-            node(
-                "a",
-                vec![obs("a", "b", 3.0), obs("a", "c", 4.0)],
-                -60.0,
-            ),
-            node(
-                "b",
-                vec![obs("b", "a", 3.0), obs("b", "c", 5.0)],
-                -58.0,
-            ),
-            node(
-                "c",
-                vec![obs("c", "a", 4.0), obs("c", "b", 5.0)],
-                -56.0,
-            ),
+            node("a", vec![obs("a", "b", 3.0), obs("a", "c", 4.0)], -60.0),
+            node("b", vec![obs("b", "a", 3.0), obs("b", "c", 5.0)], -58.0),
+            node("c", vec![obs("c", "a", 4.0), obs("c", "b", 5.0)], -56.0),
         ]
     }
 
@@ -1291,7 +1262,8 @@ mod tests {
             detail: "live fallback".into(),
         };
         let encoded = serde_json::to_string(&capability).expect("serialize capability");
-        let decoded: RangingCapability = serde_json::from_str(&encoded).expect("deserialize capability");
+        let decoded: RangingCapability =
+            serde_json::from_str(&encoded).expect("deserialize capability");
         assert_eq!(decoded, capability);
     }
 }

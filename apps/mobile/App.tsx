@@ -103,6 +103,7 @@ export default function App() {
   const [visualPositions, setVisualPositions] = useState<Record<string, VisualPosition>>({});
   const [validationRun, setValidationRun] = useState<any>(null);
   const [validationNotice, setValidationNotice] = useState<string | null>(null);
+  const [validationScenario, setValidationScenario] = useState<'SMOKE_CAL_EMPTY'|'HUMAN_MOVING'|'UNSPECIFIED'>('UNSPECIFIED');
   const validationActionLock = useRef(false);
   const exportSequenceByRun = useRef<Record<string, number>>({});
   const visualFrame = useRef<string | null>(null);
@@ -164,6 +165,8 @@ export default function App() {
     geometry,
     locally_computed_geometry: computedGeometry,
     authoritative_presence: presence,
+    scenario: validationScenario,
+    human_presence_calibration_status: getSessionPresenceCalibration(nodes),
     coordinator_node_id: coordinator,
     fused_range_observations: geometryNodes.flatMap(node => node.ranges ?? []),
     graph_diagnostics: graphDiagnostics,
@@ -175,7 +178,7 @@ export default function App() {
       holdover_metric_edge_count: graphDiagnostics.holdover_metric_edge_count,
       geometry_temporal_quality: graphDiagnostics.geometry_temporal_quality,
     },
-  }), [geometry, computedGeometry, presence, coordinator, geometryNodes, graphDiagnostics, fused.diagnostics]);
+  }), [geometry, computedGeometry, presence, coordinator, geometryNodes, graphDiagnostics, fused.diagnostics, validationScenario]);
 
   useEffect(() => {
     try { BodyFinderNative.updateValidationTruthJson(JSON.stringify(validationTruth)); } catch {}
@@ -284,6 +287,9 @@ export default function App() {
     } catch {}
     try { calibrationSnapshot = JSON.parse(BodyFinderNative.getCalibrationSnapshotJson()); } catch {}
     const selectedRun = freshDiagnostics?.validation_run ?? null;
+    const frozenTruth = selectedRun?.validation_truth ?? selectedRun?.truth ?? null;
+    const authoritativeSnapshot = frozenTruth?.authoritative_presence ?? presence;
+    const calibrationStatusSnapshot = frozenTruth?.human_presence_calibration_status ?? getSessionPresenceCalibration(nodes);
     const selectedRunId = typeof selectedRun?.run_id === 'string' ? selectedRun.run_id : 'no-run';
     const exportSequence = (exportSequenceByRun.current[selectedRunId] ?? 0) + 1;
     exportSequenceByRun.current[selectedRunId] = exportSequence;
@@ -302,20 +308,22 @@ export default function App() {
       json_self_contained: true, screenshots_required: false,
       export_metadata: {
         device_alias: deviceAlias, device_manufacturer: caps?.manufacturer ?? null, device_model: caps?.model ?? null,
-        node_id: local?.node_id ?? null, run_id: selectedRunId, run_type: runType, snapshot_stage: snapshotStage,
+        node_id: local?.node_id ?? null, run_id: selectedRunId, run_type: runType, snapshot_stage: snapshotStage, scenario: validationScenario,
         elapsed_ms: selectedRun?.elapsed_ms ?? null, snapshot_frozen: selectedRun?.snapshot_frozen ?? false,
         source_long_run_id: sourceLongRunId, export_sequence: exportSequence, generated_at: new Date().toISOString(),
         build: BUILD, protocol_version: 2, suggested_filename: suggestedFilename,
       },
       truth: 'LIVE_DEVICE_CAPABILITIES__VALIDATED_COARSE_BLE_METRIC_0P5_TO_5M__BOUNDED_HOLDOVER__ADAPTIVE_FILTERED_PRIMARY_WITH_FULL_COHORT_AND_PER_PEER_STARVATION_RECOVERY__RANGING_MANAGER_BLE_YIELD__RECIPROCAL_FUSION__AUTOGEOMETRY_EXPERIMENTAL_NOT_RESCUE_VALIDATED',
       evidence_contract: {
-        schema: 'dev20.4-self-contained-json-evidence-v7', screenshots_required: false, json_self_contained: true,
+        schema: 'dev20.5-self-contained-json-evidence-v8', screenshots_required: false, json_self_contained: true,
         required_external_input: 'ground_truth_and_scenario_metadata_only_for_final_validator',
         diagnostic_source: 'this JSON export',
       },
       manual_geometry_override: false, human_scanning_enabled: HUMAN_SCANNING_ENABLED,
-      human_presence_preview: presence,
-      human_presence_calibration_status: getSessionPresenceCalibration(),
+      human_presence_preview: authoritativeSnapshot,
+      human_presence_calibration_status: calibrationStatusSnapshot,
+      snapshot_consistency_digest: authoritativeSnapshot?.canonical_digest ?? null,
+      scenario: validationScenario,
       human_localization_validated: RELEASE.humanLocalizationValidated, rescue_use_validated: RELEASE.rescueUseValidated,
       export_auto_finalized_validation_run: autoFinalizedValidationRun,
       node_id: local?.node_id ?? null, capabilities: caps,
@@ -323,7 +331,7 @@ export default function App() {
       fabric_diagnostics: freshDiagnostics?.fabric_diagnostics ?? null,
       lifecycle_diagnostics: freshDiagnostics?.lifecycle_diagnostics ?? null,
       validation_preflight: freshDiagnostics?.validation_preflight ?? null,
-      diagnostic_contract: freshDiagnostics?.diagnostic_contract ?? null,
+      diagnostic_contract: {...(freshDiagnostics?.diagnostic_contract ?? {}), schema:'dev20.5-diagnostic-contract-v8'},
       selected_validation_run_id: freshDiagnostics?.selected_validation_run_id ?? null,
       validation_run: freshDiagnostics?.validation_run ?? null,
       completed_validation_runs_summary: freshDiagnostics?.completed_validation_runs_summary ?? [],
@@ -414,6 +422,9 @@ export default function App() {
             <Text style={s.text}>x {target.x_m.toFixed(2)} m · y {target.y_m.toFixed(2)} m</Text><Text style={s.text}>{tx.confidence}: {(target.human_confidence * 100).toFixed(0)}%</Text>
             <Text style={s.text}>{tx.uncertainty}: {target.uncertainty_percent.toFixed(0)}% · ±{target.error_radius_95_m.toFixed(1)} m (95%)</Text><Text style={s.muted}>{tx.evidence}</Text></View>
             : <View style={s.card}><Text style={s.h2}>{scanning ? presence.prediction.replaceAll('_', ' ') : 'PRESENCE SCAN IDLE'}</Text><Text style={s.text}>{scanning ? `${tx.confidence}: ${(presence.human_confidence * 100).toFixed(0)}% · ${presence.evidence_quality}` : tx.noTarget}</Text><Text style={s.muted}>{scanning ? presence.reason : tx.evidence}</Text><Text style={s.text}>calibration: {presence.calibration_state} · {presence.calibration_id?.slice?.(-12) ?? '—'}</Text></View>}
+          <View style={s.card}><Text style={s.h2}>Scenario</Text><Text style={s.text}>{validationScenario}</Text>
+            <View style={s.statusRow}><Pressable onPress={() => setValidationScenario('SMOKE_CAL_EMPTY')}><Text style={s.link}>EMPTY</Text></Pressable>
+            <Pressable onPress={() => setValidationScenario('HUMAN_MOVING')}><Text style={s.link}>HUMAN MOVING</Text></Pressable></View></View>
           <View style={s.card}><Text style={s.h2}>Validation run</Text><Text style={s.text}>run: {validationRun?.run_id ?? '—'} · active: {String(Boolean(validationRun?.active))}</Text>
             <Text style={s.text}>elapsed: {validationRun?.elapsed_ms ?? 0} ms · acceptance ≥300s: {String(Boolean(validationRun?.acceptance_duration_eligible))} · frozen: {String(Boolean(validationRun?.snapshot_frozen))} · schema: {validationRun?.snapshot_schema_version ?? RELEASE.snapshotSchemaVersion}</Text>
             <Text style={s.text}>ended: {validationRun?.ended_wall_ms ?? '—'} · retained: {diagnostics?.completed_validation_runs_summary?.length ?? 0}/5 · selected: {diagnostics?.selected_validation_run_id?.slice?.(-8) ?? '—'}</Text>

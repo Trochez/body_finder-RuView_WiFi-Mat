@@ -1,0 +1,14 @@
+{
+  "release": "dev-20.5",
+  "source_release": "dev-20.4",
+  "classification": "DEVELOPMENT_REGRESSION",
+  "reproduced_findings": [
+    "READY 20-25 support vs /60 quality mismatch",
+    "peer calibration state divergence",
+    "transient topology invalidation",
+    "preview/truth snapshot divergence",
+    "stale dev20.3 schema export",
+    "HUMAN_MOVING not HUMAN_EVIDENCE"
+  ],
+  "status": "PASS_REGRESSION_CAPTURED"
+}

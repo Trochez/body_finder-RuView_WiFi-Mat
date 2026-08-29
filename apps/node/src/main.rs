@@ -257,12 +257,7 @@ fn main() -> Result<()> {
 
     eprintln!(
         "Body Finder node={} platform={} protocol={} UDP={} baseline={:?} sigma={:?} geometry=AUTO",
-        args.node_id,
-        platform,
-        PROTOCOL_VERSION,
-        FABRIC_PORT,
-        baseline,
-        baseline_sigma
+        args.node_id, platform, PROTOCOL_VERSION, FABRIC_PORT, baseline, baseline_sigma
     );
 
     loop {
@@ -284,9 +279,7 @@ fn main() -> Result<()> {
             ble_identity: None,
             ranges: Vec::new(),
             manual_geometry_override: false,
-            geometry_publisher_node_id: geometry_to_publish
-                .as_ref()
-                .map(|_| args.node_id.clone()),
+            geometry_publisher_node_id: geometry_to_publish.as_ref().map(|_| args.node_id.clone()),
             published_geometry: geometry_to_publish.clone(),
         };
         let payload = serde_json::to_vec(&advertisement)?;

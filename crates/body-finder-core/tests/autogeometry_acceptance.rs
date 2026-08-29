@@ -97,7 +97,10 @@ fn disconnected_node_is_not_given_a_fake_coordinate() {
     assert_eq!(geometry.dimension, GeometryDimension::TwoD);
     assert_eq!(geometry.state, GeometryState::GeometryDegraded);
     assert_eq!(geometry.positions.len(), 3);
-    assert!(geometry.positions.iter().all(|position| position.node_id != "d"));
+    assert!(geometry
+        .positions
+        .iter()
+        .all(|position| position.node_id != "d"));
     assert!(geometry
         .reason
         .as_deref()
@@ -149,11 +152,13 @@ fn persistent_impossible_edge_does_not_silently_become_truth() {
         geometry.state,
         GeometryState::Geometry2d | GeometryState::GeometryDegraded
     ));
-    assert!(geometry
-        .rejected_edges
-        .iter()
-        .any(|edge| edge.edge_id.contains("c::d"))
-        || geometry.residual_rms_m.unwrap_or(0.0) > 0.0);
+    assert!(
+        geometry
+            .rejected_edges
+            .iter()
+            .any(|edge| edge.edge_id.contains("c::d"))
+            || geometry.residual_rms_m.unwrap_or(0.0) > 0.0
+    );
 }
 
 #[test]

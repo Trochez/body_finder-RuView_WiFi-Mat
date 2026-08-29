@@ -1,0 +1,10 @@
+{
+  "gate": "G1",
+  "calibration_min_samples_per_link": 30,
+  "observation_min_samples_per_link": 30,
+  "quality_reference_samples": 30,
+  "min_mean_quality": 0.9,
+  "minimum_achievable_quality": 1.0,
+  "admissible": true,
+  "status": "PASS"
+}

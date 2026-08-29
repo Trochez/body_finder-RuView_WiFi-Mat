@@ -1,0 +1,28 @@
+{
+  "algorithm_version": "deterministic-multinode-rssi-fusion-v5",
+  "detector_parameter_hash": "aaf97ff75573489ebc525a080e96ce09247b405f4c3d88136895c87263793b8e",
+  "parameters": {
+    "calibration_min_samples_per_link": 30,
+    "observation_min_samples_per_link": 30,
+    "quality_reference_samples": 30,
+    "min_mean_quality": 0.9,
+    "calibration_min_overlap_ms": 1500,
+    "inference_min_overlap_ms": 1000,
+    "human_threshold": 0.58,
+    "no_human_threshold": 0.3,
+    "disturbed_link_threshold": 0.44,
+    "dynamic_floor": 0.35,
+    "weights": {
+      "shift": 0.1,
+      "spread": 0.22,
+      "dynamic": 0.5,
+      "occupancy": 0.08,
+      "persistence": 0.1
+    },
+    "calibration_timeout_ms": 60000,
+    "authority_publication_lease_ms": 15000,
+    "membership_change_grace_ms": 12000
+  },
+  "source_evidence": "dev20.2-dev20.4 failed evidence DEVELOPMENT/REGRESSION only",
+  "test_leakage_policy": "fresh dev20.5 smoke/final evidence cannot tune parameters"
+}

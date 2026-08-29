@@ -1,0 +1,9 @@
+{
+  "gate": "G6",
+  "canonical_engine": "shared Rust",
+  "android": "JNI evaluate_json",
+  "desktop": "same detector CLI",
+  "deterministic_replays": 100,
+  "ci_status": "PENDING_CI",
+  "physical_status": "PENDING"
+}

@@ -1,0 +1,10 @@
+{
+  "gate": "G2",
+  "contract": "CalibrationPublicationV5",
+  "cached_peer_mirror": true,
+  "sequence": true,
+  "generation": true,
+  "full_artifact": true,
+  "physical_status": "PENDING",
+  "engineering_status": "IMPLEMENTED"
+}

@@ -1,0 +1,8 @@
+{
+  "gate": "G3",
+  "fingerprint_basis": "expected session node_id cohort + directed logical pairs",
+  "transient_semantics": "INDETERMINATE_CALIBRATION_PRESERVED",
+  "confirmed_change_semantics": "INVALID_AFTER_GRACE",
+  "address_rebind_changes_identity": false,
+  "status": "IMPLEMENTED"
+}

@@ -22,7 +22,8 @@ fn android_wire_shape_is_rust_compatible() {
       "position":{"x_m":1.0,"y_m":2.0,"z_m":0.0,"sigma_m":0.25},
       "scanning":true
     }"#;
-    let ad: NodeAdvertisement = serde_json::from_str(json).expect("Android wire JSON must deserialize");
+    let ad: NodeAdvertisement =
+        serde_json::from_str(json).expect("Android wire JSON must deserialize");
     assert_eq!(ad.node_id, "android-test");
     assert_eq!(ad.rssi_dbm, Some(-55.0));
     assert!(ad.capabilities.contains_key("wifi_rtt"));

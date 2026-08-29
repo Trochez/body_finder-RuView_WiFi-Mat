@@ -3,13 +3,18 @@ use serde_json::{json, Value};
 use sha2::{Digest, Sha256};
 use std::collections::{BTreeMap, BTreeSet};
 
-pub const ALGORITHM_VERSION: &str = "deterministic-multinode-rssi-fusion-v4";
-pub const PARAMETER_HASH: &str = "9d111630f6109316b65650a5c119dbff2fdc990528d58826641d56b29fd9daa6";
-const MIN_SAMPLES: usize = 20;
-const MIN_OVERLAP_MS: i64 = 1_000;
+pub const ALGORITHM_VERSION: &str = "deterministic-multinode-rssi-fusion-v5";
+pub const PARAMETER_HASH: &str = "aaf97ff75573489ebc525a080e96ce09247b405f4c3d88136895c87263793b8e";
+pub const CALIBRATION_MIN_SAMPLES: usize = 30;
+pub const OBSERVATION_MIN_SAMPLES: usize = 30;
+pub const QUALITY_REFERENCE_SAMPLES: usize = 30;
+pub const MIN_MEAN_QUALITY: f64 = 0.90;
+pub const CALIBRATION_MIN_OVERLAP_MS: i64 = 1_500;
+pub const INFERENCE_MIN_OVERLAP_MS: i64 = 1_000;
 const HUMAN_THRESHOLD: f64 = 0.58;
-const NO_HUMAN_THRESHOLD: f64 = 0.28;
+const NO_HUMAN_THRESHOLD: f64 = 0.30;
 const DISTURBED_THRESHOLD: f64 = 0.44;
+const DYNAMIC_FLOOR: f64 = 0.35;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct DetectorSample {
@@ -253,10 +258,10 @@ fn round6(x: f64) -> f64 {
 }
 
 fn baseline_stats(link: &RawLink) -> Result<BaselineStats, String> {
-    if link.samples.len() < MIN_SAMPLES {
+    if link.samples.len() < CALIBRATION_MIN_SAMPLES {
         return Err(format!(
             "{}: fewer than {} calibration samples",
-            link.link_id, MIN_SAMPLES
+            link.link_id, CALIBRATION_MIN_SAMPLES
         ));
     }
     let xs: Vec<f64> = link
@@ -265,7 +270,7 @@ fn baseline_stats(link: &RawLink) -> Result<BaselineStats, String> {
         .map(|s| s.rssi_dbm)
         .filter(|x| (-126.0..=0.0).contains(x))
         .collect();
-    if xs.len() < MIN_SAMPLES {
+    if xs.len() < CALIBRATION_MIN_SAMPLES {
         return Err(format!(
             "{}: insufficient valid RSSI calibration samples",
             link.link_id
@@ -347,7 +352,7 @@ pub fn build_calibration(input: CalibrationBuildInput) -> Value {
             .map(|s| s.last_receive_wall_ms)
             .min()
             .unwrap_or(0);
-        if end - start < MIN_OVERLAP_MS {
+        if end - start < CALIBRATION_MIN_OVERLAP_MS {
             failures.push("insufficient_comparable_wall_clock_overlap".into());
         }
     }
@@ -355,7 +360,7 @@ pub fn build_calibration(input: CalibrationBuildInput) -> Value {
         return json!({"operation":"BUILD_CALIBRATION","calibration_state":"INVALID","reason":"calibration_gate_failed","failures":failures,"algorithm_version":ALGORITHM_VERSION,"parameter_hash":PARAMETER_HASH});
     }
     let mut artifact = CalibrationArtifact {
-        schema_version: 4,
+        schema_version: 5,
         calibration_id: input.calibration_id,
         generation: input.generation,
         session_id: input.session_id,
@@ -375,10 +380,10 @@ pub fn build_calibration(input: CalibrationBuildInput) -> Value {
 }
 
 fn features(base: &BaselineStats, obs: &RawLink) -> Result<LinkFeature, String> {
-    if obs.samples.len() < MIN_SAMPLES {
+    if obs.samples.len() < OBSERVATION_MIN_SAMPLES {
         return Err(format!(
             "{}: fewer than {} observation samples",
-            obs.link_id, MIN_SAMPLES
+            obs.link_id, OBSERVATION_MIN_SAMPLES
         ));
     }
     let xs: Vec<f64> = obs
@@ -387,7 +392,7 @@ fn features(base: &BaselineStats, obs: &RawLink) -> Result<LinkFeature, String> 
         .map(|s| s.rssi_dbm)
         .filter(|x| (-126.0..=0.0).contains(x))
         .collect();
-    if xs.len() < MIN_SAMPLES {
+    if xs.len() < OBSERVATION_MIN_SAMPLES {
         return Err(format!(
             "{}: insufficient valid observation RSSI samples",
             obs.link_id
@@ -446,9 +451,14 @@ fn features(base: &BaselineStats, obs: &RawLink) -> Result<LinkFeature, String> 
             })
             .collect::<Vec<_>>(),
     );
-    let quality = (xs.len().min(base.sample_count) as f64 / 60.0).min(1.0);
-    let disturbance =
-        0.18 * shift + 0.19 * spread + 0.27 * dynamic + 0.19 * occupancy + 0.17 * persistence;
+    let quality =
+        (xs.len().min(base.sample_count) as f64 / QUALITY_REFERENCE_SAMPLES as f64).min(1.0);
+    let dynamic_excess = ((dynamic - DYNAMIC_FLOOR) / (1.0 - DYNAMIC_FLOOR)).clamp(0.0, 1.0);
+    let disturbance = 0.10 * shift
+        + 0.22 * spread
+        + 0.50 * dynamic_excess
+        + 0.08 * occupancy
+        + 0.10 * persistence;
     Ok(LinkFeature {
         link_id: obs.link_id.clone(),
         observer_node_id: obs.observer_node_id.clone(),
@@ -515,7 +525,7 @@ fn invalid(
             missing_or_stale_reasons: reasons,
             component_scores: BTreeMap::new(),
             per_link_features: feats,
-            calibration_state: "INVALID".into(),
+            calibration_state: "READY".into(),
             calibration_id: input.calibration.calibration_id.clone(),
             calibration_hash: cal_hash,
             algorithm_version: ALGORITHM_VERSION.into(),
@@ -529,7 +539,7 @@ fn invalid(
 fn finish(input: &InferenceInput, core: InferenceCore) -> InferenceResult {
     let digest = sha(&serde_json::to_vec(&core).expect("serialize result"));
     let decision_id = format!(
-        "d204-{}",
+        "d205-{}",
         digest
             .trim_start_matches("sha256:")
             .chars()
@@ -543,7 +553,7 @@ fn finish(input: &InferenceInput, core: InferenceCore) -> InferenceResult {
         decision_id,
         authoritative: true,
         source: "canonical_shared_rust_engine".into(),
-        publication_contract_version: 4,
+        publication_contract_version: 5,
         canonical_replay_input: replay,
     }
 }
@@ -575,6 +585,19 @@ pub fn infer(mut input: InferenceInput) -> InferenceResult {
         .iter()
         .map(|b| (b.link_id.clone(), b))
         .collect();
+    let min_baseline_support = input
+        .calibration
+        .links
+        .iter()
+        .map(|b| b.sample_count)
+        .min()
+        .unwrap_or(0);
+    let max_min_observation_quality = (min_baseline_support.min(OBSERVATION_MIN_SAMPLES) as f64
+        / QUALITY_REFERENCE_SAMPLES as f64)
+        .min(1.0);
+    if max_min_observation_quality < MIN_MEAN_QUALITY {
+        reasons.push("calibration_quality_admissibility_invariant_failed".into());
+    }
     let mut feats = Vec::new();
     for obs in &input.links {
         match bases.get(&obs.link_id) {
@@ -610,7 +633,7 @@ pub fn infer(mut input: InferenceInput) -> InferenceResult {
             .map(|f| f.last_receive_wall_ms)
             .min()
             .unwrap_or(0);
-        if end - start < MIN_OVERLAP_MS {
+        if end - start < INFERENCE_MIN_OVERLAP_MS {
             reasons.push("insufficient_comparable_wall_clock_overlap".into())
         }
     }
@@ -619,7 +642,7 @@ pub fn infer(mut input: InferenceInput) -> InferenceResult {
     } else {
         mean(&feats.iter().map(|f| f.quality).collect::<Vec<_>>())
     };
-    if q < 0.45 {
+    if q < MIN_MEAN_QUALITY {
         reasons.push("mean_evidence_quality_below_gate".into())
     }
     if !reasons.is_empty() {
@@ -660,7 +683,7 @@ pub fn infer(mut input: InferenceInput) -> InferenceResult {
     let cross = disturbed as f64 / feats.len() as f64;
     let bs = disturbed_phys.len() as f64 / phys.len() as f64;
     let fused =
-        (base + 0.10 * recip * cross + 0.08 * cross + 0.08 * bs - 0.08 * (1.0 - q)).clamp(0.0, 1.0);
+        (base + 0.06 * recip * cross + 0.08 * cross + 0.08 * bs - 0.06 * (1.0 - q)).clamp(0.0, 1.0);
     let p = 1.0 / (1.0 + (-((fused - 0.50) * 7.0)).exp());
     let (prediction, reason) =
         if fused >= HUMAN_THRESHOLD && disturbed >= 2 && disturbed_phys.len() >= 2 {
@@ -685,6 +708,19 @@ pub fn infer(mut input: InferenceInput) -> InferenceResult {
     components.insert("cross_link_support".into(), round6(cross));
     components.insert("disturbed_baseline_support".into(), round6(bs));
     components.insert("mean_link_quality".into(), round6(q));
+    components.insert("min_mean_quality_threshold".into(), MIN_MEAN_QUALITY);
+    components.insert(
+        "quality_reference_samples".into(),
+        QUALITY_REFERENCE_SAMPLES as f64,
+    );
+    components.insert(
+        "calibration_min_samples_per_link".into(),
+        CALIBRATION_MIN_SAMPLES as f64,
+    );
+    components.insert(
+        "observation_min_samples_per_link".into(),
+        OBSERVATION_MIN_SAMPLES as f64,
+    );
     let clock = ClockDiagnostics {
         freshness_clock_domain: "LOCAL_RECEIVE_WALL_MS".into(),
         source_monotonic_used_for_freshness: false,
@@ -773,7 +809,7 @@ mod tests {
         ids.iter()
             .map(|(a, b)| {
                 let mut s = Vec::new();
-                for i in 0..30 {
+                for i in 0..36 {
                     let r = if human {
                         if i % 4 < 2 {
                             -55.0
