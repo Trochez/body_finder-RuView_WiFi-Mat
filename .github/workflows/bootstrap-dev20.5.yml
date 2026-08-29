@@ -1,0 +1,68 @@
+name: Bootstrap dev-20.5 remediation
+
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - 'scripts/apply_dev20_5_remediation.py'
+      - '.github/workflows/bootstrap-dev20.5.yml'
+      - 'DEV20_5_BOOTSTRAP_TRIGGER.txt'
+
+permissions:
+  contents: write
+
+jobs:
+  implement-and-verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: apps/mobile/package-lock.json
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt
+      - name: Apply dev20.5 remediation
+        run: python3 scripts/apply_dev20_5_remediation.py
+      - name: Rust format and tests
+        run: |
+          cargo fmt --all
+          cargo test --workspace --all-targets
+          cargo build -p body-finder-science --release --bin body-finder-detector
+      - name: Mobile typecheck and regression
+        working-directory: apps/mobile
+        run: |
+          npm ci
+          npx tsc --noEmit
+          npm run test:regression
+      - name: Contract and generated asset checks
+        run: |
+          python3 -m py_compile scripts/apply_dev20_5_remediation.py
+          test -s validation/schemas/dev20.5-evidence-schema-v8.json
+          test -s validation/schemas/dev20.5-campaign-schema.json
+          test -s validation/fixtures/dev20_5/detector-parameter-manifest-v5.json
+          test -s docs/TESTING_DEV20_5.md
+          grep -q 'deterministic-multinode-rssi-fusion-v5' crates/body-finder-science/src/human_detector.rs
+          grep -q 'dev20.5-self-contained-json-evidence-v8' apps/mobile/modules/body-finder-native/index.ts
+          grep -q 'snapshot_consistency_digest' apps/mobile/App.tsx
+          grep -q 'CalibrationPublicationV5' apps/mobile/src/humanPresence.ts
+          git diff --check
+      - name: Commit verified implementation
+        run: |
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git add crates apps validation docs scripts
+          if git diff --cached --quiet; then
+            echo 'No implementation diff to commit'
+          else
+            git commit -m 'feat(dev20.5): quality invariant authority continuity and evidence v8'
+            git push origin HEAD:main
+          fi
