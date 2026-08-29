@@ -1,4 +1,5 @@
-dev-20.5 release trigger
-engineering implementation commit: 674861f88a64021f3e5a22f1076cf918740675ad
-release workflow commit: 2bc6c05714429c259079daba702fc51eeaad047d
+dev-20.5 final release trigger
+verified implementation head before trigger: 202a1fcb56517810235f90d71d83def88f814729
+scenario tooling commit: 4a23f1639d9e1e293d74f1eccc76fdc4db43cde6
+campaign parity commit: f930c12c570fe012f72b40b34881a505d521538b
 physical G9-G11: PENDING
