@@ -1,0 +1,9 @@
+{
+  "status": "IMPLEMENTED",
+  "window_ms": 60000,
+  "minimum_samples_per_link": 24,
+  "minimum_overlap_ms": 1500,
+  "required_links": 6,
+  "deadline_failure": "INDETERMINATE",
+  "physical_rate_validation": "PENDING"
+}

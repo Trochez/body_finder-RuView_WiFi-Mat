@@ -1,0 +1,11 @@
+{
+  "status": "PASS_CODE_REGRESSION_PHYSICAL_REPLAY_REQUIRES_EXTERNAL_FROZEN_JSON",
+  "known_findings": [
+    "authority",
+    "membership",
+    "parity",
+    "snapshot",
+    "support",
+    "HUMAN_MOVING"
+  ]
+}

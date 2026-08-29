@@ -25,7 +25,7 @@ import {
 import { diagnoseGeometryGraph } from './src/geometryDiagnostics';
 import { applyReciprocalFusion } from './src/rangeFusion';
 import { BUILD, REPORT_VERSION, HUMAN_SCANNING_ENABLED, RELEASE } from './src/version';
-import { beginSessionPresenceCalibration, estimateHumanPresence, getSessionPresenceCalibration, selectAuthoritativePresence } from './src/humanPresence';
+import { beginSessionPresenceCalibration, electStableCoordinator, estimateHumanPresence, getControlPlanePublication, getSessionPresenceCalibration, selectAuthoritativePresence } from './src/humanPresence';
 
 const T = {
   en: {
@@ -155,8 +155,7 @@ export default function App() {
   const nodes = useMemo(() => (local ? [local, ...peers] : peers), [local, peers]);
   const fused = useMemo(() => applyReciprocalFusion(nodes), [nodes]);
   const geometryNodes = fused.nodes;
-  const coordinator = useMemo(() => nodes.filter(node => node.protocol_version === 2).slice()
-    .sort((a, b) => b.coordinator_score - a.coordinator_score || a.node_id.localeCompare(b.node_id))[0]?.node_id ?? null, [nodes]);
+  const coordinator = useMemo(() => electStableCoordinator(nodes, local?.node_id ?? null), [nodes, local?.node_id]);
   const computedGeometry = useMemo(() => solveGeometry(geometryNodes), [geometryNodes]);
   const localPresenceDiagnostic = useMemo(() => estimateHumanPresence(nodes, coordinator === local?.node_id ? 'coordinator' : 'diagnostic', coordinator, local?.node_id ?? null), [nodes, coordinator, local?.node_id]);
   const presence = useMemo(() => selectAuthoritativePresence(nodes, coordinator, local?.node_id ?? null, localPresenceDiagnostic), [nodes, coordinator, local?.node_id, localPresenceDiagnostic]);
@@ -190,6 +189,9 @@ export default function App() {
   useEffect(() => {
     try { BodyFinderNative.updateValidationTruthJson(JSON.stringify(validationTruth)); } catch {}
   }, [validationTruth]);
+
+  const controlPlane = useMemo(() => getControlPlanePublication(nodes, coordinator, local?.node_id ?? null), [nodes, coordinator, local?.node_id, presence]);
+  useEffect(() => { try { BodyFinderNative.updateControlPlaneJson(JSON.stringify(controlPlane)); } catch {} }, [controlPlane]);
 
   useEffect(() => {
     const elected = Boolean(local?.node_id && coordinator === local.node_id);

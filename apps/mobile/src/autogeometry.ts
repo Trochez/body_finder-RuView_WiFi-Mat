@@ -67,6 +67,7 @@ export type Advertisement = {
   ble_identity?: string | null;
   ranges?: RangeObservation[];
   manual_geometry_override?: boolean;
+  control_plane?: Record<string, unknown> | null;
   published_geometry?: (GeometrySolution & { authoritative_presence?: Record<string, unknown> }) | null;
   geometry_publisher_node_id?: string | null;
 };

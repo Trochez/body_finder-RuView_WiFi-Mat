@@ -1,0 +1,16 @@
+{
+  "status": "IMPLEMENTED_REQUIRES_FRESH_PHYSICAL_VALIDATION",
+  "parameter_hash": "0fdb8a3b9ae003cc6d138c970ecdc0237bc2186b440e5469763e2d6c2e49f2f1",
+  "threshold_only_change": false,
+  "changes": [
+    "dynamic/persistence fusion",
+    "reciprocal multi-baseline gate",
+    "60s support window"
+  ],
+  "targets": {
+    "recall": 0.9,
+    "specificity": 0.85,
+    "moving": 0.9,
+    "stationary": 0.8
+  }
+}

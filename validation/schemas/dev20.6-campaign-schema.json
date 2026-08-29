@@ -1,0 +1,27 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "dev20.6 campaign",
+  "type": "object",
+  "required": [
+    "release",
+    "count",
+    "recall",
+    "specificity",
+    "final_go",
+    "dev21_blocked"
+  ],
+  "properties": {
+    "release": {
+      "const": "dev-20.6"
+    },
+    "count": {
+      "const": 54
+    },
+    "final_go": {
+      "type": "boolean"
+    },
+    "dev21_blocked": {
+      "type": "boolean"
+    }
+  }
+}

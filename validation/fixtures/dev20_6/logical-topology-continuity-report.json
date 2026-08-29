@@ -1,0 +1,6 @@
+{
+  "status": "PASS_SYNTHETIC",
+  "logical_identity": "stable node_id",
+  "transport_liveness_separate": true,
+  "physical_smoke": "PENDING"
+}

@@ -1,0 +1,48 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "dev20.6 evidence v8",
+  "type": "object",
+  "required": [
+    "report_version",
+    "build",
+    "evidence_contract",
+    "export_metadata",
+    "human_presence_preview",
+    "human_presence_calibration_status",
+    "validation_run",
+    "snapshot_consistency_digest"
+  ],
+  "properties": {
+    "build": {
+      "const": "0.2.0-experimental.20.6"
+    },
+    "evidence_contract": {
+      "type": "object",
+      "required": [
+        "schema",
+        "screenshots_required",
+        "json_self_contained"
+      ],
+      "properties": {
+        "schema": {
+          "const": "dev20.6-self-contained-json-evidence-v9"
+        },
+        "screenshots_required": {
+          "const": false
+        },
+        "json_self_contained": {
+          "const": true
+        }
+      }
+    },
+    "export_metadata": {
+      "type": "object",
+      "required": [
+        "scenario",
+        "node_id",
+        "device_model",
+        "build"
+      ]
+    }
+  }
+}

@@ -508,6 +508,7 @@ private object FabricRuntime {
   @Volatile var socketState = "IDLE"
   @Volatile var multicastJoinState = "IDLE"
   @Volatile var publishedGeometryJson: String? = null
+  @Volatile var controlPlaneJson: String? = null
   @Volatile var lastScanRestartWallMs: Long = 0L
   val scanGeneration = AtomicLong(0)
 
@@ -671,6 +672,7 @@ private object FabricRuntime {
     socketState = "CLOSED"
     peers.clear()
     publishedGeometryJson = null
+    controlPlaneJson = null
     stopBle()
   }
 }
@@ -724,6 +726,12 @@ class BodyFinderNativeModule : Module() {
       FabricRuntime.baseline = baseline
       FabricRuntime.sigma = sigma
       FabricRuntime.scanning = scanning
+      true
+    }
+    Function("updateControlPlaneJson") { controlPlaneJson: String? ->
+      FabricRuntime.controlPlaneJson = if (!controlPlaneJson.isNullOrBlank()) {
+        try { JSONObject(controlPlaneJson).toString() } catch (_: Throwable) { null }
+      } else null
       true
     }
     Function("updatePublishedGeometry") { publish: Boolean, geometryJson: String? ->
@@ -2109,6 +2117,10 @@ class BodyFinderNativeModule : Module() {
     put("ble_identity", bleIdentity())
     put("ranges", rangeObservations())
     put("manual_geometry_override", false)
+    val controlPlane = FabricRuntime.controlPlaneJson
+    if (controlPlane != null) {
+      try { put("control_plane", JSONObject(controlPlane)) } catch (_: Throwable) { put("control_plane", JSONObject.NULL) }
+    } else put("control_plane", JSONObject.NULL)
     val published = FabricRuntime.publishedGeometryJson
     if (published != null) {
       try {

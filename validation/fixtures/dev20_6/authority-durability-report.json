@@ -1,0 +1,8 @@
+{
+  "status": "PASS_SYNTHETIC",
+  "publication": "CalibrationPublicationV6",
+  "ack": "CalibrationAckV6",
+  "lease_ms": 30000,
+  "failover_grace_ms": 30000,
+  "physical_smoke": "PENDING"
+}
