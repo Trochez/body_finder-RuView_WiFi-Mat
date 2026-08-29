@@ -30,17 +30,21 @@ def main():
     try:off=json.loads(q.stdout)
     except Exception:off={};fail.append(f'{f}: replay output invalid JSON')
     if off and (off.get('canonical_digest')!=p.get('canonical_digest') or off.get('prediction')!=p.get('prediction')):fail.append(f'{f}: online/offline parity failed')
-  rows.append({'path':f,'scenario':sc,'prediction':p.get('prediction'),'node_id':m.get('node_id') or d.get('node_id'),'run_id':m.get('run_id'),'calibration_id':p.get('calibration_id'),'calibration_hash':p.get('calibration_hash'),'decision_id':p.get('decision_id'),'canonical_digest':p.get('canonical_digest')})
- # Every scenario must have 6 exports (2 days x 3 devices); each synchronized triad must agree exactly.
+  rows.append({'path':f,'scenario':sc,'prediction':p.get('prediction'),'node_id':m.get('node_id') or d.get('node_id'),'calibration_id':p.get('calibration_id'),'calibration_hash':p.get('calibration_hash'),'decision_id':p.get('decision_id'),'canonical_digest':p.get('canonical_digest')})
+ # Each scenario is two independent days x three peers. The shared calibration_id is the day/triad grouping key.
  for sc in SCENARIOS:
   g=[x for x in rows if x['scenario']==sc]
   if len(g)!=6:fail.append(f'{sc}: expected 6 exports, got {len(g)}')
-  by_run={}
-  for x in g:by_run.setdefault(x['run_id'],[]).append(x)
-  for run_id,rg in by_run.items():
-   if len(rg)==3:
-    if len({x['calibration_id'] for x in rg})!=1 or len({x['calibration_hash'] for x in rg})!=1:fail.append(f'{sc}/{run_id}: calibration peer mismatch')
-    if len({x['decision_id'] for x in rg})!=1 or len({x['canonical_digest'] for x in rg})!=1:fail.append(f'{sc}/{run_id}: decision peer mismatch')
+  by_cal={}
+  for x in g:by_cal.setdefault(x['calibration_id'],[]).append(x)
+  if None in by_cal:fail.append(f'{sc}: missing calibration id')
+  if len([k for k in by_cal if k is not None])!=2:fail.append(f'{sc}: expected exactly two independent calibration generations/days')
+  for cal_id,rg in by_cal.items():
+   if cal_id is None:continue
+   if len(rg)!=3:fail.append(f'{sc}/{cal_id}: synchronized triad must contain 3 peers, got {len(rg)}');continue
+   if len({x['node_id'] for x in rg})!=3:fail.append(f'{sc}/{cal_id}: three unique peer node_ids required')
+   if len({x['calibration_hash'] for x in rg})!=1:fail.append(f'{sc}/{cal_id}: calibration hash peer mismatch')
+   if len({x['decision_id'] for x in rg})!=1 or len({x['canonical_digest'] for x in rg})!=1:fail.append(f'{sc}/{cal_id}: authoritative decision/digest peer mismatch')
  tp=sum(x['scenario'] in HUMAN and x['prediction']=='HUMAN_EVIDENCE' for x in rows);fn=sum(x['scenario'] in HUMAN and x['prediction']!='HUMAN_EVIDENCE' for x in rows);tn=sum(x['scenario'] in NEG and x['prediction']=='NO_HUMAN_EVIDENCE' for x in rows);fp=sum(x['scenario'] in NEG and x['prediction']=='HUMAN_EVIDENCE' for x in rows)
  recall=tp/max(1,tp+fn);spec=tn/max(1,tn+fp);mov=[x for x in rows if x['scenario']=='HUMAN_MOVING'];stat=[x for x in rows if x['scenario']=='HUMAN_STATIONARY_CENTER'];mr=sum(x['prediction']=='HUMAN_EVIDENCE' for x in mov)/max(1,len(mov));sr=sum(x['prediction']=='HUMAN_EVIDENCE' for x in stat)/max(1,len(stat));ind=sum(x['prediction']=='INDETERMINATE' for x in rows)/max(1,len(rows))
  if recall<.90:fail.append(f'recall {recall:.3f}<.90')
