@@ -1,0 +1,99 @@
+name: Bootstrap dev20.9 remediation r3
+
+on:
+  push:
+    branches: [dev20.9-remediation-20260831]
+    paths: [DEV20_9_BOOTSTRAP_TRIGGER_R3.txt]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: bootstrap-dev20-9-r3
+  cancel-in-progress: true
+
+jobs:
+  implement-gate-persist:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+        with: {fetch-depth: 0}
+      - uses: actions/setup-python@v5
+        with: {python-version: '3.12'}
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: apps/mobile/package-lock.json
+      - uses: actions/setup-java@v5
+        with: {distribution: temurin, java-version: '17'}
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Apply dev20.9 remediation
+        run: |
+          python3 scripts/apply_dev20_9_physical_remediation.py
+          python3 scripts/fix_dev20_9_generated.py
+          mkdir -p release_templates
+          cp .github/workflows/release-dev20.9.yml release_templates/release-dev20.9.yml.generated
+      - name: Validate generated contracts and release workflow template
+        run: |
+          set -euxo pipefail
+          python3 -m py_compile scripts/apply_dev20_9_physical_remediation.py scripts/fix_dev20_9_generated.py validation/analysis/validate_dev20_9_smoke.py validation/analysis/validate_dev20_9_campaign.py validation/analysis/test_dev20_9_contract.py
+          python3 validation/analysis/test_dev20_9_contract.py
+          python3 -m pip install --quiet pyyaml
+          python3 - <<'PY'
+          import pathlib, yaml
+          p=pathlib.Path('release_templates/release-dev20.9.yml.generated')
+          doc=yaml.safe_load(p.read_text())
+          assert isinstance(doc,dict) and 'jobs' in doc
+          text=p.read_text()
+          required='BodyFinder-dev20.9-universal.apk body-finder-ruview-universal.apk body-finder-ruview-legacy-minsdk21.apk body-finder-ruview.aab body-finder-node-linux-x86_64.tar.gz body-finder-node-linux-x86_64.deb body-finder-windows-wsl-x86_64.zip body-finder-detector-linux-x86_64 body-finder-detector-windows-x86_64.exe validators-dev20.9.zip fixtures-dev20.9.zip dev20.9-evidence-schema-v12.json dev20.9-campaign-schema.json wire-envelope-v9-schema.json range-frame-v9-schema.json control-plane-v9-schema.json geometry-publication-v9-schema.json artifact-manifest-v1-schema.json detector-parameter-manifest-v8.json dev20.8-physical-evidence-root-cause-report.json clock-domain-normalization-report.json range-frame-mtu-report.json membership-lifecycle-report.json geometry-publication-adoption-report.json topology-3-6-3-convergence-report.json artifact-transport-regression-report.json online-offline-parity-report.json release-manifest.json release-verification.json SBOM.spdx.json SHA256SUMS.txt TESTING_DEV20_9.md'.split()
+          missing=[x for x in required if x not in text]
+          assert not missing, missing
+          print('release workflow template YAML/inventory: PASS')
+          PY
+          grep -q "0.2.0-experimental.20.9" apps/mobile/src/version.ts
+          grep -q "snapshotSchemaVersion: 12" apps/mobile/src/version.ts
+          grep -q "WireEnvelopeV9" apps/mobile/modules/body-finder-native/android/src/main/java/com/trochez/bodyfindernative/BodyFinderNativeModule.kt
+          grep -q "RANGE_FRAME_TARGET_BYTES = 1050" apps/mobile/modules/body-finder-native/android/src/main/java/com/trochez/bodyfindernative/BodyFinderNativeModule.kt
+          grep -q "COORDINATOR_PUBLICATION_V9" apps/mobile/src/autogeometry.ts
+          grep -q "g10_go" validation/analysis/validate_dev20_9_smoke.py
+          grep -q "final_go.*False" validation/analysis/validate_dev20_9_smoke.py
+          grep -q "330000" docs/TESTING_DEV20_9.md
+          grep -q "5d404d404e08d33cd179aa8657edd93f1e51885f5dfa1268af228465642a8d39" apps/mobile/src/detectorParameters.ts
+          git diff --check
+      - name: Historical Python regressions
+        run: |
+          set -euxo pipefail
+          python3 validation/analysis/test_post_dev19_v1.py
+          python3 validation/analysis/validate_dev19_baseline.py --output /tmp/dev19-baseline.json
+      - name: Rust gates
+        run: |
+          set -euxo pipefail
+          cargo fmt --all -- --check
+          cargo test --workspace --all-targets
+          cargo build --release -p body-finder-science --bin body-finder-detector
+      - name: Mobile TypeScript gate
+        working-directory: apps/mobile
+        run: |
+          set -euxo pipefail
+          npm ci --no-audit --no-fund
+          npm run typecheck
+      - name: Android native compile/unit gate
+        working-directory: apps/mobile
+        run: |
+          set -euxo pipefail
+          CI=1 npx expo prebuild --platform android --clean
+          chmod +x android/gradlew
+          ./android/gradlew -p android testReleaseUnitTest assembleRelease --stacktrace
+      - name: Persist generated implementation
+        run: |
+          set -euxo pipefail
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git add -A ':!.github/workflows/release-dev20.9.yml'
+          git status --short
+          test ! -f .github/workflows/release-dev20.9.yml || git diff --cached --quiet -- .github/workflows/release-dev20.9.yml
+          if git diff --cached --quiet; then echo 'No generated changes'; exit 0; fi
+          git commit -m 'feat(dev20.9): remediate physical clock MTU membership and geometry blockers'
+          git push origin HEAD:dev20.9-remediation-20260831
