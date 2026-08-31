@@ -11,7 +11,7 @@ export const DETECTOR_V8 = Object.freeze({
   negativeMaxBaselineSupport:1/3, negativeMaxDynamicLinks:0, negativeMaxDynamicBaselines:0,
   observationWindowMs:60_000, transportEvidenceFreshMs:8_000, calibrationTimeoutMs:120_000,
   authorityPublicationLeaseMs:30_000, decisionFreshMs:30_000, decisionExpiryMs:60_000,
-  membershipChangeGraceMs:45_000, coordinatorFailoverGraceMs:30_000, wireMaxDatagramBytes:1200, wireChunkPayloadBytes:640,
+  membershipChangeGraceMs:45_000, coordinatorFailoverGraceMs:30_000, wireMaxDatagramBytes:1200, wireChunkPayloadBytes:512,
 });
 export const DETECTOR_V7 = DETECTOR_V8;
 export const DETECTOR_V6 = DETECTOR_V8;
