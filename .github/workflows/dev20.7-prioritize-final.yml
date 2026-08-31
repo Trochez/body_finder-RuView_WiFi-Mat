@@ -1,0 +1,29 @@
+name: Prioritize final dev20.7 release
+
+on:
+  push:
+    branches: [main]
+    paths: [DEV20_7_PRIORITIZE_FINAL.txt]
+
+permissions:
+  contents: write
+
+jobs:
+  prioritize:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+          fetch-depth: 0
+      - name: Make newest release supersede stale queued builds
+        run: |
+          set -euxo pipefail
+          sed -i 's/cancel-in-progress: false/cancel-in-progress: true/' .github/workflows/release-dev20.7.yml
+          printf 'release dev20.7 frozen-final strict-g11 %s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" > RELEASE_DEV20_7_TRIGGER.txt
+          git config user.name 'body-finder-release-bot'
+          git config user.email 'actions@github.com'
+          git add .github/workflows/release-dev20.7.yml RELEASE_DEV20_7_TRIGGER.txt
+          git diff --cached --check
+          git commit -m 'release(dev20.7): supersede stale release runs with frozen final SHA'
+          git push origin HEAD:main
