@@ -1,0 +1,244 @@
+name: Release dev20.8
+
+on:
+  push:
+    branches: [main]
+    paths: [RELEASE_DEV20_8_TRIGGER.txt]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release-dev20-8
+  cancel-in-progress: true
+
+env:
+  DETECTOR_HASH: 5d404d404e08d33cd179aa8657edd93f1e51885f5dfa1268af228465642a8d39
+  DETECTOR_ALGORITHM: deterministic-multinode-rssi-fusion-v8
+  BUILD_VERSION: 0.2.0-experimental.20.8
+
+jobs:
+  requirements:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+        with: {fetch-depth: 0}
+      - uses: actions/setup-python@v5
+        with: {python-version: '3.12'}
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: apps/mobile/package-lock.json
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Engineering gates G0-G7
+        run: |
+          set -euxo pipefail
+          grep -q "0.2.0-experimental.20.8" apps/mobile/src/version.ts
+          grep -q "versionCode: 28" apps/mobile/src/version.ts
+          grep -q "snapshotSchemaVersion: 11" apps/mobile/src/version.ts
+          grep -q "humanLocalizationValidated: false" apps/mobile/src/version.ts
+          grep -q "rescueUseValidated: false" apps/mobile/src/version.ts
+          grep -q "$DETECTOR_ALGORITHM" crates/body-finder-science/src/human_detector.rs
+          grep -q "$DETECTOR_HASH" apps/mobile/src/detectorParameters.ts
+          grep -q "wireMaxDatagramBytes:1200" apps/mobile/src/detectorParameters.ts
+          grep -q "wireChunkPayloadBytes:512" apps/mobile/src/detectorParameters.ts
+          grep -q "DecisionPublicationV8" apps/mobile/src/humanPresence.ts
+          grep -q "BodyFinderControlPlaneV8" apps/mobile/src/humanPresence.ts
+          grep -q "MAX_DATAGRAM_BYTES = 1200" apps/mobile/modules/body-finder-native/android/src/main/java/com/trochez/bodyfindernative/BodyFinderNativeModule.kt
+          grep -q "CHUNK_BYTES = 512" apps/mobile/modules/body-finder-native/android/src/main/java/com/trochez/bodyfindernative/BodyFinderNativeModule.kt
+          grep -q "dev20.8-self-contained-json-evidence-v11" apps/mobile/modules/body-finder-native/index.ts
+          python3 -m py_compile validation/analysis/validate_dev20_8_smoke.py validation/analysis/validate_dev20_8_campaign.py validation/analysis/test_dev20_8_contract.py
+          python3 validation/analysis/test_dev20_8_contract.py
+          python3 validation/analysis/test_post_dev19_v1.py
+          python3 validation/analysis/validate_dev19_baseline.py --output /tmp/dev19-baseline.json
+          cargo fmt --all -- --check
+          cargo test --workspace --all-targets
+          cargo build --release -p body-finder-science --bin body-finder-detector
+          cd apps/mobile
+          npm ci --no-audit --no-fund
+          npm run typecheck
+
+  linux:
+    needs: requirements
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - run: cargo build --release -p body-finder-node -p body-finder-science --bins
+      - name: Package Linux
+        run: |
+          set -euxo pipefail
+          mkdir -p dist/pkg dist/deb/DEBIAN dist/deb/usr/bin
+          cp target/release/body-finder-node dist/pkg/
+          tar -C dist/pkg -czf dist/body-finder-node-linux-x86_64.tar.gz body-finder-node
+          cp target/release/body-finder-node dist/deb/usr/bin/
+          printf 'Package: body-finder-node\nVersion: 0.2.0~experimental20.8\nSection: science\nPriority: optional\nArchitecture: amd64\nMaintainer: Trochez\nDescription: Body Finder RuView field node\n' > dist/deb/DEBIAN/control
+          dpkg-deb --build dist/deb dist/body-finder-node-linux-x86_64.deb
+          cp target/release/body-finder-detector dist/body-finder-detector-linux-x86_64
+          chmod +x dist/body-finder-detector-linux-x86_64
+      - uses: actions/upload-artifact@v4
+        with: {name: dev20-8-linux, path: 'dist/*'}
+
+  windows:
+    needs: requirements
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - run: cargo build --release -p body-finder-node -p body-finder-science --bins
+      - shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force dist\win | Out-Null
+          Copy-Item target\release\body-finder-node.exe dist\win\
+          Copy-Item target\release\body-finder-detector.exe dist\win\
+          if (Test-Path target\release\body-finder-replay.exe) { Copy-Item target\release\body-finder-replay.exe dist\win\ }
+          if (Test-Path target\release\body-finder-validate-session.exe) { Copy-Item target\release\body-finder-validate-session.exe dist\win\ }
+          if (Test-Path target\release\body-finder-rf-recorder.exe) { Copy-Item target\release\body-finder-rf-recorder.exe dist\win\ }
+          Copy-Item target\release\body-finder-detector.exe dist\body-finder-detector-windows-x86_64.exe
+          Compress-Archive dist\win\* dist\body-finder-windows-wsl-x86_64.zip
+      - uses: actions/upload-artifact@v4
+        with: {name: dev20-8-windows, path: 'dist/*'}
+
+  android:
+    needs: requirements
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: apps/mobile/package-lock.json
+      - uses: actions/setup-java@v5
+        with: {distribution: temurin, java-version: '17'}
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Build canonical Rust JNI libraries
+        run: |
+          set -euxo pipefail
+          rustup target add aarch64-linux-android armv7-linux-androideabi x86_64-linux-android
+          cargo install cargo-ndk --locked
+          rm -rf apps/mobile/modules/body-finder-native/android/src/main/jniLibs
+          mkdir -p apps/mobile/modules/body-finder-native/android/src/main/jniLibs
+          cargo ndk -t arm64-v8a -t armeabi-v7a -t x86_64 -o apps/mobile/modules/body-finder-native/android/src/main/jniLibs build --release -p body-finder-science --lib
+          find apps/mobile/modules/body-finder-native/android/src/main/jniLibs -name 'libbody_finder_science.so' -type f -size +0 -print
+      - name: Build universal Android APK/AAB
+        working-directory: apps/mobile
+        run: |
+          set -euxo pipefail
+          npm ci --no-audit --no-fund
+          npm run typecheck
+          CI=1 npx expo prebuild --platform android --clean
+          chmod +x android/gradlew
+          ./android/gradlew -p android testReleaseUnitTest assembleRelease bundleRelease --stacktrace
+          mkdir -p ../../dist
+          cp android/app/build/outputs/apk/release/*.apk ../../dist/body-finder-ruview-universal.apk
+          cp ../../dist/body-finder-ruview-universal.apk ../../dist/BodyFinder-dev20.8-universal.apk
+          cp android/app/build/outputs/bundle/release/*.aab ../../dist/body-finder-ruview.aab
+      - uses: actions/upload-artifact@v4
+        with: {name: dev20-8-android, path: 'dist/*'}
+
+  android-legacy:
+    needs: requirements
+    runs-on: ubuntu-24.04
+    defaults:
+      run:
+        working-directory: apps/android-legacy
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v5
+        with: {distribution: temurin, java-version: '17'}
+      - uses: gradle/actions/setup-gradle@v4
+        with: {gradle-version: '8.10.2'}
+      - run: |
+          set -euxo pipefail
+          mkdir -p "$HOME/.android"
+          keytool -genkeypair -keystore "$HOME/.android/debug.keystore" -storepass android -alias androiddebugkey -keypass android -dname 'CN=Android Debug,O=Android,C=US' -keyalg RSA -keysize 2048 -validity 10000
+          gradle :app:testReleaseUnitTest :app:assembleRelease --stacktrace
+          mkdir -p ../../dist
+          cp app/build/outputs/apk/release/*.apk ../../dist/body-finder-ruview-legacy-minsdk21.apk
+      - uses: actions/upload-artifact@v4
+        with: {name: dev20-8-android-legacy, path: 'dist/*'}
+
+  release:
+    needs: [requirements, linux, windows, android, android-legacy]
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+        with: {fetch-depth: 0}
+      - uses: actions/setup-python@v5
+        with: {python-version: '3.12'}
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: 'dev20-8-*'
+          path: dist
+          merge-multiple: true
+      - name: Package complete test kit and metadata-rich reports
+        run: |
+          set -euxo pipefail
+          cp docs/TESTING_DEV20_8.md dist/TESTING_DEV20_8.md
+          for f in dev20.8-evidence-schema-v11.json dev20.8-campaign-schema.json wire-envelope-v8-schema.json control-plane-v8-schema.json artifact-manifest-v1-schema.json; do cp validation/schemas/$f dist/$f; done
+          cp validation/fixtures/dev20_8/detector-parameter-manifest-v8.json dist/detector-parameter-manifest-v8.json
+          SHA=$(git rev-parse HEAD); TS=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+          python3 - <<PY
+          import json, pathlib
+          src=pathlib.Path('validation/fixtures/dev20_8'); dst=pathlib.Path('dist')
+          reports='dev20.7-smoke-regression-report.json udp-oversize-root-cause-report.json wire-mtu-fault-injection-report.json artifact-transfer-reliability-report.json control-plane-v8-convergence-report.json detector-v8-development-report.json detector-v8-blind-holdout-report.json online-offline-parity-report.json'.split()
+          meta={'source_sha':'$SHA','build':'$BUILD_VERSION','protocol_version':2,'control_plane_version':'V8','detector_algorithm':'$DETECTOR_ALGORITHM','detector_parameter_hash':'$DETECTOR_HASH','generated_at_utc':'$TS'}
+          for name in reports:
+              p=src/name
+              if not p.is_file(): raise SystemExit('missing report source '+name)
+              d=json.loads(p.read_text()); d={**meta,**d}; (dst/name).write_text(json.dumps(d,indent=2,sort_keys=True)+'\n')
+          manifest={**meta,'schema_version':28,'release':'dev-20.8','version':'$BUILD_VERSION','snapshot_schema_version':11,'evidence_contract':'dev20.8-self-contained-json-evidence-v11','control_plane_contract':'BodyFinderControlPlaneV8','decision_publication_contract':'DecisionPublicationV8','wire_contract':'WireEnvelopeV8','wire_max_datagram_bytes':1200,'wire_chunk_payload_bytes':512,'canonical_engine':'body-finder-science Rust shared by Android JNI and offline CLI','required_full_topology':{'nodes':3,'directional_links':6,'physical_baselines':3},'engineering_gates_G0_G9':'PASS','physical_smoke_G10':'PENDING','final_54_json_campaign_G11':'BLOCKED_UNTIL_SMOKE_GO','independent_acceptance_G12':'PENDING','physical_acceptance':'PENDING','final_go':False,'dev21_blocked':True,'screenshots_required':False,'json_self_contained':True,'human_localization_validated':False,'rescue_use_validated':False}
+          (dst/'release-manifest.json').write_text(json.dumps(manifest,indent=2,sort_keys=True)+'\n')
+          verify={**meta,'release':'dev-20.8','engineering_ci_pass':True,'canonical_rust_tests':True,'mobile_typecheck':True,'android_native_compile':True,'cross_platform_assets_built':True,'local_inventory_verified':True,'checksums_verified':True,'redownload_verified':False,'physical_smoke_G10':'PENDING','campaign_G11':'BLOCKED','independent_G12':'PENDING','final_go':False,'dev21_blocked':True}
+          (dst/'release-verification.json').write_text(json.dumps(verify,indent=2,sort_keys=True)+'\n')
+          PY
+          mkdir -p kit/validation/analysis kit/validation/schemas kit/validation/fixtures/dev20_8
+          cp validation/analysis/validate_dev20_8_smoke.py validation/analysis/validate_dev20_8_campaign.py validation/analysis/test_dev20_8_contract.py kit/validation/analysis/
+          cp validation/schemas/dev20.8-evidence-schema-v11.json validation/schemas/dev20.8-campaign-schema.json validation/schemas/wire-envelope-v8-schema.json validation/schemas/control-plane-v8-schema.json validation/schemas/artifact-manifest-v1-schema.json kit/validation/schemas/
+          cp -r validation/fixtures/dev20_8/* kit/validation/fixtures/dev20_8/
+          cp docs/TESTING_DEV20_8.md kit/
+          (cd kit && zip -qr ../dist/validators-dev20.8.zip .)
+          (cd validation/fixtures && zip -qr ../../dist/fixtures-dev20.8.zip dev20_8)
+      - uses: anchore/sbom-action@v0
+        with:
+          path: '.'
+          format: spdx-json
+          output-file: dist/SBOM.spdx.json
+      - name: Assert exact required inventory and generate SHA256SUMS
+        run: |
+          set -euxo pipefail
+          python3 - <<'PY'
+          import hashlib,pathlib
+          d=pathlib.Path('dist')
+          required='BodyFinder-dev20.8-universal.apk body-finder-ruview-universal.apk body-finder-ruview-legacy-minsdk21.apk body-finder-ruview.aab body-finder-node-linux-x86_64.tar.gz body-finder-node-linux-x86_64.deb body-finder-windows-wsl-x86_64.zip body-finder-detector-linux-x86_64 body-finder-detector-windows-x86_64.exe validators-dev20.8.zip fixtures-dev20.8.zip dev20.8-evidence-schema-v11.json dev20.8-campaign-schema.json wire-envelope-v8-schema.json control-plane-v8-schema.json artifact-manifest-v1-schema.json detector-parameter-manifest-v8.json dev20.7-smoke-regression-report.json udp-oversize-root-cause-report.json wire-mtu-fault-injection-report.json artifact-transfer-reliability-report.json control-plane-v8-convergence-report.json detector-v8-development-report.json detector-v8-blind-holdout-report.json online-offline-parity-report.json release-manifest.json release-verification.json SBOM.spdx.json TESTING_DEV20_8.md'.split()
+          missing=[x for x in required if not (d/x).is_file() or (d/x).stat().st_size==0]
+          if missing: raise SystemExit('missing/empty: '+','.join(missing))
+          files=[f for f in sorted(d.iterdir()) if f.is_file()]
+          (d/'SHA256SUMS.txt').write_text(''.join(f'{hashlib.sha256(f.read_bytes()).hexdigest()}  {f.name}\n' for f in files))
+          PY
+      - name: Publish prerelease and independently redownload/verify
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euxo pipefail
+          trap 'gh release delete dev-20.8 -y || true; git push origin :refs/tags/dev-20.8 || true' ERR
+          SHA=$(git rev-parse HEAD)
+          git tag -f dev-20.8 "$SHA"
+          git push origin refs/tags/dev-20.8 --force
+          gh release delete dev-20.8 -y || true
+          gh release create dev-20.8 $(find dist -maxdepth 1 -type f -print | sort) --prerelease --title 'Release dev-20.8 — post dev20.7 physical smoke NO-GO remediation' --notes 'Engineering G0-G9 PASS. UDP transport is framed to <=1200 B with explicit telemetry; detector v8 keeps 0.50/0.20 thresholds and adds distributed negative evidence. Physical G10-G12 remain pending. Run the fresh six-JSON smoke first; G11 and dev21 remain blocked until final_go=true. JSON is authoritative; screenshots are not required. human_localization_validated=false; rescue_use_validated=false.'
+          rm -rf verify && mkdir verify
+          gh release download dev-20.8 -D verify
+          (cd verify && sha256sum -c SHA256SUMS.txt)
+          python3 - <<'PY'
+          import pathlib,json
+          required=set('BodyFinder-dev20.8-universal.apk body-finder-ruview-universal.apk body-finder-ruview-legacy-minsdk21.apk body-finder-ruview.aab body-finder-node-linux-x86_64.tar.gz body-finder-node-linux-x86_64.deb body-finder-windows-wsl-x86_64.zip body-finder-detector-linux-x86_64 body-finder-detector-windows-x86_64.exe validators-dev20.8.zip fixtures-dev20.8.zip dev20.8-evidence-schema-v11.json dev20.8-campaign-schema.json wire-envelope-v8-schema.json control-plane-v8-schema.json artifact-manifest-v1-schema.json detector-parameter-manifest-v8.json dev20.7-smoke-regression-report.json udp-oversize-root-cause-report.json wire-mtu-fault-injection-report.json artifact-transfer-reliability-report.json control-plane-v8-convergence-report.json detector-v8-development-report.json detector-v8-blind-holdout-report.json online-offline-parity-report.json release-manifest.json release-verification.json SBOM.spdx.json SHA256SUMS.txt TESTING_DEV20_8.md'.split())
+          got={p.name for p in pathlib.Path('verify').iterdir() if p.is_file()}
+          missing=required-got
+          if missing: raise SystemExit('release redownload missing: '+','.join(sorted(missing)))
+          v=pathlib.Path('verify/release-verification.json'); d=json.loads(v.read_text()); d['redownload_verified']=True
+          print('FINAL_DEV20_8_RELEASE_INVENTORY_AND_SHA256_VERIFIED')
+          PY
