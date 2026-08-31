@@ -1,0 +1,227 @@
+name: Release dev20.9
+
+on:
+  push:
+    branches: [main]
+    paths: [RELEASE_DEV20_9_TRIGGER.txt]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release-dev20-9
+  cancel-in-progress: true
+
+env:
+  BUILD_VERSION: 0.2.0-experimental.20.9
+  DETECTOR_ALGORITHM: deterministic-multinode-rssi-fusion-v8
+  DETECTOR_HASH: 5d404d404e08d33cd179aa8657edd93f1e51885f5dfa1268af228465642a8d39
+
+jobs:
+  windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - run: cargo build --release -p body-finder-node -p body-finder-science --bins
+      - shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force dist\win | Out-Null
+          Copy-Item target\release\body-finder-node.exe dist\win\
+          Copy-Item target\release\body-finder-detector.exe dist\win\
+          if (Test-Path target\release\body-finder-replay.exe) { Copy-Item target\release\body-finder-replay.exe dist\win\ }
+          if (Test-Path target\release\body-finder-validate-session.exe) { Copy-Item target\release\body-finder-validate-session.exe dist\win\ }
+          if (Test-Path target\release\body-finder-rf-recorder.exe) { Copy-Item target\release\body-finder-rf-recorder.exe dist\win\ }
+          Copy-Item target\release\body-finder-detector.exe dist\body-finder-detector-windows-x86_64.exe
+          Compress-Archive dist\win\* dist\body-finder-windows-wsl-x86_64.zip
+      - uses: actions/upload-artifact@v4
+        with:
+          name: dev20-9-windows
+          path: |
+            dist/body-finder-windows-wsl-x86_64.zip
+            dist/body-finder-detector-windows-x86_64.exe
+
+  build-release:
+    needs: windows
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+        with: {fetch-depth: 0}
+      - uses: actions/setup-python@v5
+        with: {python-version: '3.12'}
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: apps/mobile/package-lock.json
+      - uses: actions/setup-java@v5
+        with: {distribution: temurin, java-version: '17'}
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: gradle/actions/setup-gradle@v4
+        with: {gradle-version: '8.10.2'}
+      - uses: actions/download-artifact@v4
+        with:
+          name: dev20-9-windows
+          path: dist
+
+      - name: Engineering gates G0-G9
+        run: |
+          set -euxo pipefail
+          grep -q "0.2.0-experimental.20.9" apps/mobile/src/version.ts
+          grep -q "versionCode: 29" apps/mobile/src/version.ts
+          grep -q "snapshotSchemaVersion: 12" apps/mobile/src/version.ts
+          grep -q "versionCode 29" apps/android-legacy/app/build.gradle
+          grep -q "0.2.0-experimental.20.9-legacy" apps/android-legacy/app/build.gradle
+          grep -q "$DETECTOR_ALGORITHM" crates/body-finder-science/src/human_detector.rs
+          grep -q "$DETECTOR_HASH" apps/mobile/src/detectorParameters.ts
+          grep -q "WireEnvelopeV9" apps/mobile/modules/body-finder-native/android/src/main/java/com/trochez/bodyfindernative/BodyFinderNativeModule.kt
+          grep -q "RANGE_FRAME_TARGET_BYTES = 1050" apps/mobile/modules/body-finder-native/android/src/main/java/com/trochez/bodyfindernative/BodyFinderNativeModule.kt
+          grep -q "COORDINATOR_PUBLICATION_V9" apps/mobile/src/autogeometry.ts
+          grep -q "dev20.9-self-contained-json-evidence-v12" apps/mobile/modules/body-finder-native/index.ts
+          python3 -m py_compile validation/analysis/validate_dev20_9_smoke.py validation/analysis/validate_dev20_9_campaign.py validation/analysis/test_dev20_9_contract.py
+          python3 validation/analysis/test_dev20_9_contract.py
+          python3 validation/analysis/test_post_dev19_v1.py
+          python3 validation/analysis/validate_dev19_baseline.py --output /tmp/dev19-baseline.json
+          cargo fmt --all -- --check
+          cargo test --workspace --all-targets
+          cargo build --release -p body-finder-node -p body-finder-science --bins
+          cd apps/mobile
+          npm ci --no-audit --no-fund
+          npm run typecheck
+
+      - name: Package Linux
+        run: |
+          set -euxo pipefail
+          mkdir -p dist work/deb/DEBIAN work/deb/usr/bin
+          tar -C target/release -czf dist/body-finder-node-linux-x86_64.tar.gz body-finder-node
+          cp target/release/body-finder-node work/deb/usr/bin/
+          printf 'Package: body-finder-node\nVersion: 0.2.0~experimental20.9\nSection: science\nPriority: optional\nArchitecture: amd64\nMaintainer: Trochez\nDescription: Body Finder RuView field node\n' > work/deb/DEBIAN/control
+          dpkg-deb --build work/deb dist/body-finder-node-linux-x86_64.deb
+          cp target/release/body-finder-detector dist/body-finder-detector-linux-x86_64
+          chmod +x dist/body-finder-detector-linux-x86_64
+
+      - name: Build Android universal APK and AAB
+        run: |
+          set -euxo pipefail
+          rustup target add aarch64-linux-android armv7-linux-androideabi x86_64-linux-android
+          cargo install cargo-ndk --locked
+          rm -rf apps/mobile/modules/body-finder-native/android/src/main/jniLibs
+          mkdir -p apps/mobile/modules/body-finder-native/android/src/main/jniLibs
+          cargo ndk -t arm64-v8a -t armeabi-v7a -t x86_64 -o apps/mobile/modules/body-finder-native/android/src/main/jniLibs build --release -p body-finder-science --lib
+          cd apps/mobile
+          CI=1 npx expo prebuild --platform android --clean
+          chmod +x android/gradlew
+          ./android/gradlew -p android testReleaseUnitTest assembleRelease bundleRelease --stacktrace
+          cd ../..
+          cp apps/mobile/android/app/build/outputs/apk/release/*.apk dist/body-finder-ruview-universal.apk
+          cp dist/body-finder-ruview-universal.apk dist/BodyFinder-dev20.9-universal.apk
+          cp apps/mobile/android/app/build/outputs/bundle/release/*.aab dist/body-finder-ruview.aab
+
+      - name: Build Android legacy minSdk21 APK
+        run: |
+          set -euxo pipefail
+          mkdir -p "$HOME/.android"
+          if [ ! -f "$HOME/.android/debug.keystore" ]; then keytool -genkeypair -keystore "$HOME/.android/debug.keystore" -storepass android -alias androiddebugkey -keypass android -dname 'CN=Android Debug,O=Android,C=US' -keyalg RSA -keysize 2048 -validity 10000; fi
+          cd apps/android-legacy
+          gradle :app:testReleaseUnitTest :app:assembleRelease --stacktrace
+          cd ../..
+          cp apps/android-legacy/app/build/outputs/apk/release/*.apk dist/body-finder-ruview-legacy-minsdk21.apk
+
+      - name: Package dev20.9 schemas validators fixtures reports and manifests
+        run: |
+          set -euxo pipefail
+          cp docs/TESTING_DEV20_9.md dist/TESTING_DEV20_9.md
+          for f in dev20.9-evidence-schema-v12.json dev20.9-campaign-schema.json wire-envelope-v9-schema.json range-frame-v9-schema.json control-plane-v9-schema.json geometry-publication-v9-schema.json artifact-manifest-v1-schema.json; do cp validation/schemas/$f dist/$f; done
+          cp validation/fixtures/dev20_8/detector-parameter-manifest-v8.json dist/detector-parameter-manifest-v8.json
+          for f in dev20.8-physical-evidence-root-cause-report.json clock-domain-normalization-report.json range-frame-mtu-report.json membership-lifecycle-report.json geometry-publication-adoption-report.json topology-3-6-3-convergence-report.json artifact-transport-regression-report.json online-offline-parity-report.json; do cp validation/fixtures/dev20_9/$f dist/$f; done
+          rm -rf kit fixturepack
+          mkdir -p kit/validation/analysis kit/validation/schemas kit/validation/fixtures/dev20_9 fixturepack/dev20_9
+          cp validation/analysis/validate_dev20_9_smoke.py validation/analysis/validate_dev20_9_campaign.py validation/analysis/test_dev20_9_contract.py kit/validation/analysis/
+          sed -i "s/'release':'dev-20.7'/'release':'dev-20.9'/" kit/validation/analysis/validate_dev20_9_campaign.py
+          grep -q "'release':'dev-20.9'" kit/validation/analysis/validate_dev20_9_campaign.py
+          cp validation/schemas/dev20.9-evidence-schema-v12.json validation/schemas/dev20.9-campaign-schema.json validation/schemas/wire-envelope-v9-schema.json validation/schemas/range-frame-v9-schema.json validation/schemas/control-plane-v9-schema.json validation/schemas/geometry-publication-v9-schema.json validation/schemas/artifact-manifest-v1-schema.json kit/validation/schemas/
+          cp validation/fixtures/dev20_9/* kit/validation/fixtures/dev20_9/
+          cp validation/fixtures/dev20_8/detector-parameter-manifest-v8.json kit/validation/fixtures/dev20_9/
+          cp docs/TESTING_DEV20_9.md kit/
+          cp validation/fixtures/dev20_9/* fixturepack/dev20_9/
+          cp validation/fixtures/dev20_8/detector-parameter-manifest-v8.json fixturepack/dev20_9/
+          (cd kit && zip -qr ../dist/validators-dev20.9.zip .)
+          (cd fixturepack && zip -qr ../dist/fixtures-dev20.9.zip dev20_9)
+          export SHA=$(git rev-parse HEAD) TS=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+          python3 - <<'PY'
+          import json,os,pathlib
+          d=pathlib.Path('dist'); sha=os.environ['SHA']; ts=os.environ['TS']; build=os.environ['BUILD_VERSION']; algo=os.environ['DETECTOR_ALGORITHM']; ph=os.environ['DETECTOR_HASH']
+          common={'source_sha':sha,'build':build,'protocol_version':2,'control_plane_version':'V9','detector_algorithm':algo,'detector_parameter_hash':ph,'generated_at_utc':ts}
+          manifest={**common,'schema_version':29,'release':'dev-20.9','version':build,'snapshot_schema_version':12,'evidence_contract':'dev20.9-self-contained-json-evidence-v12','control_plane_contract':'BodyFinderControlPlaneV9','wire_contract':'WireEnvelopeV9','range_frame_contract':'RangeFrameV9','geometry_publication_contract':'GeometryPublicationV9','wire_max_datagram_bytes':1200,'range_frame_target_bytes':1050,'canonical_engine':'body-finder-science Rust shared by Android JNI and offline CLI','required_full_topology':{'nodes':3,'directional_links':6,'physical_baselines':3},'engineering_gates_G0_G9':'PASS','physical_smoke_G10':'PENDING','g10_go':False,'g11_go':False,'g12_go':False,'final_54_json_campaign_G11':'BLOCKED_UNTIL_G10_GO','independent_acceptance_G12':'PENDING','physical_acceptance':'PENDING','final_go':False,'dev21_blocked':True,'screenshots_required':False,'json_self_contained':True,'human_localization_validated':False,'rescue_use_validated':False}
+          verify={**common,'release':'dev-20.9','engineering_ci_pass':True,'canonical_rust_tests':True,'mobile_typecheck':True,'android_native_compile':True,'legacy_android_version_aligned':True,'cross_platform_assets_built':True,'local_inventory_verified':False,'checksums_verified':False,'redownload_verified':False,'physical_smoke_G10':'PENDING','campaign_G11':'BLOCKED_UNTIL_G10_GO','independent_G12':'PENDING','final_go':False,'dev21_blocked':True}
+          (d/'release-manifest.json').write_text(json.dumps(manifest,indent=2,sort_keys=True)+'\n')
+          (d/'release-verification.json').write_text(json.dumps(verify,indent=2,sort_keys=True)+'\n')
+          PY
+
+      - uses: anchore/sbom-action@v0
+        with:
+          path: '.'
+          format: spdx-json
+          output-file: dist/SBOM.spdx.json
+
+      - name: Verify exact 32-asset local inventory and checksums
+        run: |
+          set -euxo pipefail
+          python3 - <<'PY'
+          import hashlib,json,pathlib
+          d=pathlib.Path('dist')
+          required='BodyFinder-dev20.9-universal.apk body-finder-ruview-universal.apk body-finder-ruview-legacy-minsdk21.apk body-finder-ruview.aab body-finder-node-linux-x86_64.tar.gz body-finder-node-linux-x86_64.deb body-finder-windows-wsl-x86_64.zip body-finder-detector-linux-x86_64 body-finder-detector-windows-x86_64.exe validators-dev20.9.zip fixtures-dev20.9.zip dev20.9-evidence-schema-v12.json dev20.9-campaign-schema.json wire-envelope-v9-schema.json range-frame-v9-schema.json control-plane-v9-schema.json geometry-publication-v9-schema.json artifact-manifest-v1-schema.json detector-parameter-manifest-v8.json dev20.8-physical-evidence-root-cause-report.json clock-domain-normalization-report.json range-frame-mtu-report.json membership-lifecycle-report.json geometry-publication-adoption-report.json topology-3-6-3-convergence-report.json artifact-transport-regression-report.json online-offline-parity-report.json release-manifest.json release-verification.json SBOM.spdx.json TESTING_DEV20_9.md'.split()
+          actual=[p.name for p in d.iterdir() if p.is_file()]
+          missing=sorted(set(required)-set(actual)); extra=sorted(set(actual)-set(required))
+          if missing or extra or len(actual)!=31: raise SystemExit(f'pre-check expected 31 files before SHA256SUMS; missing={missing} extra={extra} count={len(actual)}')
+          for n in required:
+              if (d/n).stat().st_size<=0: raise SystemExit('empty '+n)
+          v=json.loads((d/'release-verification.json').read_text()); v['local_inventory_verified']=True; v['checksums_verified']=True; (d/'release-verification.json').write_text(json.dumps(v,indent=2,sort_keys=True)+'\n')
+          files=sorted(p for p in d.iterdir() if p.is_file())
+          (d/'SHA256SUMS.txt').write_text(''.join(f'{hashlib.sha256(p.read_bytes()).hexdigest()}  {p.name}\n' for p in files))
+          if len([p for p in d.iterdir() if p.is_file()])!=32: raise SystemExit('final local inventory is not 32')
+          PY
+
+      - name: Publish prerelease and independently redownload verify 32 of 32
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euxo pipefail
+          trap 'gh release delete dev-20.9 -y || true; git push origin :refs/tags/dev-20.9 || true' ERR
+          SHA=$(git rev-parse HEAD)
+          git tag -f dev-20.9 "$SHA"
+          git push origin refs/tags/dev-20.9 --force
+          gh release delete dev-20.9 -y || true
+          gh release create dev-20.9 dist/* --prerelease --target "$SHA" --title 'Release dev-20.9 — physical clock/MTU/membership/geometry remediation' --notes 'Engineering G0-G9 PASS. Physical G10 is PENDING; G11 is BLOCKED until G10 GO; G12 remains independent and PENDING. final_go=false. Evidence is JSON-first; screenshots are not required.'
+          rm -rf redownload && mkdir redownload
+          gh release download dev-20.9 --dir redownload
+          python3 - <<'PY'
+          import pathlib
+          d=pathlib.Path('redownload'); files=[p for p in d.iterdir() if p.is_file()]
+          if len(files)!=32: raise SystemExit(f'redownload asset count {len(files)} != 32')
+          if any(p.stat().st_size<=0 for p in files): raise SystemExit('empty redownloaded asset')
+          PY
+          (cd redownload && sha256sum -c SHA256SUMS.txt)
+          python3 - <<'PY'
+          import json,pathlib
+          p=pathlib.Path('dist/release-verification.json'); v=json.loads(p.read_text()); v['redownload_verified']=True; v['release_asset_count']=32; v['final_go']=False; v['dev21_blocked']=True; p.write_text(json.dumps(v,indent=2,sort_keys=True)+'\n')
+          PY
+          python3 - <<'PY'
+          import hashlib,pathlib
+          d=pathlib.Path('dist'); files=sorted(p for p in d.iterdir() if p.is_file() and p.name!='SHA256SUMS.txt'); (d/'SHA256SUMS.txt').write_text(''.join(f'{hashlib.sha256(p.read_bytes()).hexdigest()}  {p.name}\n' for p in files))
+          PY
+          gh release upload dev-20.9 dist/release-verification.json dist/SHA256SUMS.txt --clobber
+          rm -rf redownload && mkdir redownload
+          gh release download dev-20.9 --dir redownload
+          (cd redownload && sha256sum -c SHA256SUMS.txt)
+          python3 - <<'PY'
+          import json,pathlib
+          d=pathlib.Path('redownload'); files=[p for p in d.iterdir() if p.is_file()]
+          if len(files)!=32: raise SystemExit(f'final asset count {len(files)} != 32')
+          m=json.loads((d/'release-manifest.json').read_text()); v=json.loads((d/'release-verification.json').read_text())
+          assert m['release']=='dev-20.9' and m['snapshot_schema_version']==12 and m['final_go'] is False and m['dev21_blocked'] is True
+          assert m['physical_smoke_G10']=='PENDING' and m['final_54_json_campaign_G11']=='BLOCKED_UNTIL_G10_GO' and m['independent_acceptance_G12']=='PENDING'
+          assert v['redownload_verified'] is True and v['release_asset_count']==32 and v['final_go'] is False
+          print('DEV20.9 RELEASE VERIFIED: 32/32 assets, checksums PASS, fail-closed acceptance semantics PASS')
+          PY
