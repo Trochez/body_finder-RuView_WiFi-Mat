@@ -1,0 +1,12 @@
+{
+  "build": "0.2.0-experimental.20.9",
+  "detector_algorithm": "deterministic-multinode-rssi-fusion-v8",
+  "detector_parameter_hash": "5d404d404e08d33cd179aa8657edd93f1e51885f5dfa1268af228465642a8d39",
+  "foreign_absolute_monotonic_used_for_freshness": false,
+  "physical_status": "PENDING",
+  "protocol_version": 2,
+  "randomized_epoch_regression": "PASS",
+  "receiver_local_elapsed": true,
+  "sender_relative_age": true,
+  "wire_contract": "WireEnvelopeV9"
+}

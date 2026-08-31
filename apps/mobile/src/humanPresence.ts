@@ -16,6 +16,7 @@ type Link={link_id:string;observer_node_id:string;peer_node_id:string;samples:Sa
 type Membership={
   sessionId:string; nodeIds:string[]; observed:Set<string>; lastSeen:Record<string,number>; scores:Record<string,number>;
   unexpectedSince:Record<string,number>; coordinator:string|null; coordinatorGeneration:number; coordinatorMissingSince:number|null;
+  instanceByNode:Record<string,string>; transitions:{wall_ms:number;kind:string;node_id:string;instance_epoch:string;reason:string}[];
 };
 type CalState={
   state:CalibrationState; generation:number; coordinator:string|null; topology:string|null; started:number; artifact:any|null;
@@ -36,13 +37,14 @@ let cal:CalState={state:'UNCALIBRATED',generation:0,coordinator:null,topology:nu
 
 function pair(a:string,b:string){return a<b?`${a}::${b}`:`${b}::${a}`}
 function sessionId(nodes:Advertisement[]){const counts=new Map<string,number>();for(const n of nodes){if(n.protocol_version!==2||!n.session_id)continue;counts.set(n.session_id,(counts.get(n.session_id)??0)+1)}return [...counts.entries()].sort((a,b)=>b[1]-a[1]||a[0].localeCompare(b[0]))[0]?.[0]??null}
-function freshNodes(nodes:Advertisement[],sid:string|null){return nodes.filter(n=>n.protocol_version===2&&n.session_id===sid&&Boolean(n.node_id))}
+function freshNodes(nodes:Advertisement[],sid:string|null){return nodes.filter(n=>n.protocol_version===2&&n.session_id===sid&&Boolean(n.node_id)&&Number((n as any).membership_lease_age_ms??0)<=15_000&&String((n as any).membership_lease_state??'LIVE')!=='EXPIRED')}
 function updateMembership(nodes:Advertisement[]):Membership|null{
   const sid=sessionId(nodes); if(!sid)return null; const now=Date.now();
   let m=membershipBySession.get(sid);
-  if(!m){m={sessionId:sid,nodeIds:[],observed:new Set(),lastSeen:{},scores:{},unexpectedSince:{},coordinator:null,coordinatorGeneration:1,coordinatorMissingSince:null};membershipBySession.set(sid,m)}
-  for(const n of freshNodes(nodes,sid)){const id=String(n.node_id);m.observed.add(id);m.lastSeen[id]=now;m.scores[id]=Number(n.coordinator_score??0)}
-  if(m.nodeIds.length<3&&m.observed.size>=3){m.nodeIds=[...m.observed].sort().slice(0,3)}
+  if(!m){m={sessionId:sid,nodeIds:[],observed:new Set(),lastSeen:{},scores:{},unexpectedSince:{},coordinator:null,coordinatorGeneration:1,coordinatorMissingSince:null,instanceByNode:{},transitions:[]};membershipBySession.set(sid,m)}
+  for(const n of freshNodes(nodes,sid)){const id=String(n.node_id),inst=String((n as any).instance_epoch??'legacy');const prior=m.instanceByNode[id];if(prior&&prior!==inst){m.transitions.push({wall_ms:now,kind:'REPLACE',node_id:id,instance_epoch:inst,reason:'NEW_INSTANCE_EPOCH'});m.transitions=m.transitions.slice(-64)}m.instanceByNode[id]=inst;m.observed.add(id);m.lastSeen[id]=now;m.scores[id]=Number(n.coordinator_score??0)}
+  for(const id of m.nodeIds.slice()){if(now-(m.lastSeen[id]??0)>15_000){m.nodeIds=m.nodeIds.filter(x=>x!==id);m.transitions.push({wall_ms:now,kind:'PRUNE',node_id:id,instance_epoch:m.instanceByNode[id]??'unknown',reason:'LEASE_EXPIRED'});delete m.instanceByNode[id]}}
+  const activeIds=[...new Set(freshNodes(nodes,sid).map(n=>String(n.node_id)))].sort();if(m.nodeIds.length<3){for(const id of activeIds)if(!m.nodeIds.includes(id)&&m.nodeIds.length<3)m.nodeIds.push(id)}m.nodeIds=m.nodeIds.filter(id=>activeIds.includes(id)).sort()
   if(!m.nodeIds.length)m.nodeIds=[...m.observed].sort();
   const active=new Set(freshNodes(nodes,sid).map(n=>String(n.node_id)));
   for(const id of m.observed){if(!m.nodeIds.includes(id)){if(active.has(id)&&!m.unexpectedSince[id])m.unexpectedSince[id]=now;if(!active.has(id))delete m.unexpectedSince[id]}}
@@ -117,7 +119,7 @@ export function beginSessionPresenceCalibration(nodes:Advertisement[],coordinato
 }
 export function getSessionPresenceCalibration(nodes:Advertisement[]=[]){
   const matrix=peerAckMatrix(nodes),expected=cal.expectedCohort.length||3,ackCount=matrix.filter(x=>x.acknowledged).length;
-  return{state:cal.state,generation:cal.generation,calibration_generation:cal.generation,coordinator_generation:cal.coordinatorGeneration,coordinator_node_id:cal.coordinator,topology_fingerprint:cal.topology,expected_cohort:cal.expectedCohort,started_wall_ms:cal.started,calibration_id:cal.artifact?.calibration_id??null,calibration_hash:cal.artifact?.calibration_hash??null,reason:cal.reason,publication_sequence:cal.publicationSequence,authority_lease_age_ms:cal.lastAuthorityWallMs?Date.now()-cal.lastAuthorityWallMs:null,peer_ack_matrix:matrix,peer_ack_count:ackCount,distributed_calibration_ready:cal.state==='READY'&&expected===3&&ackCount===3,logical_membership_state:{cohort:cal.expectedCohort,confirmed_change:confirmedMembershipChanges(nodes)},transport_liveness_state:transportStates(nodes)}
+  return{state:cal.state,generation:cal.generation,calibration_generation:cal.generation,coordinator_generation:cal.coordinatorGeneration,coordinator_node_id:cal.coordinator,topology_fingerprint:cal.topology,expected_cohort:cal.expectedCohort,started_wall_ms:cal.started,calibration_id:cal.artifact?.calibration_id??null,calibration_hash:cal.artifact?.calibration_hash??null,reason:cal.reason,publication_sequence:cal.publicationSequence,authority_lease_age_ms:cal.lastAuthorityWallMs?Date.now()-cal.lastAuthorityWallMs:null,peer_ack_matrix:matrix,peer_ack_count:ackCount,distributed_calibration_ready:cal.state==='READY'&&expected===3&&ackCount===3,logical_membership_state:{cohort:cal.expectedCohort,current_instances:cal.expectedCohort.map(id=>({node_id:id,instance_epoch:updateMembership(nodes)?.instanceByNode[id]??null})),confirmed_change:confirmedMembershipChanges(nodes),transitions:updateMembership(nodes)?.transitions??[]},transport_liveness_state:transportStates(nodes)}
 }
 export function getCalibrationPublication(localNodeId:string|null){
   if(!cal.artifact||cal.coordinator!==localNodeId||cal.state!=='READY')return null;cal.publicationSequence+=1;cal.lastAuthorityWallMs=Date.now();

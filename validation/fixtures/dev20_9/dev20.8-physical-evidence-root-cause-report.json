@@ -1,0 +1,19 @@
+{
+  "build": "0.2.0-experimental.20.9",
+  "detector_algorithm": "deterministic-multinode-rssi-fusion-v8",
+  "detector_parameter_hash": "5d404d404e08d33cd179aa8657edd93f1e51885f5dfa1268af228465642a8d39",
+  "findings": {
+    "F-01": "cross-device monotonic arithmetic",
+    "F-02": "RANGE_FRAME oversize",
+    "F-03": "ghost membership",
+    "F-04": "publication not adopted",
+    "F-05": "incomplete 3/6/3",
+    "F-06": "scanner churn",
+    "F-07": "duration docs",
+    "F-08": "verdict semantics",
+    "F-09": "downstream evidence invalid"
+  },
+  "physical_status": "PENDING",
+  "protocol_version": 2,
+  "wire_contract": "WireEnvelopeV9"
+}

@@ -1,0 +1,23 @@
+{
+  "active_udp_peers": 2,
+  "build": "0.2.0-experimental.20.8",
+  "current_node_id": "fdffb29f-7c0f-46bb-b88f-87e742e0a10b",
+  "device": "Pixel 7 Pro",
+  "fixture_sha256": "e32ea7e6baf1e83da1c8ddfffb9f4436e5eff4ff2265b75869fdb236b583b163",
+  "fresh_metric_ranges": 2,
+  "geometry_state": "GEOMETRY_STALE",
+  "healthy_ble_peers": 2,
+  "local_geometry_publisher_node_id": null,
+  "local_published_geometry": null,
+  "max_datagram_bytes_observed": 1324,
+  "node_id": "fdffb29f-7c0f-46bb-b88f-87e742e0a10b",
+  "peer_has_published_geometry": true,
+  "positions": [],
+  "regression_fixture_scope": "minimal immutable reproducer of fields required by D29-002..010; original File Library evidence remains authoritative source",
+  "rejected_reason": "range sample timestamp is implausibly ahead of its observer",
+  "source": "pixel-7-pro-no-run-long-1.json",
+  "stale_old_node_id": "7f759927-f970-46d8-be69-cf1172ce1571",
+  "stale_old_node_last_seen_age_ms": 2304291,
+  "wire_last_send_error": "IllegalStateException:WIRE_OVERSIZE_RANGE_FRAME_1223",
+  "wire_oversize_block_count": 5052
+}

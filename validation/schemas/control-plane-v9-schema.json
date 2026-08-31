@@ -1,0 +1,13 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "logical_membership_state": {
+      "type": "object"
+    },
+    "schema": {
+      "type": "string"
+    }
+  },
+  "title": "ControlPlaneV9",
+  "type": "object"
+}

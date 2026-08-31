@@ -1,0 +1,17 @@
+{
+  "build": "0.2.0-experimental.20.9",
+  "detector_algorithm": "deterministic-multinode-rssi-fusion-v8",
+  "detector_parameter_hash": "5d404d404e08d33cd179aa8657edd93f1e51885f5dfa1268af228465642a8d39",
+  "ghost_prune_regression": "PASS",
+  "key": "session_id,node_id,instance_epoch",
+  "lease_ms": 15000,
+  "physical_status": "PENDING",
+  "protocol_version": 2,
+  "transitions": [
+    "JOIN",
+    "RENEW",
+    "REPLACE",
+    "PRUNE"
+  ],
+  "wire_contract": "WireEnvelopeV9"
+}

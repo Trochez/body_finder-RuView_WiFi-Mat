@@ -1,0 +1,33 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "message_type": {
+      "type": "string"
+    },
+    "node_id": {
+      "type": "string"
+    },
+    "schema": {
+      "const": "WireEnvelopeV9"
+    },
+    "seq": {
+      "type": "integer"
+    },
+    "session_id": {
+      "type": "string"
+    },
+    "wire_payload_bytes": {
+      "maximum": 1200,
+      "type": "integer"
+    }
+  },
+  "required": [
+    "schema",
+    "message_type",
+    "session_id",
+    "node_id",
+    "seq"
+  ],
+  "title": "WireEnvelopeV9",
+  "type": "object"
+}

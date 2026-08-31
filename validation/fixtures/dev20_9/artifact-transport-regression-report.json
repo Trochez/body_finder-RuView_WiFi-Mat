@@ -1,0 +1,10 @@
+{
+  "ack_nack_crc_sha_bounded_cache": "PRESERVED",
+  "artifact_plane": "V8 behavior preserved under WireEnvelopeV9",
+  "build": "0.2.0-experimental.20.9",
+  "detector_algorithm": "deterministic-multinode-rssi-fusion-v8",
+  "detector_parameter_hash": "5d404d404e08d33cd179aa8657edd93f1e51885f5dfa1268af228465642a8d39",
+  "physical_status": "PENDING",
+  "protocol_version": 2,
+  "wire_contract": "WireEnvelopeV9"
+}

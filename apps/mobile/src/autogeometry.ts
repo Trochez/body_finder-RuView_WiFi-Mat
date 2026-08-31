@@ -13,7 +13,14 @@ export type RangeObservation = {
   observer_node_id: string;
   peer_node_id: string;
   technology: string;
-  monotonic_ns: number;
+  monotonic_ns: number; // foreign sender monotonic: diagnostic/order metadata only
+  sender_range_age_ms?: number;
+  sender_temporal_state?: string;
+  sender_sequence?: number;
+  instance_epoch?: string;
+  received_local_monotonic_ns?: number;
+  effective_age_ms?: number;
+  range_domain_state?: string;
   distance_m: number | null;
   distance_sigma_m: number | null;
   azimuth_deg?: number | null;
@@ -54,6 +61,9 @@ export type Advertisement = {
   protocol_version: number;
   session_id: string;
   node_id: string;
+  instance_epoch?: string;
+  membership_lease_age_ms?: number;
+  membership_lease_state?: string;
   display_name: string;
   platform: string;
   monotonic_ns?: number;
@@ -90,7 +100,9 @@ export type GeometrySelection = {
   source:
     | 'LOCAL_ELECTED_COORDINATOR'
     | 'ELECTED_COORDINATOR_PUBLICATION'
+    | 'COORDINATOR_PUBLICATION_V9'
     | 'LOCAL_DETERMINISTIC_FALLBACK_AWAITING_COORDINATOR_PUBLICATION';
+  publication_rejection_reason?: string | null;
 };
 
 type Edge = {
@@ -154,27 +166,23 @@ function activeNodes(nodes: Advertisement[], rejected: Rejected) {
 function collectEdges(nodes: Advertisement[], rejected: Rejected) {
   const ids = new Set(nodes.map(node => node.node_id));
   const session = nodes[0]?.session_id ?? '';
-  const latestBySource = new Map<string, number>();
+  const groups = new Map<string, RangeObservation[]>();
+  const latestSequenceBySource = new Map<string, number>();
 
   for (const node of nodes) {
     for (const observation of node.ranges ?? []) {
       if (observation.session_id !== session || observation.observer_node_id !== node.node_id) continue;
-      const key = `${observation.observer_node_id}\u0000${observation.peer_node_id}\u0000${observation.technology}`;
-      latestBySource.set(key, Math.max(latestBySource.get(key) ?? 0, observation.monotonic_ns));
+      const sourceKey = `${observation.observer_node_id}\u0000${observation.peer_node_id}\u0000${observation.technology}`;
+      const sequence = Number(observation.sender_sequence ?? 0);
+      if (Number.isFinite(sequence) && sequence > 0) latestSequenceBySource.set(sourceKey, Math.max(latestSequenceBySource.get(sourceKey) ?? 0, sequence));
     }
   }
 
-  const groups = new Map<string, RangeObservation[]>();
   for (const node of nodes) {
-    const observerNow = node.monotonic_ns ?? 0;
     for (const observation of node.ranges ?? []) {
       const [a, b] = pair(observation.observer_node_id, observation.peer_node_id);
       const edgeId = `${a}::${b}::${observation.technology}`;
-      if (
-        observation.session_id !== session ||
-        observation.session_id !== node.session_id ||
-        observation.observer_node_id !== node.node_id
-      ) {
+      if (observation.session_id !== session || observation.session_id !== node.session_id || observation.observer_node_id !== node.node_id) {
         rejected.push({ edge_id: edgeId, reason: 'session/observer identity mismatch' });
         continue;
       }
@@ -182,36 +190,31 @@ function collectEdges(nodes: Advertisement[], rejected: Rejected) {
         rejected.push({ edge_id: edgeId, reason: 'peer not active in geometry graph' });
         continue;
       }
-      if (observation.monotonic_ns > observerNow + RANGE_REORDER_TOLERANCE_NS) {
-        rejected.push({
-          edge_id: edgeId,
-          reason: 'range sample timestamp is implausibly ahead of its observer',
-        });
+      // AD-20.9-01: never subtract/order a foreign Android monotonic epoch against this device.
+      const effectiveAgeMs = Number(observation.effective_age_ms ?? observation.sender_range_age_ms ?? Number.NaN);
+      if (!Number.isFinite(effectiveAgeMs) || effectiveAgeMs < 0) {
+        rejected.push({ edge_id: edgeId, reason: 'invalid normalized sender age' });
         continue;
       }
-      const age = Math.max(0, observerNow - observation.monotonic_ns);
-      if (age > RANGE_SAMPLE_STALE_NS) {
-        rejected.push({ edge_id: edgeId, reason: 'stale range sample expired from geometry graph' });
+      if (effectiveAgeMs * 1_000_000 > RANGE_SAMPLE_STALE_NS) {
+        rejected.push({ edge_id: edgeId, reason: 'stale normalized range sample expired from geometry graph' });
         continue;
       }
       const sourceKey = `${observation.observer_node_id}\u0000${observation.peer_node_id}\u0000${observation.technology}`;
-      const latest = latestBySource.get(sourceKey) ?? observation.monotonic_ns;
-      if (latest - observation.monotonic_ns > RANGE_REORDER_TOLERANCE_NS) {
-        rejected.push({ edge_id: edgeId, reason: 'replayed/out-of-order range sample rejected' });
+      const sequence = Number(observation.sender_sequence ?? 0);
+      const latestSequence = latestSequenceBySource.get(sourceKey) ?? sequence;
+      if (sequence > 0 && latestSequence > sequence) {
+        rejected.push({ edge_id: edgeId, reason: 'replayed/out-of-order sender sequence rejected' });
+        continue;
+      }
+      const domainState = String(observation.range_domain_state ?? observation.sender_temporal_state ?? 'FRESH');
+      if (domainState === 'OUT_OF_DOMAIN' || domainState.startsWith('OUT_OF_DOMAIN')) {
+        rejected.push({ edge_id: edgeId, reason: 'range measurement OUT_OF_DOMAIN' });
         continue;
       }
       const distance = observation.distance_m;
       const sigma = observation.distance_sigma_m ?? 3;
-      if (
-        distance == null ||
-        !Number.isFinite(distance) ||
-        distance < 0.05 ||
-        distance > 100 ||
-        !Number.isFinite(sigma) ||
-        sigma < 0.05 ||
-        sigma > 30 ||
-        qWeight(observation.quality) <= 0
-      ) {
+      if (distance == null || !Number.isFinite(distance) || distance < 0.05 || distance > 100 || !Number.isFinite(sigma) || sigma < 0.05 || sigma > 30 || qWeight(observation.quality) <= 0) {
         rejected.push({ edge_id: edgeId, reason: 'invalid or rejected range sample' });
         continue;
       }
@@ -227,31 +230,16 @@ function collectEdges(nodes: Advertisement[], rejected: Rejected) {
     if (!distances.length) continue;
     const distance = median(distances);
     const mad = median(distances.map(value => Math.abs(value - distance)));
-    const sigma = Math.max(
-      0.15,
-      median(samples.map(sample => sample.distance_sigma_m ?? 3)),
-      1.4826 * mad,
-    );
+    const sigma = Math.max(0.15, median(samples.map(sample => sample.distance_sigma_m ?? 3)), 1.4826 * mad);
     const q = Math.max(...samples.map(sample => qWeight(sample.quality)));
-    const candidate: Edge = {
-      id: `${a}::${b}::${technology}`,
-      a,
-      b,
-      technology,
-      d: distance,
-      sigma,
-      q,
-      latest: Math.max(...samples.map(sample => sample.monotonic_ns)),
-    };
+    const candidate: Edge = { id: `${a}::${b}::${technology}`, a, b, technology, d: distance, sigma, q, latest: Math.max(...samples.map(sample => Number(sample.sender_sequence ?? 0))) };
     const pairKey = `${a}\u0000${b}`;
     const current = bestByPair.get(pairKey);
     const score = candidate.q / Math.max(0.02, candidate.sigma ** 2);
     const currentScore = current ? current.q / Math.max(0.02, current.sigma ** 2) : -1;
-    if (!current || score > currentScore || (Math.abs(score - currentScore) < 1e-12 && technology < current.technology)) {
-      bestByPair.set(pairKey, candidate);
-    }
+    if (!current || score > currentScore || (Math.abs(score-currentScore)<1e-12 && technology<current.technology)) bestByPair.set(pairKey,candidate);
   }
-  return [...bestByPair.values()].sort((a, b) => a.id.localeCompare(b.id));
+  return [...bestByPair.values()].sort((a,b)=>a.id.localeCompare(b.id));
 }
 
 const edge = (edges: Edge[], a: string, b: string) => {
@@ -603,32 +591,17 @@ export function solveGeometry(inputNodes: Advertisement[]): GeometrySolution | n
 }
 
 export function chooseCoordinatorGeometry(
-  nodes: Advertisement[],
-  coordinatorNodeId: string | null,
-  localNodeId: string | null,
-  localSolution: GeometrySolution | null,
+  nodes: Advertisement[], coordinatorNodeId: string | null, localNodeId: string | null, localSolution: GeometrySolution | null,
 ): GeometrySelection {
-  if (coordinatorNodeId && coordinatorNodeId === localNodeId) {
-    return { solution: localSolution, source: 'LOCAL_ELECTED_COORDINATOR' };
-  }
-  const coordinator = coordinatorNodeId
-    ? nodes.find(node => node.node_id === coordinatorNodeId)
-    : undefined;
-  if (
-    coordinator &&
-    coordinator.geometry_publisher_node_id === coordinatorNodeId &&
-    coordinator.published_geometry &&
-    coordinator.published_geometry.frame_id
-  ) {
-    return {
-      solution: coordinator.published_geometry,
-      source: 'ELECTED_COORDINATOR_PUBLICATION',
-    };
-  }
-  return {
-    solution: localSolution,
-    source: 'LOCAL_DETERMINISTIC_FALLBACK_AWAITING_COORDINATOR_PUBLICATION',
-  };
+  if (coordinatorNodeId && coordinatorNodeId === localNodeId) return { solution: localSolution, source: 'LOCAL_ELECTED_COORDINATOR', publication_rejection_reason: null };
+  const coordinator = coordinatorNodeId ? nodes.find(node => node.node_id === coordinatorNodeId) : undefined;
+  if (!coordinator) return { solution: localSolution, source: 'LOCAL_DETERMINISTIC_FALLBACK_AWAITING_COORDINATOR_PUBLICATION', publication_rejection_reason: 'COORDINATOR_NOT_PRESENT' };
+  const publication:any = coordinator.published_geometry;
+  if (!publication) return { solution: localSolution, source: 'LOCAL_DETERMINISTIC_FALLBACK_AWAITING_COORDINATOR_PUBLICATION', publication_rejection_reason: 'PUBLICATION_ABSENT' };
+  if (coordinator.geometry_publisher_node_id !== coordinatorNodeId || publication.publisher_node_id !== coordinatorNodeId) return { solution: localSolution, source: 'LOCAL_DETERMINISTIC_FALLBACK_AWAITING_COORDINATOR_PUBLICATION', publication_rejection_reason: 'WRONG_COORDINATOR_PUBLISHER' };
+  if (publication.publication_session_id && publication.publication_session_id !== coordinator.session_id) return { solution: localSolution, source: 'LOCAL_DETERMINISTIC_FALLBACK_AWAITING_COORDINATOR_PUBLICATION', publication_rejection_reason: 'PUBLICATION_SESSION_MISMATCH' };
+  if (!publication.frame_id || !Array.isArray(publication.positions)) return { solution: localSolution, source: 'LOCAL_DETERMINISTIC_FALLBACK_AWAITING_COORDINATOR_PUBLICATION', publication_rejection_reason: 'PUBLICATION_MALFORMED' };
+  return { solution: publication, source: 'COORDINATOR_PUBLICATION_V9', publication_rejection_reason: null };
 }
 
 export function estimateHuman(nodes: Advertisement[], geometry: GeometrySolution | null): HumanEstimate | null {

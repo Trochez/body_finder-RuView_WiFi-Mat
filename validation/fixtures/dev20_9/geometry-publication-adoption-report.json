@@ -1,0 +1,12 @@
+{
+  "build": "0.2.0-experimental.20.9",
+  "contract": "GeometryPublicationV9",
+  "detector_algorithm": "deterministic-multinode-rssi-fusion-v8",
+  "detector_parameter_hash": "5d404d404e08d33cd179aa8657edd93f1e51885f5dfa1268af228465642a8d39",
+  "dev20_8_null_adoption_regression": "PASS",
+  "physical_status": "PENDING",
+  "protocol_version": 2,
+  "publisher_validation": true,
+  "typed_rejection": true,
+  "wire_contract": "WireEnvelopeV9"
+}

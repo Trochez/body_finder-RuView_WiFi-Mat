@@ -1,0 +1,36 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "effective_age_ms": {
+      "minimum": 0,
+      "type": "integer"
+    },
+    "instance_epoch": {
+      "minLength": 1,
+      "type": "string"
+    },
+    "range_domain_state": {
+      "type": "string"
+    },
+    "sender_range_age_ms": {
+      "maximum": 600000,
+      "minimum": 0,
+      "type": "integer"
+    },
+    "sender_sequence": {
+      "minimum": 0,
+      "type": "integer"
+    }
+  },
+  "required": [
+    "observer_node_id",
+    "peer_node_id",
+    "sender_range_age_ms",
+    "sender_sequence",
+    "instance_epoch",
+    "distance_m",
+    "quality"
+  ],
+  "title": "RangeFrameV9",
+  "type": "object"
+}

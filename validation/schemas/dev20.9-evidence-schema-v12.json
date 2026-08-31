@@ -1,0 +1,33 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "build": {
+      "const": "0.2.0-experimental.20.9"
+    },
+    "final_go": {
+      "type": "boolean"
+    },
+    "g10_go": {
+      "type": "boolean"
+    },
+    "g11_go": {
+      "type": "boolean"
+    },
+    "g12_go": {
+      "type": "boolean"
+    },
+    "json_self_contained": {
+      "const": true
+    },
+    "screenshots_required": {
+      "const": false
+    }
+  },
+  "required": [
+    "build",
+    "json_self_contained",
+    "screenshots_required"
+  ],
+  "title": "dev20.9 evidence v12",
+  "type": "object"
+}

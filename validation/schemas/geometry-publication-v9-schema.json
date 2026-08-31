@@ -1,0 +1,45 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "canonical_digest": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "positions": {
+      "type": "array"
+    },
+    "publication_sequence": {
+      "type": "integer"
+    },
+    "publication_session_id": {
+      "type": "string"
+    },
+    "publisher_instance_epoch": {
+      "type": "string"
+    },
+    "publisher_node_id": {
+      "type": "string"
+    },
+    "schema": {
+      "const": "GeometryPublicationV9"
+    },
+    "topology_fingerprint": {
+      "type": [
+        "string",
+        "null"
+      ]
+    }
+  },
+  "required": [
+    "schema",
+    "publisher_node_id",
+    "publication_session_id",
+    "publication_sequence",
+    "frame_id",
+    "positions"
+  ],
+  "title": "GeometryPublicationV9",
+  "type": "object"
+}

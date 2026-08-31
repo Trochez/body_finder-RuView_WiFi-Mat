@@ -1,0 +1,12 @@
+{
+  "build": "0.2.0-experimental.20.9",
+  "compact_required_frame": "PASS",
+  "detector_algorithm": "deterministic-multinode-rssi-fusion-v8",
+  "detector_parameter_hash": "5d404d404e08d33cd179aa8657edd93f1e51885f5dfa1268af228465642a8d39",
+  "hard_limit_bytes": 1200,
+  "physical_status": "PENDING",
+  "protocol_version": 2,
+  "range_target_bytes": 1050,
+  "verbose_source_detail_on_live_range_wire": false,
+  "wire_contract": "WireEnvelopeV9"
+}
