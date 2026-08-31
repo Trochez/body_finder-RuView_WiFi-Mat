@@ -1,0 +1,90 @@
+name: Bootstrap dev20.10 remediation
+
+on:
+  push:
+    branches: [dev20.10-remediation-20260831]
+    paths: [DEV20_10_BOOTSTRAP_TRIGGER.txt]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: bootstrap-dev20-10
+  cancel-in-progress: true
+
+jobs:
+  implement-and-gate:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+        with: {fetch-depth: 0}
+      - uses: actions/setup-python@v5
+        with: {python-version: '3.12'}
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: apps/mobile/package-lock.json
+      - uses: actions/setup-java@v5
+        with: {distribution: temurin, java-version: '17'}
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Apply dev20.10 remediation
+        run: |
+          set -euxo pipefail
+          python3 scripts/apply_dev20_10_remediation.py
+          python3 scripts/generate_dev20_10_validation_assets.py
+          python3 scripts/generate_dev20_10_reports_fixtures.py
+      - name: Static contract and validator gates
+        run: |
+          set -euxo pipefail
+          python3 -m py_compile scripts/apply_dev20_10_remediation.py scripts/generate_dev20_10_validation_assets.py scripts/generate_dev20_10_reports_fixtures.py validation/analysis/validate_dev20_10_smoke.py validation/analysis/validate_dev20_10_campaign.py validation/analysis/test_dev20_10_contract.py
+          python3 validation/analysis/test_dev20_10_contract.py
+          grep -q "0.2.0-experimental.20.10" apps/mobile/src/version.ts
+          grep -q "reportVersion: 30" apps/mobile/src/version.ts
+          grep -q "snapshotSchemaVersion: 13" apps/mobile/src/version.ts
+          grep -q "WireEnvelopeV10" apps/mobile/modules/body-finder-native/android/src/main/java/com/trochez/bodyfindernative/BodyFinderNativeModule.kt
+          grep -q "CONTROL_FRAME_TARGET_BYTES = 900" apps/mobile/modules/body-finder-native/android/src/main/java/com/trochez/bodyfindernative/BodyFinderNativeModule.kt
+          grep -q "ARTIFACT_WINDOW_CHUNKS = 4" apps/mobile/modules/body-finder-native/android/src/main/java/com/trochez/bodyfindernative/BodyFinderNativeModule.kt
+          grep -q "wire_transport_v10" apps/mobile/modules/body-finder-native/android/src/main/java/com/trochez/bodyfindernative/BodyFinderNativeModule.kt
+          grep -q "snapshot_schema_version\", 13" apps/mobile/modules/body-finder-native/android/src/main/java/com/trochez/bodyfindernative/BodyFinderNativeModule.kt
+          grep -q "scenario_consistency_digest" apps/mobile/modules/body-finder-native/android/src/main/java/com/trochez/bodyfindernative/BodyFinderNativeModule.kt
+          grep -q "deterministic-multinode-rssi-fusion-v9" crates/body-finder-science/src/human_detector.rs
+          grep -q "transition_phys.len() >= 2" crates/body-finder-science/src/human_detector.rs
+          grep -q "dev20.10-self-contained-json-evidence-v13" validation/analysis/validate_dev20_10_smoke.py
+          grep -q "RELEASE=\"dev-20.10\"\|release':'dev-20.10\|release.*dev-20.10" validation/analysis/validate_dev20_10_campaign.py
+          grep -q "G10.*PENDING" validation/reports/release-manifest.json
+          grep -q "G11.*BLOCKED" validation/reports/release-manifest.json
+          git diff --check
+      - name: Historical Python regressions
+        run: |
+          set -euxo pipefail
+          python3 validation/analysis/test_post_dev19_v1.py
+          python3 validation/analysis/validate_dev19_baseline.py --output /tmp/dev19-baseline.json
+      - name: Rust gates
+        run: |
+          set -euxo pipefail
+          cargo fmt --all -- --check
+          cargo test --workspace --all-targets
+          cargo build --release -p body-finder-science --bin body-finder-detector
+      - name: Mobile TypeScript gate
+        working-directory: apps/mobile
+        run: |
+          set -euxo pipefail
+          npm ci --no-audit --no-fund
+          npm run typecheck
+      - name: Android native compile/unit gate
+        working-directory: apps/mobile
+        run: |
+          set -euxo pipefail
+          CI=1 npx expo prebuild --platform android --clean
+          chmod +x android/gradlew
+          ./android/gradlew -p android testReleaseUnitTest assembleRelease --stacktrace
+      - name: Commit implementation to remediation branch
+        run: |
+          set -euxo pipefail
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git add -A
+          git commit -m 'feat(dev20.10): remediate scenario authority transport continuity and detector blockers'
+          git push origin HEAD:dev20.10-remediation-20260831
