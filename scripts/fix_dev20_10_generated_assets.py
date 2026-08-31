@@ -16,4 +16,16 @@ if legacy.exists():
     s=s.replace('0.2.0-experimental.20.9-legacy','0.2.0-experimental.20.10-legacy')
     s=s.replace('0.2.0-experimental.20.9','0.2.0-experimental.20.10')
     legacy.write_text(s)
+# The dev20.10 applicator changes ValidationRuntime.start to require scenarioId.
+# Patch the pre-existing multiline bridge call so Android compilation receives it atomically.
+native=R/'apps/mobile/modules/body-finder-native/android/src/main/java/com/trochez/bodyfindernative/BodyFinderNativeModule.kt'
+if native.exists():
+    s=native.read_text()
+    old='''        FabricRuntime.rxPackets.get(),\n        preflight.toString(),\n      )'''
+    new='''        FabricRuntime.rxPackets.get(),\n        preflight.toString(),\n        scenario,\n      )'''
+    if old in s:
+        s=s.replace(old,new,1)
+    elif new not in s:
+        raise SystemExit('missing multiline ValidationRuntime.start bridge anchor')
+    native.write_text(s)
 print('dev20.10 generated asset hotfix applied')
