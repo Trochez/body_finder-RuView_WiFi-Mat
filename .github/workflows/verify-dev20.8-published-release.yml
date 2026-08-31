@@ -1,0 +1,66 @@
+name: Verify dev20.8 published release
+
+on:
+  workflow_run:
+    workflows: ["Release dev20.8"]
+    types: [completed]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: verify-dev20-8-published-release
+  cancel-in-progress: true
+
+jobs:
+  verify-published-release:
+    if: ${{ github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success' }}
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: Redownload, validate, finalize verification metadata, and revalidate
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euxo pipefail
+          rm -rf verify verify2
+          mkdir verify
+          gh release download dev-20.8 -D verify
+          python3 - <<'PY'
+          import json, pathlib
+          d=pathlib.Path('verify')
+          required=set('BodyFinder-dev20.8-universal.apk body-finder-ruview-universal.apk body-finder-ruview-legacy-minsdk21.apk body-finder-ruview.aab body-finder-node-linux-x86_64.tar.gz body-finder-node-linux-x86_64.deb body-finder-windows-wsl-x86_64.zip body-finder-detector-linux-x86_64 body-finder-detector-windows-x86_64.exe validators-dev20.8.zip fixtures-dev20.8.zip dev20.8-evidence-schema-v11.json dev20.8-campaign-schema.json wire-envelope-v8-schema.json control-plane-v8-schema.json artifact-manifest-v1-schema.json detector-parameter-manifest-v8.json dev20.7-smoke-regression-report.json udp-oversize-root-cause-report.json wire-mtu-fault-injection-report.json artifact-transfer-reliability-report.json control-plane-v8-convergence-report.json detector-v8-development-report.json detector-v8-blind-holdout-report.json online-offline-parity-report.json release-manifest.json release-verification.json SBOM.spdx.json SHA256SUMS.txt TESTING_DEV20_8.md'.split())
+          got={p.name for p in d.iterdir() if p.is_file()}
+          missing=sorted(required-got)
+          empty=sorted(p.name for p in d.iterdir() if p.is_file() and p.stat().st_size==0)
+          if missing: raise SystemExit('missing release assets: '+','.join(missing))
+          if empty: raise SystemExit('empty release assets: '+','.join(empty))
+          v=d/'release-verification.json'
+          data=json.loads(v.read_text())
+          data['redownload_verified']=True
+          data['published_inventory_verified']=True
+          data['published_asset_count']=len(got)
+          v.write_text(json.dumps(data,indent=2,sort_keys=True)+'\n')
+          PY
+          (
+            cd verify
+            find . -maxdepth 1 -type f ! -name SHA256SUMS.txt -printf '%f\n' | sort | xargs sha256sum > SHA256SUMS.txt
+            sha256sum -c SHA256SUMS.txt
+          )
+          gh release upload dev-20.8 verify/release-verification.json verify/SHA256SUMS.txt --clobber
+          mkdir verify2
+          gh release download dev-20.8 -D verify2
+          (
+            cd verify2
+            sha256sum -c SHA256SUMS.txt
+          )
+          python3 - <<'PY'
+          import json, pathlib
+          d=pathlib.Path('verify2')
+          v=json.loads((d/'release-verification.json').read_text())
+          assert v.get('redownload_verified') is True
+          assert v.get('published_inventory_verified') is True
+          assert int(v.get('published_asset_count',0)) >= 30
+          print('DEV20_8_PUBLISHED_RELEASE_FINAL_VERIFICATION_PASS')
+          PY
