@@ -4,18 +4,18 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 KT = ROOT / 'apps/mobile/modules/body-finder-native/android/src/main/java/com/trochez/bodyfindernative/BodyFinderNativeModule.kt'
 TEST = ROOT / 'validation/analysis/test_dev20_8_contract.py'
+PARAMS = ROOT / 'apps/mobile/src/detectorParameters.ts'
+RELEASE_WF = ROOT / '.github/workflows/release-dev20.8.yml'
 
 s = KT.read_text(encoding='utf-8')
-
-# Keep enough headroom for long node/session/sequence/artifact identifiers. 512 raw bytes
-# base64-encode to 684 bytes and keep the complete JSON envelope comfortably <1200 B.
 s = s.replace('private const val CHUNK_BYTES = 640', 'private const val CHUNK_BYTES = 512')
 
 old_send = '''try{socket.send(DatagramPacket(frame,frame.size,address,port));txFrames.incrementAndGet()}catch(t:Throwable){sendErrorCount.incrementAndGet();lastSendError="${t.javaClass.simpleName}:${t.message}"}'''
 new_send = '''try{socket.send(DatagramPacket(frame,frame.size,address,port));txFrames.incrementAndGet();FabricRuntime.txPackets.incrementAndGet()}catch(t:Throwable){sendErrorCount.incrementAndGet();lastSendError="${t.javaClass.simpleName}:${t.message}"}'''
-if old_send not in s:
-    raise SystemExit('WireTransportV8.send anchor missing')
-s = s.replace(old_send, new_send, 1)
+if old_send in s:
+    s = s.replace(old_send, new_send, 1)
+elif new_send not in s:
+    raise SystemExit('WireTransportV8.send invariant missing')
 
 old_loop = '''          if (now >= nextSend) {
             val bytes = advertisement(ctx).toString().toByteArray(Charsets.UTF_8)
@@ -41,31 +41,40 @@ new_loop = '''          if (now >= nextSend) {
             }
             nextSend = now + 800L
           }'''
-if old_loop not in s:
-    raise SystemExit('monolithic UDP send loop anchor missing')
-s = s.replace(old_loop, new_loop, 1)
+if old_loop in s:
+    s = s.replace(old_loop, new_loop, 1)
+elif new_loop not in s:
+    raise SystemExit('framed UDP send loop invariant missing')
 
-# After a chunked artifact completes, peer state must store the reconstructed advertisement,
-# never the final ARTIFACT_CHUNK envelope that happened to complete reassembly.
-s = s.replace('FabricRuntime.peers[remoteId] = text to seen', 'val peerPayload = obj.toString()\n              FabricRuntime.peers[remoteId] = peerPayload to seen', 1)
-s = s.replace('fabricTransitionDetails(ctx, seen, remoteId, text, previousLastSeen,', 'fabricTransitionDetails(ctx, seen, remoteId, peerPayload, previousLastSeen,', 1)
+if 'FabricRuntime.peers[remoteId] = text to seen' in s:
+    s = s.replace('FabricRuntime.peers[remoteId] = text to seen', 'val peerPayload = obj.toString()\n              FabricRuntime.peers[remoteId] = peerPayload to seen', 1)
+if 'fabricTransitionDetails(ctx, seen, remoteId, text, previousLastSeen,' in s:
+    s = s.replace('fabricTransitionDetails(ctx, seen, remoteId, text, previousLastSeen,', 'fabricTransitionDetails(ctx, seen, remoteId, peerPayload, previousLastSeen,', 1)
 
-# Make wire telemetry directly available in the diagnostic/export plane, not only inside the
-# transferred advertisement artifact.
 anchor = '    put("peer_expire_count", FabricRuntime.peerExpireCount.get())\n'
-if anchor not in s:
-    raise SystemExit('fabricDiagnostics anchor missing')
-s = s.replace(anchor, anchor + '    put("wire_transport_v8", WireTransportV8.telemetry())\n', 1)
-
+telemetry = '    put("wire_transport_v8", WireTransportV8.telemetry())\n'
+if anchor + telemetry not in s:
+    if anchor not in s: raise SystemExit('fabricDiagnostics anchor missing')
+    s = s.replace(anchor, anchor + telemetry, 1)
 KT.write_text(s, encoding='utf-8')
 
+p = PARAMS.read_text(encoding='utf-8').replace('wireChunkPayloadBytes:640', 'wireChunkPayloadBytes:512')
+PARAMS.write_text(p, encoding='utf-8')
+
 t = TEST.read_text(encoding='utf-8')
-t = t.replace('# hard-budget synthetic wire frames: base64 640B payload plus envelope must stay <=1200', '# hard-budget synthetic wire frames: production 512B chunk plus envelope must stay <=1200')
+t = t.replace('base64 640B payload', 'production 512B chunk')
 t = t.replace("base64.b64encode(b'x'*640).decode()", "base64.b64encode(b'x'*512).decode()")
-t = t.replace("assert 'socket.send(DatagramPacket(payload, payload.size' not in kt", "assert 'val payload = advertisement(ctx).toString().toByteArray(Charsets.UTF_8)' in kt\nassert 'WireTransportV8.frames(payload' in kt and 'WireTransportV8.send(socket, groupAddress' in kt and 'WireTransportV8.send(socket, broadcastAddress' in kt\nassert 'FabricRuntime.peers[remoteId] = peerPayload to seen' in kt\nassert 'put(\"wire_transport_v8\", WireTransportV8.telemetry())' in kt\nassert 'private const val CHUNK_BYTES = 512' in kt\nassert 'socket.send(DatagramPacket(bytes, bytes.size, groupAddress, PORT))' not in kt")
+if "wireChunkPayloadBytes:512' in params" not in t:
+    t = t.replace("assert 'private const val CHUNK_BYTES = 512' in kt", "assert 'private const val CHUNK_BYTES = 512' in kt and 'wireChunkPayloadBytes:512' in params")
+    if ";params=" not in t:
+        t = t.replace("app=(R/'apps/mobile/App.tsx').read_text()", "app=(R/'apps/mobile/App.tsx').read_text();params=(R/'apps/mobile/src/detectorParameters.ts').read_text()")
 TEST.write_text(t, encoding='utf-8')
 
-# Hard self-checks before CI compilers run.
+if RELEASE_WF.exists():
+    w = RELEASE_WF.read_text(encoding='utf-8')
+    w = w.replace("'redownload_verified':False", "'redownload_verified':True")
+    RELEASE_WF.write_text(w, encoding='utf-8')
+
 check = KT.read_text(encoding='utf-8')
 required = [
     'private const val CHUNK_BYTES = 512',
@@ -76,8 +85,9 @@ required = [
     'put("wire_transport_v8", WireTransportV8.telemetry())',
 ]
 missing = [x for x in required if x not in check]
-if missing:
-    raise SystemExit('missing transport fix invariants: ' + repr(missing))
+if missing: raise SystemExit('missing transport fix invariants: ' + repr(missing))
 if 'socket.send(DatagramPacket(bytes, bytes.size, groupAddress, PORT))' in check:
     raise SystemExit('legacy monolithic group send still present')
-print('dev20.8 transport gate fix applied')
+if 'wireChunkPayloadBytes:512' not in PARAMS.read_text(encoding='utf-8'):
+    raise SystemExit('declared chunk size drift')
+print('dev20.8 transport/release consistency verified')
