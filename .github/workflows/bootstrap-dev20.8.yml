@@ -22,20 +22,22 @@ jobs:
         with: {python-version: '3.12'}
       - uses: actions/setup-node@v4
         with: {node-version: '22', cache: npm, cache-dependency-path: apps/mobile/package-lock.json}
-      - uses: actions/setup-java@v4
+      - uses: actions/setup-java@v5
         with: {distribution: temurin, java-version: '17'}
       - uses: dtolnay/rust-toolchain@stable
-      - name: Apply and commit dev20.8 delta on isolated branch
+      - name: Apply transport gate remediation and commit
         run: |
           set -euxo pipefail
-          python3 scripts/run_dev20_8_delta.py
+          python3 scripts/fix_dev20_8_transport_gate.py
           cargo fmt --all
           git config user.name 'body-finder-release-bot'
           git config user.email 'actions@github.com'
           git add -A
           git diff --cached --check
-          git commit -m 'feat(dev20.8): remediate UDP oversize, scenario evidence and EMPTY classification'
-          git push origin HEAD:dev20.8-remediation-20260830
+          if ! git diff --cached --quiet; then
+            git commit -m 'fix(dev20.8): enforce framed UDP transport and reconstructed peer state'
+            git push origin HEAD:dev20.8-remediation-20260830
+          fi
       - name: Contract and validator gates
         run: |
           set -euxo pipefail
