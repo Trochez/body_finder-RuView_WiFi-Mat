@@ -1,1 +1,1 @@
-trigger dev20.8 transport remediation retry 5 2026-08-30T22:08-05:00
+trigger dev20.8 final consistency gates retry 6 2026-08-30T22:13-05:00
