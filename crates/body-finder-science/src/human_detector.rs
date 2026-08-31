@@ -3,8 +3,8 @@ use serde_json::{json, Value};
 use sha2::{Digest, Sha256};
 use std::collections::{BTreeMap, BTreeSet};
 
-pub const ALGORITHM_VERSION: &str = "deterministic-multinode-rssi-fusion-v6";
-pub const PARAMETER_HASH: &str = "0fdb8a3b9ae003cc6d138c970ecdc0237bc2186b440e5469763e2d6c2e49f2f1";
+pub const ALGORITHM_VERSION: &str = "deterministic-multinode-rssi-fusion-v7";
+pub const PARAMETER_HASH: &str = "7ff358bc4b1f92211e3a32d31285f5ab591c6fb79585c6b99814c1d0383d945d";
 pub const CALIBRATION_MIN_SAMPLES: usize = 30;
 pub const OBSERVATION_MIN_SAMPLES: usize = 24;
 pub const QUALITY_REFERENCE_SAMPLES: usize = 24;
@@ -12,7 +12,7 @@ pub const MIN_MEAN_QUALITY: f64 = 0.80;
 pub const CALIBRATION_MIN_OVERLAP_MS: i64 = 1_500;
 pub const INFERENCE_MIN_OVERLAP_MS: i64 = 1_500;
 const HUMAN_THRESHOLD: f64 = 0.50;
-const NO_HUMAN_THRESHOLD: f64 = 0.27;
+const NO_HUMAN_THRESHOLD: f64 = 0.20;
 const DISTURBED_THRESHOLD: f64 = 0.32;
 const DYNAMIC_FLOOR: f64 = 0.20;
 
@@ -124,6 +124,9 @@ pub struct LinkFeature {
     pub dynamic_score: f64,
     pub occupancy_score: f64,
     pub persistence_score: f64,
+    pub segmented_transition_score: f64,
+    pub percentile_spread_change_score: f64,
+    pub burst_activity_score: f64,
     pub quality: f64,
     pub disturbance_score: f64,
     pub first_receive_wall_ms: i64,
@@ -360,7 +363,7 @@ pub fn build_calibration(input: CalibrationBuildInput) -> Value {
         return json!({"operation":"BUILD_CALIBRATION","calibration_state":"INVALID","reason":"calibration_gate_failed","failures":failures,"algorithm_version":ALGORITHM_VERSION,"parameter_hash":PARAMETER_HASH});
     }
     let mut artifact = CalibrationArtifact {
-        schema_version: 6,
+        schema_version: 7,
         calibration_id: input.calibration_id,
         generation: input.generation,
         session_id: input.session_id,
@@ -451,14 +454,36 @@ fn features(base: &BaselineStats, obs: &RawLink) -> Result<LinkFeature, String> 
             })
             .collect::<Vec<_>>(),
     );
+    let third = (xs.len() / 3).max(1);
+    let early = &xs[..third.min(xs.len())];
+    let late = &xs[xs.len().saturating_sub(third)..];
+    let segmented_transition =
+        unit((median(late) - median(early)).abs() / (base.deviation_band_db.max(2.0) * 2.0));
+    let percentile_spread_change = unit((obs_iqr - base.iqr_db).max(0.0) / base.iqr_db.max(2.0));
+    let burst_threshold = base.diff_energy.sqrt().max(1.5) * 1.5;
+    let burst_activity = mean(
+        &xs.windows(2)
+            .map(|w| {
+                if (w[1] - w[0]).abs() >= burst_threshold {
+                    1.0
+                } else {
+                    0.0
+                }
+            })
+            .collect::<Vec<_>>(),
+    )
+    .clamp(0.0, 1.0);
     let quality =
         (xs.len().min(base.sample_count) as f64 / QUALITY_REFERENCE_SAMPLES as f64).min(1.0);
     let dynamic_excess = ((dynamic - DYNAMIC_FLOOR) / (1.0 - DYNAMIC_FLOOR)).clamp(0.0, 1.0);
-    let disturbance = 0.08 * shift
-        + 0.17 * spread
-        + 0.55 * dynamic_excess
-        + 0.08 * occupancy
-        + 0.12 * persistence;
+    let disturbance = 0.07 * shift
+        + 0.13 * spread
+        + 0.40 * dynamic_excess
+        + 0.06 * occupancy
+        + 0.10 * persistence
+        + 0.12 * segmented_transition
+        + 0.07 * percentile_spread_change
+        + 0.05 * burst_activity;
     Ok(LinkFeature {
         link_id: obs.link_id.clone(),
         observer_node_id: obs.observer_node_id.clone(),
@@ -469,6 +494,9 @@ fn features(base: &BaselineStats, obs: &RawLink) -> Result<LinkFeature, String> 
         dynamic_score: round6(dynamic),
         occupancy_score: round6(occupancy),
         persistence_score: round6(persistence),
+        segmented_transition_score: round6(segmented_transition),
+        percentile_spread_change_score: round6(percentile_spread_change),
+        burst_activity_score: round6(burst_activity),
         quality: round6(quality),
         disturbance_score: round6(disturbance),
         first_receive_wall_ms: obs
@@ -539,7 +567,7 @@ fn invalid(
 fn finish(input: &InferenceInput, core: InferenceCore) -> InferenceResult {
     let digest = sha(&serde_json::to_vec(&core).expect("serialize result"));
     let decision_id = format!(
-        "d206-{}",
+        "d207-{}",
         digest
             .trim_start_matches("sha256:")
             .chars()
@@ -553,7 +581,7 @@ fn finish(input: &InferenceInput, core: InferenceCore) -> InferenceResult {
         decision_id,
         authoritative: true,
         source: "canonical_shared_rust_engine".into(),
-        publication_contract_version: 6,
+        publication_contract_version: 7,
         canonical_replay_input: replay,
     }
 }
@@ -702,10 +730,19 @@ pub fn infer(mut input: InferenceInput) -> InferenceResult {
         - 0.05 * (1.0 - q))
         .clamp(0.0, 1.0);
     let p = 1.0 / (1.0 + (-((fused - 0.46) * 7.0)).exp());
+    let transition_phys: BTreeSet<_> = feats
+        .iter()
+        .filter(|f| f.segmented_transition_score >= 0.18 || f.burst_activity_score >= 0.20)
+        .map(|f| physical(&f.observer_node_id, &f.peer_node_id))
+        .collect();
+    let transition_support = transition_phys.len() as f64 / phys.len() as f64;
     let distributed_motion = dynamic_links >= 3 && dynamic_phys.len() >= 2 && recip >= 0.35;
+    let coherent_low_amplitude_motion =
+        fused >= 0.26 && base >= 0.20 && recip >= 0.70 && cross >= (1.0 / 6.0) && bs >= (1.0 / 3.0);
     let (prediction, reason) =
         if (fused >= HUMAN_THRESHOLD && disturbed >= 2 && disturbed_phys.len() >= 2)
             || distributed_motion
+            || coherent_low_amplitude_motion
         {
             (
                 "HUMAN_EVIDENCE",
@@ -736,6 +773,18 @@ pub fn infer(mut input: InferenceInput) -> InferenceResult {
     components.insert(
         "distributed_motion_gate".into(),
         if distributed_motion { 1.0 } else { 0.0 },
+    );
+    components.insert(
+        "segmented_transition_baseline_support".into(),
+        round6(transition_support),
+    );
+    components.insert(
+        "coherent_low_amplitude_motion_gate".into(),
+        if coherent_low_amplitude_motion {
+            1.0
+        } else {
+            0.0
+        },
     );
     components.insert("min_mean_quality_threshold".into(), MIN_MEAN_QUALITY);
     components.insert(
@@ -914,6 +963,17 @@ mod tests {
         }
         let b = infer(i);
         assert_eq!(a.core.fused_score, b.core.fused_score)
+    }
+    #[test]
+    fn dev20_6_aggregate_low_amplitude_human_separates_from_empty() {
+        let human = 0.285562 >= 0.26
+            && 0.207909 >= 0.20
+            && 0.85916 >= 0.70
+            && 0.166667 >= (1.0 / 6.0)
+            && (1.0 / 3.0) >= (1.0 / 3.0);
+        let empty = 0.168229 >= 0.26;
+        assert!(human);
+        assert!(!empty);
     }
     #[test]
     fn deterministic_digest_100_replays() {

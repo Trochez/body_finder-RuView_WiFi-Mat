@@ -1,0 +1,58 @@
+name: Bootstrap dev20.7 implementation
+
+on:
+  push:
+    branches: [implementation/dev20.7]
+    paths: [DEV20_7_BOOTSTRAP_TRIGGER.txt]
+
+permissions:
+  contents: write
+
+concurrency:
+  group: bootstrap-dev20-7
+  cancel-in-progress: false
+
+jobs:
+  implement-and-verify:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: implementation/dev20.7
+          fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with: {python-version: '3.12'}
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: apps/mobile/package-lock.json
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Apply dev20.7 remediation
+        run: |
+          set -euxo pipefail
+          python3 scripts/run_dev20_7_delta.py
+          cargo fmt --all
+      - name: Engineering verification G0-G7
+        run: |
+          set -euxo pipefail
+          python3 -m py_compile validation/analysis/validate_dev20_7_smoke.py validation/analysis/validate_dev20_7_campaign.py validation/analysis/test_dev20_7_contract.py
+          python3 validation/analysis/test_dev20_7_contract.py
+          python3 validation/analysis/test_post_dev19_v1.py
+          python3 validation/analysis/validate_dev19_baseline.py --output /tmp/dev19-baseline.json
+          cargo fmt --all -- --check
+          cargo test --workspace --all-targets
+          cargo build --release -p body-finder-science --bin body-finder-detector
+          cd apps/mobile
+          npm ci --no-audit --no-fund
+          npm run typecheck
+      - name: Commit verified implementation
+        run: |
+          set -euxo pipefail
+          git config user.name 'body-finder-release-bot'
+          git config user.email 'actions@github.com'
+          git add -A
+          git diff --cached --check
+          if git diff --cached --quiet; then echo 'No implementation delta'; exit 1; fi
+          git commit -m 'feat(dev20.7): remediate decision durability and moving-human smoke no-go'
+          git push origin HEAD:implementation/dev20.7

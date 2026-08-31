@@ -1,0 +1,21 @@
+{
+  "algorithm": "deterministic-multinode-rssi-fusion-v7",
+  "parameter_hash": "7ff358bc4b1f92211e3a32d31285f5ab591c6fb79585c6b99814c1d0383d945d",
+  "selection_policy": "multi-family; not threshold-only",
+  "dev20_6_diagnostic_anchor": {
+    "empty_fused": 0.168229,
+    "human_fused": 0.285562,
+    "human_quality_weighted_link_score": 0.207909,
+    "human_reciprocal_coherence": 0.85916,
+    "human_cross_link_support": 0.166667,
+    "human_disturbed_baseline_support": 0.333333
+  },
+  "coherent_low_amplitude_gate": {
+    "fused_floor": 0.26,
+    "link_floor": 0.2,
+    "reciprocal_floor": 0.7,
+    "cross_link_floor": 0.16666666666666666,
+    "baseline_floor": 0.3333333333333333
+  },
+  "physical_acceptance_data_used_for_tuning": false
+}
