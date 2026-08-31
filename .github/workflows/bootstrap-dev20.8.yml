@@ -33,17 +33,7 @@ jobs:
       - name: Apply dev20.8 remediation
         run: |
           set -euxo pipefail
-          if ! python3 scripts/apply_dev20_8_delta.py >/tmp/dev208-apply.log 2>&1; then
-            cat /tmp/dev208-apply.log
-            cp /tmp/dev208-apply.log DEV20_8_BOOTSTRAP_FAILURE.log
-            git config user.name 'body-finder-release-bot'
-            git config user.email 'actions@github.com'
-            git add DEV20_8_BOOTSTRAP_FAILURE.log
-            git commit -m 'ci(dev20.8): capture bootstrap failure'
-            git push origin HEAD:dev20.8-remediation-20260830
-            exit 1
-          fi
-          cat /tmp/dev208-apply.log
+          python3 scripts/run_dev20_8_delta.py
           cargo fmt --all
       - name: Engineering verification G0-G7
         run: |
@@ -70,7 +60,6 @@ jobs:
           set -euxo pipefail
           git config user.name 'body-finder-release-bot'
           git config user.email 'actions@github.com'
-          rm -f DEV20_8_BOOTSTRAP_FAILURE.log
           git add -A
           git diff --cached --check
           if git diff --cached --quiet; then echo 'No implementation delta'; exit 1; fi
