@@ -515,7 +515,7 @@ private object ValidationRuntime {
 
 private object WireTransportV8 {
   const val MAX_DATAGRAM_BYTES = 1200
-  private const val CHUNK_BYTES = 640
+  private const val CHUNK_BYTES = 512
   private const val REDUNDANCY_ROUNDS = 3
   private data class Assembly(val sha:String,val count:Int,val created:Long,val chunks:java.util.concurrent.ConcurrentHashMap<Int,ByteArray> = java.util.concurrent.ConcurrentHashMap())
   private val assemblies = java.util.concurrent.ConcurrentHashMap<String,Assembly>()
@@ -544,7 +544,7 @@ private object WireTransportV8 {
   fun send(socket:MulticastSocket,address:InetAddress,port:Int,frames:List<ByteArray>){
     for(frame in frames){
       if(frame.size>MAX_DATAGRAM_BYTES){oversizeBlockCount.incrementAndGet();continue}
-      try{socket.send(DatagramPacket(frame,frame.size,address,port));txFrames.incrementAndGet()}catch(t:Throwable){sendErrorCount.incrementAndGet();lastSendError="${t.javaClass.simpleName}:${t.message}"}
+      try{socket.send(DatagramPacket(frame,frame.size,address,port));txFrames.incrementAndGet();FabricRuntime.txPackets.incrementAndGet()}catch(t:Throwable){sendErrorCount.incrementAndGet();lastSendError="${t.javaClass.simpleName}:${t.message}"}
     }
   }
   fun consume(text:String):JSONObject?{
@@ -2076,6 +2076,7 @@ class BodyFinderNativeModule : Module() {
     put("rx_same_session_packets", FabricRuntime.rxSameSessionPackets.get())
     put("peer_count_active", FabricRuntime.peers.size)
     put("peer_expire_count", FabricRuntime.peerExpireCount.get())
+    put("wire_transport_v8", WireTransportV8.telemetry())
     val peers = JSONArray()
     FabricRuntime.peerPacketCounts.forEach { (nodeId, count) ->
       val lastSeen = FabricRuntime.peerLastSeenWallMs[nodeId]
@@ -2327,15 +2328,15 @@ class BodyFinderNativeModule : Module() {
             nextSystemRangingRefresh = now + 1_000L
           }
           if (now >= nextSend) {
-            val bytes = advertisement(ctx).toString().toByteArray(Charsets.UTF_8)
+            val payload = advertisement(ctx).toString().toByteArray(Charsets.UTF_8)
             try {
-              socket.send(DatagramPacket(bytes, bytes.size, groupAddress, PORT))
-              FabricRuntime.txPackets.incrementAndGet()
-            } catch (_: Throwable) {}
-            try {
-              socket.send(DatagramPacket(bytes, bytes.size, broadcastAddress, PORT))
-              FabricRuntime.txPackets.incrementAndGet()
-            } catch (_: Throwable) {}
+              val frames = WireTransportV8.frames(payload, FabricRuntime.nodeId, FabricRuntime.sessionId, now)
+              WireTransportV8.send(socket, groupAddress, PORT, frames)
+              WireTransportV8.send(socket, broadcastAddress, PORT, frames)
+            } catch (t: Throwable) {
+              WireTransportV8.sendErrorCount.incrementAndGet()
+              WireTransportV8.lastSendError = "${t.javaClass.simpleName}:${t.message}"
+            }
             nextSend = now + 800L
           }
           try {
@@ -2359,14 +2360,15 @@ class BodyFinderNativeModule : Module() {
               val wasKnown = FabricRuntime.peerPacketCounts.containsKey(remoteId)
               val wasActive = previousPair != null
               val wasStale = FabricRuntime.peerStaleSinceWallMs.containsKey(remoteId)
-              FabricRuntime.peers[remoteId] = text to seen
+              val peerPayload = obj.toString()
+              FabricRuntime.peers[remoteId] = peerPayload to seen
               FabricRuntime.peerLastSeenWallMs[remoteId] = seen
               FabricRuntime.peerLastSeenMonotonicNs[remoteId] = SystemClock.elapsedRealtimeNanos()
               FabricRuntime.peerPacketCounts.computeIfAbsent(remoteId) { AtomicLong(0) }.incrementAndGet()
               if (wasKnown && (!wasActive || wasStale)) {
                 FabricEventTimeline.record(
                   "PEER_REACTIVATED",
-                  fabricTransitionDetails(ctx, seen, remoteId, text, previousLastSeen, if (!wasActive) "EXPIRED" else "STALE", "ACTIVE", "UDP_RX_RESUMED")
+                  fabricTransitionDetails(ctx, seen, remoteId, peerPayload, previousLastSeen, if (!wasActive) "EXPIRED" else "STALE", "ACTIVE", "UDP_RX_RESUMED")
                 )
               }
               FabricRuntime.peerStaleSinceWallMs.remove(remoteId)
