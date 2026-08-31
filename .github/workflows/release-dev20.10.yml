@@ -79,7 +79,7 @@ jobs:
           grep -q "WireEnvelopeV10" apps/mobile/modules/body-finder-native/android/src/main/java/com/trochez/bodyfindernative/BodyFinderNativeModule.kt
           grep -q "CONTROL_FRAME_TARGET_BYTES = 900" apps/mobile/modules/body-finder-native/android/src/main/java/com/trochez/bodyfindernative/BodyFinderNativeModule.kt
           grep -q "wire_transport_v10" apps/mobile/modules/body-finder-native/android/src/main/java/com/trochez/bodyfindernative/BodyFinderNativeModule.kt
-          grep -q "GeometryPublicationV10" apps/mobile/src/autogeometry.ts
+          grep -q "COORDINATOR_PUBLICATION_V10" apps/mobile/src/autogeometry.ts
           grep -q "dev20.10-self-contained-json-evidence-v13" apps/mobile/modules/body-finder-native/index.ts
           python3 -m py_compile validation/analysis/validate_dev20_10_smoke.py validation/analysis/validate_dev20_10_campaign.py validation/analysis/test_dev20_10_contract.py
           python3 validation/analysis/test_dev20_10_contract.py
