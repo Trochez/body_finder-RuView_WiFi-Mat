@@ -1,0 +1,62 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": true,
+  "properties": {
+    "build": {
+      "const": "0.2.0-experimental.20.10"
+    },
+    "evidence_contract": {
+      "properties": {
+        "schema": {
+          "const": "dev20.10-self-contained-json-evidence-v13"
+        }
+      },
+      "required": [
+        "schema"
+      ],
+      "type": "object"
+    },
+    "json_self_contained": {
+      "const": true
+    },
+    "protocol_version": {
+      "const": 2
+    },
+    "report_version": {
+      "const": 30
+    },
+    "screenshots_required": {
+      "const": false
+    },
+    "validation_run": {
+      "properties": {
+        "scenario_consistency_digest": {
+          "type": "string"
+        },
+        "scenario_generation": {
+          "minimum": 1,
+          "type": "integer"
+        },
+        "snapshot_schema_version": {
+          "const": 13
+        }
+      },
+      "required": [
+        "snapshot_schema_version",
+        "scenario",
+        "scenario_generation",
+        "scenario_consistency_digest"
+      ],
+      "type": "object"
+    }
+  },
+  "required": [
+    "report_version",
+    "build",
+    "protocol_version",
+    "evidence_contract",
+    "scenario",
+    "validation_run"
+  ],
+  "type": "object"
+}

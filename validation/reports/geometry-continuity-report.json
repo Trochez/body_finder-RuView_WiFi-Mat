@@ -1,0 +1,6 @@
+{
+  "gate": "G6",
+  "physical_uptime_percent": "PENDING_G10 >=90",
+  "publication_schema": "GeometryPublicationV10",
+  "status": "PASS_AUTOMATED"
+}

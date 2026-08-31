@@ -122,13 +122,19 @@ private object ValidationRuntime {
   @Volatile private var baselinePeerStarvationRecoveryFailure: Long = 0
   @Volatile private var validationTruthJson: String = "{}"
   @Volatile private var authoritativeTruthLedgerJson: String = "{}"
+  @Volatile private var scenarioGeneration: Long = 0
+  @Volatile private var scenarioStartedWallMs: Long = 0
   @Volatile private var selectedCompletedRunId: String? = null
   private val completedRuns = java.util.ArrayDeque<CompletedValidationRun>()
 
   @Synchronized
-  fun start(now: Long, peerExpire: Long, rebind: Long, scanRestart: Long, tx: Long, rx: Long, preflightJson: String): String {
+  fun start(now: Long, peerExpire: Long, rebind: Long, scanRestart: Long, tx: Long, rx: Long, preflightJson: String, scenarioId: String): String {
     if (runId != null && endedWallMs == null) return runId!!
+    require(scenarioId.isNotBlank() && scenarioId != "UNSPECIFIED") { "SCENARIO_UNSPECIFIED" }
     val id = UUID.randomUUID().toString()
+    scenario = scenarioId
+    scenarioGeneration += 1
+    scenarioStartedWallMs = now
     runId = id
     startedWallMs = now
     endedWallMs = null
@@ -211,6 +217,7 @@ private object ValidationRuntime {
   fun updateTruth(json: String) {
     if (runId == null || endedWallMs != null) return
     val incoming = try { JSONObject(json) } catch (_: Throwable) { JSONObject() }
+    incoming.put("scenario", scenario).put("scenario_generation", scenarioGeneration).put("scenario_started_wall_ms", scenarioStartedWallMs)
     validationTruthJson = incoming.toString()
     val p = incoming.optJSONObject("authoritative_presence")
     val admissible = p != null && p.optBoolean("authoritative", false) && p.optString("canonical_digest").isNotBlank() && p.optString("decision_id").isNotBlank() && p.optJSONObject("canonical_replay_input") != null && p.optInt("contributing_nodes",0) >= 3 && p.optInt("contributing_links",0) >= 6 && p.optInt("physical_baselines",0) >= 3
@@ -317,7 +324,7 @@ private object ValidationRuntime {
       .put("peer_starvation_recovery_failure_delta", base.optLong("peer_starvation_recovery_failure_delta"))
     base
       .put("snapshot_frozen", true)
-      .put("snapshot_schema_version", 11)
+      .put("snapshot_schema_version", 13)
       .put("expected_peer_count_at_start", expectedPeerCountAtStart)
       .put("expected_peer_ids_at_start", JSONArray(expectedPeerIdsAtStart))
       .put("preflight_at_start", try { JSONObject(preflightAtStartJson) } catch (_: Throwable) { JSONObject() })
@@ -351,6 +358,9 @@ private object ValidationRuntime {
     if (frozenPresence == null || frozenPresence.optJSONObject("canonical_replay_input") == null) invalidReasons.put("MISSING_CANONICAL_REPLAY")
     if (frozenPresence != null && (frozenPresence.optInt("contributing_nodes",0) < 3 || frozenPresence.optInt("contributing_links",0) < 6 || frozenPresence.optInt("physical_baselines",0) < 3)) invalidReasons.put("INCOMPLETE_3_6_3_TOPOLOGY")
     val evidenceValid = invalidReasons.length() == 0
+    val scenarioMaterial="$id|$scenario|$scenarioGeneration|${startedWallMs ?: 0L}|$now"
+    val scenarioDigest="sha256:"+MessageDigest.getInstance("SHA-256").digest(scenarioMaterial.toByteArray(Charsets.UTF_8)).joinToString(""){"%02x".format(it)}
+    base.put("scenario",scenario).put("scenario_generation",scenarioGeneration).put("scenario_started_wall_ms",scenarioStartedWallMs).put("scenario_consistency_digest",scenarioDigest)
     base.put("evidence_export_valid", evidenceValid)
       .put("evidence_invalid_reasons", invalidReasons)
       .put("atomic_snapshot_gate_pass", evidenceValid)
@@ -414,6 +424,8 @@ private object ValidationRuntime {
       .put("active", runId != null && endedWallMs == null)
       .put("run_id", runId ?: JSONObject.NULL)
       .put("scenario", scenario)
+      .put("scenario_generation", scenarioGeneration)
+      .put("scenario_started_wall_ms", scenarioStartedWallMs)
       .put("started_wall_ms", start ?: JSONObject.NULL)
       .put("ended_wall_ms", endedWallMs ?: JSONObject.NULL)
       .put("snapshot_wall_ms", effectiveEnd)
@@ -464,7 +476,7 @@ private object ValidationRuntime {
       .put("ranging_real_result_delta", ((if (Build.VERSION.SDK_INT >= 36) SystemRangingApi36.counterSnapshot().realDistanceResults else 0) - baselineRangingReal).coerceAtLeast(0))
       .put("ranging_close_failure_delta", ((if (Build.VERSION.SDK_INT >= 36) SystemRangingApi36.counterSnapshot().closeFailures else 0) - baselineRangingClose).coerceAtLeast(0))
       .put("snapshot_frozen", false)
-      .put("snapshot_schema_version", 11)
+      .put("snapshot_schema_version", 13)
       .put("expected_peer_count_at_start", expectedPeerCountAtStart)
       .put("expected_peer_ids_at_start", JSONArray(expectedPeerIdsAtStart))
   }
@@ -484,6 +496,9 @@ private object ValidationRuntime {
       val j = JSONObject(run.snapshotJson)
       out.put(JSONObject()
         .put("run_id", run.runId)
+        .put("scenario", j.optString("scenario"))
+        .put("scenario_generation", j.optLong("scenario_generation"))
+        .put("scenario_consistency_digest", j.opt("scenario_consistency_digest"))
         .put("started_wall_ms", j.opt("started_wall_ms"))
         .put("ended_wall_ms", j.opt("ended_wall_ms"))
         .put("elapsed_ms", j.optLong("elapsed_ms"))
@@ -513,13 +528,16 @@ private object ValidationRuntime {
 }
 
 
-private object WireTransportV9 {
+private object WireTransportV10 {
   const val MAX_DATAGRAM_BYTES = 1200
   const val RANGE_FRAME_TARGET_BYTES = 1050
+  const val CONTROL_FRAME_TARGET_BYTES = 900
   private const val CHUNK_BYTES = 512
   private const val ASSEMBLY_TIMEOUT_MS = 15_000L
-  private const val NACK_INTERVAL_MS = 500L
+  private const val NACK_INTERVAL_MS = 1_000L
   private const val FULL_RETRY_MS = 3_000L
+  private const val MAX_RETRY_BACKOFF_MS = 12_000L
+  private const val ARTIFACT_WINDOW_CHUNKS = 4
   private const val MAX_ASSEMBLIES = 16
   private const val MAX_ARTIFACT_CACHE = 32
   private const val MAX_OUTBOUND = 16
@@ -533,7 +551,7 @@ private object WireTransportV9 {
   private data class CachedArtifact(val sha:String,val payload:JSONObject,val completedWallMs:Long)
   private data class OutboundArtifact(
     val artifactId:String,val artifactType:String,val sha:String,val generation:Long,val node:String,val session:String,
-    val chunks:List<ByteArray>,var seq:Long,var lastFullSendWallMs:Long=0L,
+    val chunks:List<ByteArray>,var seq:Long,var lastFullSendWallMs:Long=0L,var nextChunkIndex:Int=0,var retryBackoffMs:Long=FULL_RETRY_MS,var lastNackSignature:String="",var lastNackWallMs:Long=0L,
     val ackPeers:MutableSet<String> = java.util.concurrent.ConcurrentHashMap.newKeySet()
   )
   data class WireReply(val address:InetAddress,val frame:ByteArray)
@@ -549,6 +567,7 @@ private object WireTransportV9 {
   private val txBytesByType=java.util.concurrent.ConcurrentHashMap<String,java.util.concurrent.atomic.AtomicLong>()
   private val rxBytesByType=java.util.concurrent.ConcurrentHashMap<String,java.util.concurrent.atomic.AtomicLong>()
   private val maxBytesByType=java.util.concurrent.ConcurrentHashMap<String,java.util.concurrent.atomic.AtomicLong>()
+  private val oversizeDropByType=java.util.concurrent.ConcurrentHashMap<String,java.util.concurrent.atomic.AtomicLong>()
   val requiredFrameOversizeCount=java.util.concurrent.atomic.AtomicLong(0)
 
   val oversizeBlockCount=java.util.concurrent.atomic.AtomicLong(0)
@@ -588,7 +607,7 @@ private object WireTransportV9 {
     val o=JSONObject();m.keys.sorted().forEach{k->o.put(k,m[k]?.get()?:0L)};return o
   }
   private fun envelope(type:String,node:String,session:String,seq:Long,body:(JSONObject)->Unit):ByteArray {
-    val o=JSONObject().put("schema","WireEnvelopeV9").put("message_type",type).put("session_id",session).put("node_id",node).put("seq",seq)
+    val o=JSONObject().put("schema","WireEnvelopeV10").put("message_type",type).put("session_id",session).put("node_id",node).put("seq",seq)
     body(o)
     var b=o.toString().toByteArray(Charsets.UTF_8)
     o.put("wire_payload_bytes",b.size)
@@ -597,8 +616,9 @@ private object WireTransportV9 {
     b=o.toString().toByteArray(Charsets.UTF_8)
     maxDatagramBytesObserved.updateAndGet{v->kotlin.math.max(v,b.size.toLong())}
     maxBytesByType.computeIfAbsent(type){java.util.concurrent.atomic.AtomicLong(0)}.updateAndGet{v->kotlin.math.max(v,b.size.toLong())}
-    if(type=="RANGE_FRAME" && b.size>RANGE_FRAME_TARGET_BYTES){requiredFrameOversizeCount.incrementAndGet();oversizeBlockCount.incrementAndGet();throw IllegalStateException("WIRE_OVERSIZE_RANGE_FRAME_${b.size}")}
-    if(b.size>MAX_DATAGRAM_BYTES){if(type=="RANGE_FRAME")requiredFrameOversizeCount.incrementAndGet();oversizeBlockCount.incrementAndGet();throw IllegalStateException("WIRE_OVERSIZE_${type}_${b.size}")}
+    if(type=="RANGE_FRAME" && b.size>RANGE_FRAME_TARGET_BYTES){requiredFrameOversizeCount.incrementAndGet();oversizeBlockCount.incrementAndGet();oversizeDropByType.computeIfAbsent(type){java.util.concurrent.atomic.AtomicLong(0)}.incrementAndGet();throw IllegalStateException("WIRE_OVERSIZE_RANGE_FRAME_${b.size}")}
+    if(type=="CONTROL_FRAME" && b.size>CONTROL_FRAME_TARGET_BYTES){requiredFrameOversizeCount.incrementAndGet();oversizeBlockCount.incrementAndGet();oversizeDropByType.computeIfAbsent(type){java.util.concurrent.atomic.AtomicLong(0)}.incrementAndGet();throw IllegalStateException("WIRE_OVERSIZE_CONTROL_FRAME_${b.size}")}
+    if(b.size>MAX_DATAGRAM_BYTES){if(type in listOf("RANGE_FRAME","CONTROL_FRAME","GEOMETRY_FRAME","GEOMETRY_POSITION_FRAME"))requiredFrameOversizeCount.incrementAndGet();oversizeBlockCount.incrementAndGet();oversizeDropByType.computeIfAbsent(type){java.util.concurrent.atomic.AtomicLong(0)}.incrementAndGet();throw IllegalStateException("WIRE_OVERSIZE_${type}_${b.size}")}
     return b
   }
   private fun safeAdd(out:MutableList<ByteArray>,type:String,node:String,session:String,seq:Long,body:(JSONObject)->Unit){
@@ -640,7 +660,7 @@ private object WireTransportV9 {
   private fun manifestFrame(a:OutboundArtifact)=envelope("ARTIFACT_MANIFEST",a.node,a.session,a.seq){it.put("artifact_id",a.artifactId).put("artifact_type",a.artifactType).put("artifact_sha256",a.sha).put("artifact_size",a.chunks.sumOf{x->x.size}).put("chunk_count",a.chunks.size).put("generation",a.generation)}
   private fun chunkFrame(a:OutboundArtifact,index:Int,seq:Long=a.seq)=envelope("ARTIFACT_CHUNK",a.node,a.session,seq){val c=a.chunks[index];it.put("artifact_id",a.artifactId).put("artifact_sha256",a.sha).put("chunk_index",index).put("chunk_count",a.chunks.size).put("payload_crc32",crc32(c)).put("payload_b64",android.util.Base64.encodeToString(c,android.util.Base64.NO_WRAP))}
   private fun ackFrame(id:String,digest:String,seq:Long)=envelope("ARTIFACT_ACK",FabricRuntime.nodeId,FabricRuntime.sessionId,seq){it.put("artifact_id",id).put("artifact_sha256",digest).put("complete",true)}
-  private fun nackFrame(id:String,digest:String,missing:List<Int>,seq:Long)=envelope("ARTIFACT_NACK",FabricRuntime.nodeId,FabricRuntime.sessionId,seq){it.put("artifact_id",id).put("artifact_sha256",digest).put("missing_chunks",JSONArray(missing.take(64)))}
+  private fun nackFrame(id:String,digest:String,missing:List<Int>,seq:Long)=envelope("ARTIFACT_NACK",FabricRuntime.nodeId,FabricRuntime.sessionId,seq){it.put("artifact_id",id).put("artifact_sha256",digest).put("missing_chunks",JSONArray(missing.take(ARTIFACT_WINDOW_CHUNKS)))}
 
   fun frames(advertisement:JSONObject,node:String,session:String,seq:Long):List<ByteArray>{
     val out=mutableListOf<ByteArray>()
@@ -663,7 +683,7 @@ private object WireTransportV9 {
       val now=System.currentTimeMillis()
       for(a in artifacts.values){
         try{out+=manifestFrame(a)}catch(t:Throwable){lastSendError="${t.javaClass.simpleName}:${t.message}"}
-        if(a.ackPeers.size<EXPECTED_REMOTE_ACKS&&now-a.lastFullSendWallMs>=FULL_RETRY_MS){for(i in a.chunks.indices)try{out+=chunkFrame(a,i)}catch(t:Throwable){lastSendError="${t.javaClass.simpleName}:${t.message}"};a.lastFullSendWallMs=now}
+        if(a.ackPeers.size<EXPECTED_REMOTE_ACKS&&now-a.lastFullSendWallMs>=a.retryBackoffMs){val end=(a.nextChunkIndex+ARTIFACT_WINDOW_CHUNKS).coerceAtMost(a.chunks.size);for(i in a.nextChunkIndex until end)try{out+=chunkFrame(a,i)}catch(t:Throwable){lastSendError="${t.javaClass.simpleName}:${t.message}"};a.nextChunkIndex=if(end>=a.chunks.size)0 else end;if(a.nextChunkIndex==0)a.retryBackoffMs=(a.retryBackoffMs*2).coerceAtMost(MAX_RETRY_BACKOFF_MS);a.lastFullSendWallMs=now}
       }
     }
     val g=advertisement.optJSONObject("published_geometry")
@@ -687,20 +707,20 @@ private object WireTransportV9 {
   }
   fun consume(text:String,source:InetAddress):ConsumeResult{
     val o=try{JSONObject(text)}catch(t:Throwable){receiveErrorCount.incrementAndGet();lastReceiveError="${t.javaClass.simpleName}:${t.message}";return ConsumeResult(null,emptyList())}
-    if(o.optString("schema")!="WireEnvelopeV9")return ConsumeResult(o,emptyList())
+    if(o.optString("schema")!="WireEnvelopeV10")return ConsumeResult(o,emptyList())
     val bytes=text.toByteArray(Charsets.UTF_8);val type=o.optString("message_type");rxFrames.incrementAndGet();rxFramesByType.computeIfAbsent(type){java.util.concurrent.atomic.AtomicLong(0)}.incrementAndGet();rxBytesByType.computeIfAbsent(type){java.util.concurrent.atomic.AtomicLong(0)}.addAndGet(bytes.size.toLong());maxDatagramBytesObserved.updateAndGet{v->kotlin.math.max(v,bytes.size.toLong())}
     if(bytes.size>MAX_DATAGRAM_BYTES){oversizeBlockCount.incrementAndGet();return ConsumeResult(null,emptyList())}
     val session=o.optString("session_id");if(session!=FabricRuntime.sessionId)return ConsumeResult(null,emptyList());val node=o.optString("node_id");if(node.isBlank()||node==FabricRuntime.nodeId)return ConsumeResult(null,emptyList());val seq=o.optLong("seq",0L);val now=System.currentTimeMillis();val replies=mutableListOf<WireReply>()
     when(type){
       "HEARTBEAT"->{if(!applyDedup(o))return ConsumeResult(null,emptyList());val d=doc(node,session);for(k in listOf("protocol_version","instance_epoch","display_name","platform","coordinator_score","rssi_dbm","baseline_rssi_dbm","baseline_sigma_db","scanning","ble_identity","manual_geometry_override"))if(o.has(k))d.put(k,o.opt(k));return ConsumeResult(d,replies)}
-      "RANGE_FRAME"->{val key=o.optString("range_key");if(!applyDedup(o,key))return ConsumeResult(null,emptyList());val receiveMono=SystemClock.elapsedRealtimeNanos();val senderAge=o.optLong("sender_range_age_ms",-1L);if(senderAge<0L)return ConsumeResult(null,emptyList());val r=JSONObject().put("session_id",session).put("observer_node_id",o.optString("observer_node_id",node)).put("peer_node_id",o.optString("peer_node_id")).put("technology",o.optString("technology")).put("monotonic_ns",0L).put("sender_range_age_ms",senderAge).put("sender_temporal_state",o.optString("sender_temporal_state","FRESH")).put("sender_sequence",o.optLong("sender_sequence",seq)).put("instance_epoch",o.optString("instance_epoch")).put("received_local_monotonic_ns",receiveMono).put("effective_age_ms",senderAge).put("distance_m",o.opt("distance_m")).put("distance_sigma_m",o.opt("distance_sigma_m")).put("rssi_dbm",o.opt("rssi_dbm")).put("quality",o.optString("quality","LOW")).put("range_domain_state",o.optString("range_domain_state","FRESH")).put("range_status",o.optString("range_status","UNKNOWN")).put("source_detail","WireEnvelopeV9 compact range; foreign monotonic excluded from freshness arithmetic");val d=doc(node,session);d.put("instance_epoch",o.optString("instance_epoch"));updateRange(d,r);return ConsumeResult(d,replies)}
+      "RANGE_FRAME"->{val key=o.optString("range_key");if(!applyDedup(o,key))return ConsumeResult(null,emptyList());val receiveMono=SystemClock.elapsedRealtimeNanos();val senderAge=o.optLong("sender_range_age_ms",-1L);if(senderAge<0L)return ConsumeResult(null,emptyList());val r=JSONObject().put("session_id",session).put("observer_node_id",o.optString("observer_node_id",node)).put("peer_node_id",o.optString("peer_node_id")).put("technology",o.optString("technology")).put("monotonic_ns",0L).put("sender_range_age_ms",senderAge).put("sender_temporal_state",o.optString("sender_temporal_state","FRESH")).put("sender_sequence",o.optLong("sender_sequence",seq)).put("instance_epoch",o.optString("instance_epoch")).put("received_local_monotonic_ns",receiveMono).put("effective_age_ms",senderAge).put("distance_m",o.opt("distance_m")).put("distance_sigma_m",o.opt("distance_sigma_m")).put("rssi_dbm",o.opt("rssi_dbm")).put("quality",o.optString("quality","LOW")).put("range_domain_state",o.optString("range_domain_state","FRESH")).put("range_status",o.optString("range_status","UNKNOWN")).put("source_detail","WireEnvelopeV10 compact range; foreign monotonic excluded from freshness arithmetic");val d=doc(node,session);d.put("instance_epoch",o.optString("instance_epoch"));updateRange(d,r);return ConsumeResult(d,replies)}
       "CONTROL_FRAME"->{val key=o.optString("control_key");if(!applyDedup(o,key))return ConsumeResult(null,emptyList());val d=doc(node,session);val cp=d.optJSONObject("control_plane")?:JSONObject();val value=o.opt("control_value");if(key=="__meta__"&&value is JSONObject){value.keys().forEach{k->cp.put(k,value.opt(k))}}else cp.put(key,value);d.put("control_plane",cp);return ConsumeResult(d,replies)}
-      "GEOMETRY_FRAME"->{if(!applyDedup(o,"meta"))return ConsumeResult(null,emptyList());val d=doc(node,session);val g=o.optJSONObject("geometry")?:JSONObject();val existing=d.optJSONObject("published_geometry");if(existing!=null&&existing.has("positions"))g.put("positions",existing.optJSONArray("positions"));d.put("geometry_publisher_node_id",node);g.put("schema","GeometryPublicationV9").put("publisher_node_id",node).put("publisher_instance_epoch",o.optString("instance_epoch")).put("publication_session_id",session).put("publication_sequence",seq).put("received_local_monotonic_ns",SystemClock.elapsedRealtimeNanos());d.put("published_geometry",g);return ConsumeResult(d,replies)}
+      "GEOMETRY_FRAME"->{if(!applyDedup(o,"meta"))return ConsumeResult(null,emptyList());val d=doc(node,session);val g=o.optJSONObject("geometry")?:JSONObject();val existing=d.optJSONObject("published_geometry");if(existing!=null&&existing.has("positions"))g.put("positions",existing.optJSONArray("positions"));d.put("geometry_publisher_node_id",node);g.put("schema","GeometryPublicationV10").put("publisher_node_id",node).put("publisher_instance_epoch",o.optString("instance_epoch")).put("publication_session_id",session).put("publication_sequence",seq).put("received_local_monotonic_ns",SystemClock.elapsedRealtimeNanos());d.put("published_geometry",g);return ConsumeResult(d,replies)}
       "GEOMETRY_POSITION_FRAME"->{val p=o.optJSONObject("position")?:return ConsumeResult(null,emptyList());if(!applyDedup(o,p.optString("node_id")))return ConsumeResult(null,emptyList());val d=doc(node,session);updateGeometryPosition(d,p);return ConsumeResult(d,replies)}
       "ARTIFACT_MANIFEST"->{val id=o.optString("artifact_id");val digest=o.optString("artifact_sha256");val count=o.optInt("chunk_count");if(id.isBlank()||digest.isBlank()||count<=0||count>4096)return ConsumeResult(null,emptyList());val cached=cachedArtifact(id);if(cached!=null&&cached.sha==digest){artifactCacheHits.incrementAndGet();artifactAckTx.incrementAndGet();replies+=reply(source,ackFrame(id,digest,now));return ConsumeResult(artifactDoc(node,session,id,cached.payload,digest),replies)};assemblies.computeIfAbsent(id){artifactStarted.incrementAndGet();Assembly(id,o.optString("artifact_type"),digest,count,o.optLong("generation",0L),now,source)};return ConsumeResult(null,replies)}
       "ARTIFACT_CHUNK"->{val id=o.optString("artifact_id");val digest=o.optString("artifact_sha256");val count=o.optInt("chunk_count");val idx=o.optInt("chunk_index",-1);if(id.isBlank()||digest.isBlank()||idx !in 0 until count)return ConsumeResult(null,emptyList());val a=assemblies.computeIfAbsent(id){artifactStarted.incrementAndGet();Assembly(id,"UNKNOWN",digest,count,0L,now,source)};if(a.sha!=digest||a.count!=count){artifactFailed.incrementAndGet();return ConsumeResult(null,replies)};val chunk=try{android.util.Base64.decode(o.optString("payload_b64"),android.util.Base64.DEFAULT)}catch(_:Throwable){byteArrayOf()};if(chunk.size>CHUNK_BYTES||crc32(chunk)!=o.optLong("payload_crc32",-1L)){artifactFailed.incrementAndGet();artifactNackTx.incrementAndGet();replies+=reply(source,nackFrame(id,digest,listOf(idx),now));return ConsumeResult(null,replies)};if(a.chunks.putIfAbsent(idx,chunk)!=null)artifactDedupChunks.incrementAndGet();if(a.chunks.size==a.count){val payload=(0 until a.count).flatMap{(a.chunks[it]?:byteArrayOf()).toList()}.toByteArray();assemblies.remove(id);if(sha(payload)!=a.sha){artifactFailed.incrementAndGet();artifactNackTx.incrementAndGet();replies+=reply(source,nackFrame(id,digest,(0 until count).toList(),now));return ConsumeResult(null,replies)};val obj=try{JSONObject(String(payload,Charsets.UTF_8))}catch(_:Throwable){artifactFailed.incrementAndGet();return ConsumeResult(null,replies)};putArtifactCache(id,CachedArtifact(digest,obj,now));artifactCompleted.incrementAndGet();artifactAckTx.incrementAndGet();replies+=reply(source,ackFrame(id,digest,now));return ConsumeResult(artifactDoc(node,session,id,obj,digest),replies)};if(idx==count-1){val miss=missing(a);if(miss.isNotEmpty()){a.lastNackWallMs=now;artifactNackTx.incrementAndGet();replies+=reply(source,nackFrame(id,digest,miss,now))}};return ConsumeResult(null,replies)}
       "ARTIFACT_ACK"->{artifactAckRx.incrementAndGet();val id=o.optString("artifact_id");val a=outboundArtifact(id);if(a!=null&&a.sha==o.optString("artifact_sha256"))a.ackPeers.add(node);return ConsumeResult(null,replies)}
-      "ARTIFACT_NACK"->{artifactNackRx.incrementAndGet();val id=o.optString("artifact_id");val a=outboundArtifact(id)?:return ConsumeResult(null,replies);if(a.sha!=o.optString("artifact_sha256"))return ConsumeResult(null,replies);val miss=o.optJSONArray("missing_chunks")?:JSONArray();for(i in 0 until miss.length()){val idx=miss.optInt(i,-1);if(idx in a.chunks.indices){artifactRetransmitChunks.incrementAndGet();replies+=reply(source,chunkFrame(a,idx,now))}};return ConsumeResult(null,replies)}
+      "ARTIFACT_NACK"->{artifactNackRx.incrementAndGet();val id=o.optString("artifact_id");val a=outboundArtifact(id)?:return ConsumeResult(null,replies);if(a.sha!=o.optString("artifact_sha256"))return ConsumeResult(null,replies);val miss=o.optJSONArray("missing_chunks")?:JSONArray();val requested=(0 until miss.length()).map{miss.optInt(it,-1)}.filter{it in a.chunks.indices}.distinct().sorted();val sig=requested.joinToString(",");if(sig==a.lastNackSignature&&now-a.lastNackWallMs<NACK_INTERVAL_MS)return ConsumeResult(null,replies);a.lastNackSignature=sig;a.lastNackWallMs=now;for(idx in requested.take(ARTIFACT_WINDOW_CHUNKS)){artifactRetransmitChunks.incrementAndGet();replies+=reply(source,chunkFrame(a,idx,now))};return ConsumeResult(null,replies)}
       else->{unknownFrameCount.incrementAndGet();return ConsumeResult(null,replies)}
     }
   }
@@ -712,8 +732,8 @@ private object WireTransportV9 {
   }
   fun noteReceiveError(t:Throwable){receiveErrorCount.incrementAndGet();lastReceiveError="${t.javaClass.simpleName}:${t.message}"}
   fun telemetry()=JSONObject()
-    .put("schema","WireTransportTelemetryV9").put("max_datagram_budget_bytes",MAX_DATAGRAM_BYTES).put("range_frame_target_bytes",RANGE_FRAME_TARGET_BYTES).put("chunk_payload_bytes",CHUNK_BYTES)
-    .put("max_datagram_bytes_observed",maxDatagramBytesObserved.get()).put("max_datagram_bytes_by_type",mapJson(maxBytesByType)).put("wire_oversize_block_count",oversizeBlockCount.get()).put("required_frame_oversize_count",requiredFrameOversizeCount.get())
+    .put("schema","WireTransportTelemetryV10").put("max_datagram_budget_bytes",MAX_DATAGRAM_BYTES).put("range_frame_target_bytes",RANGE_FRAME_TARGET_BYTES).put("control_frame_target_bytes",CONTROL_FRAME_TARGET_BYTES).put("chunk_payload_bytes",CHUNK_BYTES).put("artifact_window_chunks",ARTIFACT_WINDOW_CHUNKS)
+    .put("max_datagram_bytes_observed",maxDatagramBytesObserved.get()).put("max_datagram_bytes_by_type",mapJson(maxBytesByType)).put("oversize_drop_by_type",mapJson(oversizeDropByType)).put("wire_oversize_block_count",oversizeBlockCount.get()).put("required_frame_oversize_count",requiredFrameOversizeCount.get())
     .put("wire_send_error_count",sendErrorCount.get()).put("wire_last_send_error",lastSendError?:JSONObject.NULL).put("wire_receive_error_count",receiveErrorCount.get()).put("wire_last_receive_error",lastReceiveError?:JSONObject.NULL)
     .put("tx_frames",txFrames.get()).put("rx_frames",rxFrames.get()).put("tx_frames_by_type",mapJson(txFramesByType)).put("rx_frames_by_type",mapJson(rxFramesByType)).put("tx_bytes_by_type",mapJson(txBytesByType)).put("rx_bytes_by_type",mapJson(rxBytesByType))
     .put("artifact_transfer_started",artifactStarted.get()).put("artifact_transfer_completed",artifactCompleted.get()).put("artifact_transfer_failed",artifactFailed.get()).put("artifact_reassembly_pending",assemblies.size)
@@ -991,8 +1011,7 @@ class BodyFinderNativeModule : Module() {
     }
     Function("startValidationRun") { scenario: String ->
       if (scenario.isBlank() || scenario == "UNSPECIFIED") return@Function "VALIDATION_ENVIRONMENT_INVALID:SCENARIO_REQUIRED"
-      ValidationRuntime.scenario = scenario
-      val ctx = appContext.reactContext ?: return@Function "VALIDATION_ENVIRONMENT_INVALID:NO_CONTEXT"
+            val ctx = appContext.reactContext ?: return@Function "VALIDATION_ENVIRONMENT_INVALID:NO_CONTEXT"
       var now = System.currentTimeMillis()
       val previousStrategy = BleAcquisitionPolicy.currentStrategy()
       var sessionBoundaryReset = false
@@ -1020,6 +1039,7 @@ class BodyFinderNativeModule : Module() {
         FabricRuntime.txPackets.get(),
         FabricRuntime.rxPackets.get(),
         preflight.toString(),
+        scenario,
       )
       setValidationKeepAwake(true)
       id
@@ -2239,7 +2259,7 @@ class BodyFinderNativeModule : Module() {
     put("rx_same_session_packets", FabricRuntime.rxSameSessionPackets.get())
     put("peer_count_active", FabricRuntime.peers.size)
     put("peer_expire_count", FabricRuntime.peerExpireCount.get())
-    put("wire_transport_v8", WireTransportV9.telemetry())
+    put("wire_transport_v10", WireTransportV10.telemetry())
     val peers = JSONArray()
     FabricRuntime.peerPacketCounts.forEach { (nodeId, count) ->
       val lastSeen = FabricRuntime.peerLastSeenWallMs[nodeId]
@@ -2280,7 +2300,7 @@ class BodyFinderNativeModule : Module() {
     ValidationRuntime.observe(now, FabricRuntime.peers.size, evidenceReady, freshMetricReady, usableMetricReady)
     return JSONObject()
       .put("diagnostic_contract", JSONObject()
-        .put("schema", "dev16-self-contained-json-evidence-v4")
+        .put("schema", "dev20.10-self-contained-json-evidence-v13")
         .put("screenshots_required", false)
         .put("json_self_contained", true)
         .put("contains_runtime_preflight", true)
@@ -2288,7 +2308,7 @@ class BodyFinderNativeModule : Module() {
         .put("contains_recovery_causality", true)
         .put("contains_frozen_geometry", true))
       .put("validation_preflight", validationPreflight(ctx, now).put("runtime_live", true).put("not_acceptance_evidence", true))
-      .put("evidence_contract", JSONObject().put("schema", "dev16-self-contained-json-evidence-v4").put("screenshots_required", false).put("json_self_contained", true))
+      .put("evidence_contract", JSONObject().put("schema", "dev20.10-self-contained-json-evidence-v13").put("screenshots_required", false).put("json_self_contained", true))
       .put("ble_diagnostics", bleDiagnostics(ctx, now))
       .put("fabric_diagnostics", fabricDiagnostics(now))
       .put("lifecycle_diagnostics", lifecycleDiagnostics(ctx))
@@ -2354,7 +2374,7 @@ class BodyFinderNativeModule : Module() {
     put("position", JSONObject.NULL)
     put("scanning", FabricRuntime.scanning)
     put("ble_identity", bleIdentity())
-    put("wire_transport_v8", WireTransportV9.telemetry())
+    put("wire_transport_v10", WireTransportV10.telemetry())
     put("ranges", rangeObservations())
     put("manual_geometry_override", false)
     val controlPlane = FabricRuntime.controlPlaneJson
@@ -2493,12 +2513,12 @@ class BodyFinderNativeModule : Module() {
           if (now >= nextSend) {
             val ad = advertisement(ctx)
             try {
-              val frames = WireTransportV9.frames(ad, FabricRuntime.nodeId, FabricRuntime.sessionId, now)
-              WireTransportV9.send(socket, groupAddress, PORT, frames)
-              WireTransportV9.send(socket, broadcastAddress, PORT, frames)
+              val frames = WireTransportV10.frames(ad, FabricRuntime.nodeId, FabricRuntime.sessionId, now)
+              WireTransportV10.send(socket, groupAddress, PORT, frames)
+              WireTransportV10.send(socket, broadcastAddress, PORT, frames)
             } catch (t: Throwable) {
-              WireTransportV9.sendErrorCount.incrementAndGet()
-              WireTransportV9.lastSendError = "${t.javaClass.simpleName}:${t.message}"
+              WireTransportV10.sendErrorCount.incrementAndGet()
+              WireTransportV10.lastSendError = "${t.javaClass.simpleName}:${t.message}"
             }
             nextSend = now + 800L
           }
@@ -2507,8 +2527,8 @@ class BodyFinderNativeModule : Module() {
             socket.receive(packet)
             FabricRuntime.rxPackets.incrementAndGet()
             val text = String(packet.data, packet.offset, packet.length, Charsets.UTF_8)
-            val consumed = WireTransportV9.consume(text, packet.address)
-            for (reply in consumed.replies) WireTransportV9.send(socket, reply.address, PORT, listOf(reply.frame))
+            val consumed = WireTransportV10.consume(text, packet.address)
+            for (reply in consumed.replies) WireTransportV10.send(socket, reply.address, PORT, listOf(reply.frame))
             val obj = consumed.document ?: continue
             if (obj.optInt("protocol_version") == PROTOCOL) FabricRuntime.rxProtocolV2Packets.incrementAndGet()
             val remoteId = obj.optString("node_id")
@@ -2539,8 +2559,8 @@ class BodyFinderNativeModule : Module() {
               FabricRuntime.peerStaleSinceWallMs.remove(remoteId)
             }
           } catch (_: java.net.SocketTimeoutException) {
-          } catch (t: Throwable) { WireTransportV9.noteReceiveError(t) }
-          for (reply in WireTransportV9.maintenance(now)) WireTransportV9.send(socket, reply.address, PORT, listOf(reply.frame))
+          } catch (t: Throwable) { WireTransportV10.noteReceiveError(t) }
+          for (reply in WireTransportV10.maintenance(now)) WireTransportV10.send(socket, reply.address, PORT, listOf(reply.frame))
           expirePeers(ctx, now)
         }
       } catch (e: Throwable) {

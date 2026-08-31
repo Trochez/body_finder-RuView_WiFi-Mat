@@ -100,7 +100,7 @@ export type GeometrySelection = {
   source:
     | 'LOCAL_ELECTED_COORDINATOR'
     | 'ELECTED_COORDINATOR_PUBLICATION'
-    | 'COORDINATOR_PUBLICATION_V9'
+    | 'COORDINATOR_PUBLICATION_V10'
     | 'LOCAL_DETERMINISTIC_FALLBACK_AWAITING_COORDINATOR_PUBLICATION';
   publication_rejection_reason?: string | null;
 };
@@ -601,7 +601,7 @@ export function chooseCoordinatorGeometry(
   if (coordinator.geometry_publisher_node_id !== coordinatorNodeId || publication.publisher_node_id !== coordinatorNodeId) return { solution: localSolution, source: 'LOCAL_DETERMINISTIC_FALLBACK_AWAITING_COORDINATOR_PUBLICATION', publication_rejection_reason: 'WRONG_COORDINATOR_PUBLISHER' };
   if (publication.publication_session_id && publication.publication_session_id !== coordinator.session_id) return { solution: localSolution, source: 'LOCAL_DETERMINISTIC_FALLBACK_AWAITING_COORDINATOR_PUBLICATION', publication_rejection_reason: 'PUBLICATION_SESSION_MISMATCH' };
   if (!publication.frame_id || !Array.isArray(publication.positions)) return { solution: localSolution, source: 'LOCAL_DETERMINISTIC_FALLBACK_AWAITING_COORDINATOR_PUBLICATION', publication_rejection_reason: 'PUBLICATION_MALFORMED' };
-  return { solution: publication, source: 'COORDINATOR_PUBLICATION_V9', publication_rejection_reason: null };
+  return { solution: publication, source: 'COORDINATOR_PUBLICATION_V10', publication_rejection_reason: null };
 }
 
 export function estimateHuman(nodes: Advertisement[], geometry: GeometrySolution | null): HumanEstimate | null {

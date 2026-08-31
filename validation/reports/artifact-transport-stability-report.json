@@ -1,0 +1,12 @@
+{
+  "gate": "G4",
+  "nack_dedup": true,
+  "retry_backoff_ms": [
+    3000,
+    6000,
+    12000
+  ],
+  "status": "PASS",
+  "unbounded_retry_storm": false,
+  "window_chunks": 4
+}

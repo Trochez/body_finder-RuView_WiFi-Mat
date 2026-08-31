@@ -1,0 +1,9 @@
+{
+  "evidence_schema": "dev20.10-self-contained-json-evidence-v13",
+  "gate": "G8",
+  "release": "dev-20.10",
+  "report_version": 30,
+  "snapshot_schema": 13,
+  "status": "PASS",
+  "wire_path": "fabric_diagnostics.wire_transport_v10"
+}

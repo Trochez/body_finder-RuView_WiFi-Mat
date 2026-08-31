@@ -3,8 +3,8 @@ use serde_json::{json, Value};
 use sha2::{Digest, Sha256};
 use std::collections::{BTreeMap, BTreeSet};
 
-pub const ALGORITHM_VERSION: &str = "deterministic-multinode-rssi-fusion-v8";
-pub const PARAMETER_HASH: &str = "5d404d404e08d33cd179aa8657edd93f1e51885f5dfa1268af228465642a8d39";
+pub const ALGORITHM_VERSION: &str = "deterministic-multinode-rssi-fusion-v9";
+pub const PARAMETER_HASH: &str = "f5795d40fbfb1de728b8576e214b249ada67f70d7962e1bf7794eb9c7d251f17";
 pub const CALIBRATION_MIN_SAMPLES: usize = 30;
 pub const OBSERVATION_MIN_SAMPLES: usize = 24;
 pub const QUALITY_REFERENCE_SAMPLES: usize = 24;
@@ -567,7 +567,7 @@ fn invalid(
 fn finish(input: &InferenceInput, core: InferenceCore) -> InferenceResult {
     let digest = sha(&serde_json::to_vec(&core).expect("serialize result"));
     let decision_id = format!(
-        "d208-{}",
+        "d210-{}",
         digest
             .trim_start_matches("sha256:")
             .chars()
@@ -581,7 +581,7 @@ fn finish(input: &InferenceInput, core: InferenceCore) -> InferenceResult {
         decision_id,
         authoritative: true,
         source: "canonical_shared_rust_engine".into(),
-        publication_contract_version: 8,
+        publication_contract_version: 9,
         canonical_replay_input: replay,
     }
 }
@@ -737,8 +737,12 @@ pub fn infer(mut input: InferenceInput) -> InferenceResult {
         .collect();
     let transition_support = transition_phys.len() as f64 / phys.len() as f64;
     let distributed_motion = dynamic_links >= 3 && dynamic_phys.len() >= 2 && recip >= 0.35;
-    let coherent_low_amplitude_motion =
-        fused >= 0.26 && base >= 0.20 && recip >= 0.70 && cross >= (1.0 / 6.0) && bs >= (1.0 / 3.0);
+    let coherent_low_amplitude_motion = fused >= 0.26
+        && base >= 0.20
+        && recip >= 0.70
+        && cross >= (1.0 / 6.0)
+        && bs >= (1.0 / 3.0)
+        && transition_phys.len() >= 2;
     // V8 negative evidence is feature-level, not a global-threshold retune. The dev20.7 EMPTY
     // signature had zero dynamic links/baselines with only 1/6 cross-link and 1/3 baseline support.
     let distributed_negative_evidence = fused <= 0.30

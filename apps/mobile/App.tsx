@@ -171,7 +171,7 @@ export default function App() {
     geometry,
     locally_computed_geometry: computedGeometry,
     authoritative_presence: presence,
-    scenario: validationScenario,
+    scenario: validationRun?.active ? (validationRun?.scenario ?? validationScenario) : validationScenario,
     human_presence_calibration_status: getSessionPresenceCalibration(nodes),
     coordinator_node_id: coordinator,
     fused_range_observations: geometryNodes.flatMap(node => node.ranges ?? []),
@@ -184,7 +184,7 @@ export default function App() {
       holdover_metric_edge_count: graphDiagnostics.holdover_metric_edge_count,
       geometry_temporal_quality: graphDiagnostics.geometry_temporal_quality,
     },
-  }), [geometry, computedGeometry, presence, coordinator, geometryNodes, graphDiagnostics, fused.diagnostics, validationScenario]);
+  }), [geometry, computedGeometry, presence, coordinator, geometryNodes, graphDiagnostics, fused.diagnostics, validationScenario, validationRun?.active, validationRun?.scenario]);
 
   useEffect(() => {
     try { BodyFinderNative.updateValidationTruthJson(JSON.stringify(validationTruth)); } catch {}
@@ -318,14 +318,14 @@ export default function App() {
       json_self_contained: true, screenshots_required: false,
       export_metadata: {
         device_alias: deviceAlias, device_manufacturer: caps?.manufacturer ?? null, device_model: caps?.model ?? null,
-        node_id: local?.node_id ?? null, run_id: selectedRunId, run_type: runType, snapshot_stage: snapshotStage, scenario: selectedRun?.scenario ?? validationScenario,
+        node_id: local?.node_id ?? null, run_id: selectedRunId, run_type: runType, snapshot_stage: snapshotStage, scenario: selectedRun?.scenario ?? null,
         elapsed_ms: selectedRun?.elapsed_ms ?? null, snapshot_frozen: selectedRun?.snapshot_frozen ?? false,
         source_long_run_id: sourceLongRunId, export_sequence: exportSequence, generated_at: new Date().toISOString(),
         build: BUILD, protocol_version: 2, suggested_filename: suggestedFilename,
       },
       truth: 'LIVE_DEVICE_CAPABILITIES__VALIDATED_COARSE_BLE_METRIC_0P5_TO_5M__BOUNDED_HOLDOVER__ADAPTIVE_FILTERED_PRIMARY_WITH_FULL_COHORT_AND_PER_PEER_STARVATION_RECOVERY__RANGING_MANAGER_BLE_YIELD__RECIPROCAL_FUSION__AUTOGEOMETRY_EXPERIMENTAL_NOT_RESCUE_VALIDATED',
       evidence_contract: {
-        schema: 'dev20.8-self-contained-json-evidence-v11', screenshots_required: false, json_self_contained: true,
+        schema: 'dev20.10-self-contained-json-evidence-v13', screenshots_required: false, json_self_contained: true,
         required_external_input: 'ground_truth_and_scenario_metadata_only_for_final_validator',
         diagnostic_source: 'this JSON export',
       },
@@ -333,7 +333,7 @@ export default function App() {
       human_presence_preview: authoritativeSnapshot,
       human_presence_calibration_status: calibrationStatusSnapshot,
       snapshot_consistency_digest: authoritativeSnapshot?.canonical_digest ?? null,
-      scenario: selectedRun?.scenario ?? validationScenario,
+      scenario: selectedRun?.scenario ?? null,
       human_localization_validated: RELEASE.humanLocalizationValidated, rescue_use_validated: RELEASE.rescueUseValidated,
       export_auto_finalized_validation_run: autoFinalizedValidationRun,
       node_id: local?.node_id ?? null, capabilities: caps,
@@ -341,7 +341,7 @@ export default function App() {
       fabric_diagnostics: freshDiagnostics?.fabric_diagnostics ?? null,
       lifecycle_diagnostics: freshDiagnostics?.lifecycle_diagnostics ?? null,
       validation_preflight: freshDiagnostics?.validation_preflight ?? null,
-      diagnostic_contract: {...(freshDiagnostics?.diagnostic_contract ?? {}), schema:'dev20.5-diagnostic-contract-v8'},
+      diagnostic_contract: {...(freshDiagnostics?.diagnostic_contract ?? {}), schema:'dev20.10-diagnostic-contract-v13'},
       selected_validation_run_id: freshDiagnostics?.selected_validation_run_id ?? null,
       validation_run: freshDiagnostics?.validation_run ?? null,
       completed_validation_runs_summary: freshDiagnostics?.completed_validation_runs_summary ?? [],

@@ -1,0 +1,85 @@
+{
+  "build": "0.2.0-experimental.20.10",
+  "evidence_contract": {
+    "schema": "dev20.10-self-contained-json-evidence-v13"
+  },
+  "export_metadata": {
+    "device_model": "Pixel 10 Pro",
+    "node_id": "node-1",
+    "scenario": "SMOKE_CAL_EMPTY"
+  },
+  "fabric_diagnostics": {
+    "wire_transport_v10": {
+      "artifact_transfer_health": "HEALTHY",
+      "max_datagram_bytes_by_type": {
+        "CONTROL_FRAME": 850,
+        "RANGE_FRAME": 700
+      },
+      "max_datagram_bytes_observed": 900,
+      "required_frame_oversize_count": 0,
+      "rx_frames_by_type": {
+        "RANGE_FRAME": 20
+      },
+      "schema": "WireTransportTelemetryV10",
+      "tx_frames_by_type": {
+        "RANGE_FRAME": 20
+      },
+      "wire_oversize_block_count": 0
+    }
+  },
+  "human_presence_preview": {
+    "authoritative": true,
+    "canonical_digest": "sha256:smoke_cal_empty-shared",
+    "canonical_replay_input": {
+      "operation": "INFER"
+    },
+    "contributing_links": 6,
+    "contributing_nodes": 3,
+    "decision_id": "d210-smoke_cal_empty-shared",
+    "physical_baselines": 3,
+    "prediction": "NO_HUMAN_EVIDENCE"
+  },
+  "json_self_contained": true,
+  "node_id": "node-1",
+  "protocol_version": 2,
+  "report_version": 30,
+  "scenario": "SMOKE_CAL_EMPTY",
+  "screenshots_required": false,
+  "validation_run": {
+    "acquisition_state_at_end": {
+      "recovery_attempts_max_in_any_rolling_5min_window": 0
+    },
+    "atomic_snapshot_gate_pass": true,
+    "elapsed_ms": 330001,
+    "environment_valid": true,
+    "evidence_export_valid": true,
+    "geometry_2d_uptime_percent": 99.1,
+    "peer_expire_delta": 0,
+    "scenario": "SMOKE_CAL_EMPTY",
+    "scenario_consistency_digest": "sha256:scenario",
+    "scenario_generation": 1,
+    "scenario_started_wall_ms": 1000,
+    "snapshot_schema_version": 13,
+    "usable_metric_range_uptime_percent": 99.1,
+    "validation_truth": {
+      "authoritative_presence": {
+        "authoritative": true,
+        "canonical_digest": "sha256:smoke_cal_empty-shared",
+        "canonical_replay_input": {
+          "operation": "INFER"
+        },
+        "contributing_links": 6,
+        "contributing_nodes": 3,
+        "decision_id": "d210-smoke_cal_empty-shared",
+        "physical_baselines": 3,
+        "prediction": "NO_HUMAN_EVIDENCE"
+      },
+      "human_presence_calibration_status": {
+        "calibration_hash": "sha256:cal-shared",
+        "calibration_id": "cal-shared",
+        "generation": 1,
+        "topology_fingerprint": "nodes-3"
+      }
+    }
+  }
+}

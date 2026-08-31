@@ -1,0 +1,18 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": true,
+  "properties": {
+    "schema": {
+      "const": "WireEnvelopeV10"
+    }
+  },
+  "required": [
+    "schema",
+    "message_type",
+    "session_id",
+    "node_id",
+    "seq"
+  ],
+  "title": "WireEnvelopeV10",
+  "type": "object"
+}

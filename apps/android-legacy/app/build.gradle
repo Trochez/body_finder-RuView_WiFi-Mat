@@ -2,7 +2,7 @@ plugins { id 'com.android.application' }
 android {
     namespace 'com.trochez.bodyfinderruview.legacy'
     compileSdk 36
-    defaultConfig { applicationId 'com.trochez.bodyfinderruview.legacy'; minSdk 21; targetSdk 36; versionCode 29; versionName '0.2.0-experimental.20.9-legacy' }
+    defaultConfig { applicationId 'com.trochez.bodyfinderruview.legacy'; minSdk 21; targetSdk 36; versionCode 30; versionName '0.2.0-experimental.20.10-legacy' }
     buildTypes { release { minifyEnabled false; signingConfig signingConfigs.debug } }
 }
 

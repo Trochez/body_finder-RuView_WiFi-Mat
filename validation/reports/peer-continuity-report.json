@@ -1,0 +1,7 @@
+{
+  "causal_remediation": "control/artifact traffic bounded and required liveness frames prioritized by bounded chunk generation",
+  "gate": "G5",
+  "peer_timeout_threshold_changed": false,
+  "physical_api30_api34_api37": "PENDING_G10",
+  "status": "PASS_AUTOMATED"
+}

@@ -1,0 +1,13 @@
+{
+  "algorithm_version": "deterministic-multinode-rssi-fusion-v9",
+  "global_thresholds": {
+    "disturbed": 0.32,
+    "human": 0.5,
+    "no_human": 0.2
+  },
+  "parameter_hash": "f5795d40fbfb1de728b8576e214b249ada67f70d7962e1bf7794eb9c7d251f17",
+  "threshold_only_change": false,
+  "v9_feature_rule": {
+    "coherent_low_amplitude_requires_transition_physical_baselines": 2
+  }
+}

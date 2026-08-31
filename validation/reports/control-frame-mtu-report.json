@@ -1,0 +1,12 @@
+{
+  "boundary_vectors": [
+    1199,
+    1200,
+    1201
+  ],
+  "control_target_bytes": 900,
+  "gate": "G3",
+  "hard_datagram_budget_bytes": 1200,
+  "oversize_required": "hard fail",
+  "status": "PASS"
+}

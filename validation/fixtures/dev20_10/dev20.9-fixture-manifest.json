@@ -1,0 +1,13 @@
+{
+  "expected_internal_scenario_for_all_six_in_dev20_9": "SMOKE_CAL_EMPTY",
+  "note": "raw user exports are not relabeled or synthesized",
+  "physical_source_files": [
+    "lenovo-empty-cal.json",
+    "lenovo-human.json",
+    "pixel-7-empty-cal.json",
+    "pixel-7-human.json",
+    "pixel-10-empty-cal.json",
+    "pixel-10-human.json"
+  ],
+  "role": "immutable failed-G10 evidence anchors"
+}

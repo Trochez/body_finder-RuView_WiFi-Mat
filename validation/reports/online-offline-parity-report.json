@@ -1,0 +1,7 @@
+{
+  "algorithm": "deterministic-multinode-rssi-fusion-v9",
+  "canonical_replay_required": true,
+  "fresh_physical_confirmation": "PENDING_G10",
+  "gate": "G8",
+  "status": "PASS_AUTOMATED"
+}

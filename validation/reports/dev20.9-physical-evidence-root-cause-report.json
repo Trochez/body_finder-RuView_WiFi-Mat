@@ -1,0 +1,32 @@
+{
+  "confirmed": [
+    {
+      "category": "SCENARIO",
+      "finding": "all six physical exports internally reported SMOKE_CAL_EMPTY"
+    },
+    {
+      "category": "AUTHORITY",
+      "finding": "post-End live decision/calibration expiry could replace completed acceptance truth on Lenovo/Pixel7"
+    },
+    {
+      "category": "TRANSPORT",
+      "finding": "CONTROL_FRAME reached 2014 B and artifact retries sent all chunks repeatedly"
+    },
+    {
+      "category": "DETECTOR",
+      "finding": "Pixel10 EMPTY activated coherent_low_amplitude_motion with only one physical transition baseline"
+    },
+    {
+      "category": "CONTRACT",
+      "finding": "snapshot/wire/validator labels drifted"
+    }
+  ],
+  "constraints": {
+    "ble_calibration_retuned": false,
+    "foreign_monotonic_used_for_freshness": false,
+    "global_detector_thresholds_changed": false
+  },
+  "release": "dev-20.10",
+  "schema_version": 13,
+  "source_release": "dev-20.9"
+}

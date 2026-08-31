@@ -1,0 +1,24 @@
+{
+  "categories": [
+    "SCENARIO",
+    "ACQUISITION",
+    "GEOMETRY",
+    "TRANSPORT",
+    "ARTIFACT",
+    "AUTHORITY",
+    "DETECTOR",
+    "CONTRACT"
+  ],
+  "expected": "NO_GO",
+  "physical_source_files": [
+    "lenovo-empty-cal.json",
+    "lenovo-human.json",
+    "pixel-7-empty-cal.json",
+    "pixel-7-human.json",
+    "pixel-10-empty-cal.json",
+    "pixel-10-human.json"
+  ],
+  "schema_version": 13,
+  "source_evidence_policy": "immutable external physical evidence; filenames never ground truth",
+  "source_release": "dev-20.9"
+}

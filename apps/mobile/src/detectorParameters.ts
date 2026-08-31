@@ -1,5 +1,5 @@
-export const DETECTOR_ALGORITHM = 'deterministic-multinode-rssi-fusion-v8';
-export const DETECTOR_PARAMETER_HASH = '5d404d404e08d33cd179aa8657edd93f1e51885f5dfa1268af228465642a8d39';
+export const DETECTOR_ALGORITHM = 'deterministic-multinode-rssi-fusion-v9';
+export const DETECTOR_PARAMETER_HASH = 'f5795d40fbfb1de728b8576e214b249ada67f70d7962e1bf7794eb9c7d251f17';
 export const DETECTOR_V8 = Object.freeze({
   calibrationMinSamplesPerLink:30, observationMinSamplesPerLink:24, qualityReferenceSamples:24, minMeanQuality:0.80,
   calibrationMinOverlapMs:1500, inferenceMinOverlapMs:1500, minObserverNodes:3, minDirectionalLinks:6, minPhysicalBaselines:3,

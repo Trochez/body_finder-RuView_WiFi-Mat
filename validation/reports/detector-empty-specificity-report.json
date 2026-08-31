@@ -1,0 +1,9 @@
+{
+  "algorithm": "deterministic-multinode-rssi-fusion-v9",
+  "fresh_physical_confirmation": "PENDING_G10",
+  "gate": "G7",
+  "global_thresholds_changed": false,
+  "parameter_hash": "f5795d40fbfb1de728b8576e214b249ada67f70d7962e1bf7794eb9c7d251f17",
+  "status": "PASS_DEVELOPMENT",
+  "v9_feature_change": "coherent low-amplitude motion requires transition support on >=2 physical baselines"
+}

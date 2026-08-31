@@ -1,0 +1,12 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": true,
+  "required": [
+    "artifact_id",
+    "artifact_type",
+    "artifact_sha256",
+    "chunk_count"
+  ],
+  "title": "ArtifactManifestV2",
+  "type": "object"
+}

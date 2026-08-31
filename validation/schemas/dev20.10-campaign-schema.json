@@ -1,0 +1,13 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": true,
+  "properties": {
+    "export_count": {
+      "const": 54
+    },
+    "release": {
+      "const": "dev-20.10"
+    }
+  },
+  "type": "object"
+}
