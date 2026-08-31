@@ -1,0 +1,17 @@
+{
+  "release": "dev-20.7",
+  "build": "0.2.0-experimental.20.7",
+  "algorithm_version": "deterministic-multinode-rssi-fusion-v7",
+  "parameter_hash": "7ff358bc4b1f92211e3a32d31285f5ab591c6fb79585c6b99814c1d0383d945d",
+  "gate": "G6",
+  "status": "PASS_ENGINEERING",
+  "original_failures": 9,
+  "closure": [
+    "DecisionPublicationV7",
+    "30s fresh/60s expiry",
+    "native authoritative ledger",
+    "v10 frozen export",
+    "coherent low-amplitude detector gate"
+  ],
+  "physical_retest": "PENDING_G10"
+}

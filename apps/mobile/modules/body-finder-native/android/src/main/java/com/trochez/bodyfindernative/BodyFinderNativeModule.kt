@@ -120,6 +120,7 @@ private object ValidationRuntime {
   @Volatile private var baselinePeerStarvationRecoverySuccess: Long = 0
   @Volatile private var baselinePeerStarvationRecoveryFailure: Long = 0
   @Volatile private var validationTruthJson: String = "{}"
+  @Volatile private var authoritativeTruthLedgerJson: String = "{}"
   @Volatile private var selectedCompletedRunId: String? = null
   private val completedRuns = java.util.ArrayDeque<CompletedValidationRun>()
 
@@ -177,6 +178,7 @@ private object ValidationRuntime {
     baselinePeerStarvationRecoverySuccess = BleAcquisitionPolicy.peerStarvationRecoverySuccessCount()
     baselinePeerStarvationRecoveryFailure = BleAcquisitionPolicy.peerStarvationRecoveryFailureCount()
     validationTruthJson = "{}"
+    authoritativeTruthLedgerJson = "{}"
     ValidationEventLog.record("VALIDATION_RUN_STARTED", id, now = now)
     return id
   }
@@ -207,7 +209,11 @@ private object ValidationRuntime {
   @Synchronized
   fun updateTruth(json: String) {
     if (runId == null || endedWallMs != null) return
-    validationTruthJson = try { JSONObject(json).toString() } catch (_: Throwable) { "{}" }
+    val incoming = try { JSONObject(json) } catch (_: Throwable) { JSONObject() }
+    validationTruthJson = incoming.toString()
+    val p = incoming.optJSONObject("authoritative_presence")
+    val admissible = p != null && p.optBoolean("authoritative", false) && p.optString("canonical_digest").isNotBlank() && p.optString("decision_id").isNotBlank() && p.optJSONObject("canonical_replay_input") != null && p.optInt("contributing_nodes",0) >= 3 && p.optInt("contributing_links",0) >= 6 && p.optInt("physical_baselines",0) >= 3
+    if (admissible) authoritativeTruthLedgerJson = incoming.toString()
   }
 
   @Synchronized
@@ -226,7 +232,10 @@ private object ValidationRuntime {
       val e = events.optJSONObject(i) ?: continue
       if (e.optString("type") == "BF_COHORT_STALLED" && e.optBoolean("ranging_yield_active")) stallsDuringYield++
     }
-    val truth = try { JSONObject(validationTruthJson) } catch (_: Throwable) { JSONObject() }
+    val liveTruth = try { JSONObject(validationTruthJson) } catch (_: Throwable) { JSONObject() }
+    val ledgerTruth = try { JSONObject(authoritativeTruthLedgerJson) } catch (_: Throwable) { JSONObject() }
+    val ledgerPresence = ledgerTruth.optJSONObject("authoritative_presence")
+    val truth = if (ledgerPresence != null && ledgerPresence.optBoolean("authoritative", false) && ledgerPresence.optString("canonical_digest").isNotBlank()) ledgerTruth else liveTruth
     val environmentIntervals = EnvironmentViolationTracker.snapshot(now)
     environmentViolationCount = environmentIntervals.optLong("violation_count")
     firstEnvironmentViolationWallMs = environmentIntervals.optLong("first_violation_wall_ms").takeIf { it > 0L }
@@ -307,7 +316,7 @@ private object ValidationRuntime {
       .put("peer_starvation_recovery_failure_delta", base.optLong("peer_starvation_recovery_failure_delta"))
     base
       .put("snapshot_frozen", true)
-      .put("snapshot_schema_version", 5)
+      .put("snapshot_schema_version", 10)
       .put("expected_peer_count_at_start", expectedPeerCountAtStart)
       .put("expected_peer_ids_at_start", JSONArray(expectedPeerIdsAtStart))
       .put("preflight_at_start", try { JSONObject(preflightAtStartJson) } catch (_: Throwable) { JSONObject() })
@@ -332,6 +341,20 @@ private object ValidationRuntime {
       .put("graph_diagnostics_at_end", truth.opt("graph_diagnostics") ?: JSONObject.NULL)
       .put("reciprocal_fusion_at_end", truth.opt("reciprocal_fusion") ?: JSONObject.NULL)
       .put("measurement_health_at_end", truth.opt("measurement_health") ?: JSONObject.NULL)
+      .put("validation_truth", truth)
+    val frozenPresence = truth.optJSONObject("authoritative_presence")
+    val invalidReasons = JSONArray()
+    if (frozenPresence == null || !frozenPresence.optBoolean("authoritative", false)) invalidReasons.put("NO_FROZEN_AUTHORITATIVE_DECISION")
+    if (frozenPresence == null || frozenPresence.optString("canonical_digest").isBlank()) invalidReasons.put("MISSING_CANONICAL_DIGEST")
+    if (frozenPresence == null || frozenPresence.optString("decision_id").isBlank()) invalidReasons.put("MISSING_DECISION_ID")
+    if (frozenPresence == null || frozenPresence.optJSONObject("canonical_replay_input") == null) invalidReasons.put("MISSING_CANONICAL_REPLAY")
+    if (frozenPresence != null && (frozenPresence.optInt("contributing_nodes",0) < 3 || frozenPresence.optInt("contributing_links",0) < 6 || frozenPresence.optInt("physical_baselines",0) < 3)) invalidReasons.put("INCOMPLETE_3_6_3_TOPOLOGY")
+    val evidenceValid = invalidReasons.length() == 0
+    base.put("evidence_export_valid", evidenceValid)
+      .put("evidence_invalid_reasons", invalidReasons)
+      .put("atomic_snapshot_gate_pass", evidenceValid)
+      .put("snapshot_consistency_digest", frozenPresence?.optString("canonical_digest")?.takeIf { it.isNotBlank() } ?: JSONObject.NULL)
+      .put("authoritative_decision_ledger_used", ledgerPresence != null)
     val snapshotBytes = base.toString().toByteArray(Charsets.UTF_8)
     val snapshotHash = MessageDigest.getInstance("SHA-256").digest(snapshotBytes).joinToString("") { "%02x".format(it) }
     base.put("snapshot_identity_sha256", snapshotHash).put("json_self_contained", true).put("screenshots_required", false)

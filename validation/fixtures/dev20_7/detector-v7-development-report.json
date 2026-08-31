@@ -1,0 +1,11 @@
+{
+  "release": "dev-20.7",
+  "build": "0.2.0-experimental.20.7",
+  "algorithm_version": "deterministic-multinode-rssi-fusion-v7",
+  "parameter_hash": "7ff358bc4b1f92211e3a32d31285f5ab591c6fb79585c6b99814c1d0383d945d",
+  "gate": "G4",
+  "status": "PASS_ENGINEERING",
+  "method": "existing unit/synthetic fixtures + dev20.6 diagnostic aggregate separation",
+  "leakage_policy": "dev20.6 is diagnostic only",
+  "physical_acceptance": "NOT_COUNTED"
+}

@@ -1,0 +1,46 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "DecisionPublicationV7",
+  "type": "object",
+  "required": [
+    "schema",
+    "session_id",
+    "coordinator_id",
+    "coordinator_generation",
+    "calibration_id",
+    "calibration_hash",
+    "calibration_generation",
+    "topology_fingerprint",
+    "detector_algorithm",
+    "detector_parameter_hash",
+    "decision_sequence",
+    "decision_id",
+    "canonical_digest",
+    "window_id",
+    "publication_wall_ms",
+    "freshness_state",
+    "decision"
+  ],
+  "properties": {
+    "schema": {
+      "const": "DecisionPublicationV7"
+    },
+    "decision_sequence": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "freshness_state": {
+      "enum": [
+        "FRESH",
+        "STALE",
+        "EXPIRED"
+      ]
+    },
+    "canonical_digest": {
+      "type": "string"
+    },
+    "decision": {
+      "type": "object"
+    }
+  }
+}

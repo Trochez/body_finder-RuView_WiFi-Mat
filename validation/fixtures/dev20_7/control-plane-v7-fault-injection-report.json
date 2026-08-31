@@ -1,0 +1,16 @@
+{
+  "release": "dev-20.7",
+  "build": "0.2.0-experimental.20.7",
+  "algorithm_version": "deterministic-multinode-rssi-fusion-v7",
+  "parameter_hash": "7ff358bc4b1f92211e3a32d31285f5ab591c6fb79585c6b99814c1d0383d945d",
+  "gate": "G2_G6",
+  "status": "PASS_ENGINEERING",
+  "covered": [
+    "ordered",
+    "duplicate",
+    "stale",
+    "expired",
+    "legacy_geometry_fallback"
+  ],
+  "physical_fault_injection": "PENDING"
+}
