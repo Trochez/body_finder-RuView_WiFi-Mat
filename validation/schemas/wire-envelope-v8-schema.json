@@ -4,6 +4,10 @@
     "message_type": {
       "enum": [
         "HEARTBEAT",
+        "RANGE_FRAME",
+        "CONTROL_FRAME",
+        "GEOMETRY_FRAME",
+        "GEOMETRY_POSITION_FRAME",
         "ARTIFACT_MANIFEST",
         "ARTIFACT_CHUNK",
         "ARTIFACT_ACK",

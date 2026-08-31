@@ -18,4 +18,12 @@ assert 'distributed_negative_evidence' in rs and 'HUMAN_THRESHOLD: f64 = 0.50' i
 import base64
 frame={'schema':'WireEnvelopeV8','message_type':'ARTIFACT_CHUNK','session_id':'body-finder-lab','node_id':'bf-'+('a'*32),'seq':999999,'artifact_id':'adv:'+'a'*40,'artifact_sha256':'f'*64,'chunk_index':999,'chunk_count':999,'redundancy_round':2,'payload_b64':base64.b64encode(b'x'*512).decode()}
 assert len(json.dumps(frame,separators=(',',':')).encode())<=1200
+
+assert 'ARTIFACT_ACK' in kt and 'ARTIFACT_NACK' in kt and 'artifactRetransmitChunks' in kt and 'artifactCacheEvictions' in kt
+assert 'RANGE_FRAME' in kt and 'CONTROL_FRAME' in kt and 'GEOMETRY_FRAME' in kt
+assert 'REDUNDANCY_ROUNDS' not in kt
+assert "CalibrationPublicationV8" in hp and "CalibrationAckV8" in hp and 'artifact_payloads_v1' in hp
+assert 'decision_artifact:cached.decision' not in hp and 'artifact:cal.artifact' not in hp
+assert 'decision_control_plane_v8_artifact_complete' in hp and 'CALIBRATION_ARTIFACT_V8_PENDING' in hp
+
 print('dev20.8 contract tests PASS')
