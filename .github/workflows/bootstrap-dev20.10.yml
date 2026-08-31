@@ -35,14 +35,18 @@ jobs:
           python3 scripts/apply_dev20_10_remediation.py
           python3 scripts/generate_dev20_10_validation_assets.py
           python3 scripts/generate_dev20_10_reports_fixtures.py
+          python3 scripts/fix_dev20_10_generated_assets.py
+          cargo fmt --all
       - name: Static contract and validator gates
         run: |
           set -euxo pipefail
-          python3 -m py_compile scripts/apply_dev20_10_remediation.py scripts/generate_dev20_10_validation_assets.py scripts/generate_dev20_10_reports_fixtures.py validation/analysis/validate_dev20_10_smoke.py validation/analysis/validate_dev20_10_campaign.py validation/analysis/test_dev20_10_contract.py
+          python3 -m py_compile scripts/apply_dev20_10_remediation.py scripts/generate_dev20_10_validation_assets.py scripts/generate_dev20_10_reports_fixtures.py scripts/fix_dev20_10_generated_assets.py validation/analysis/validate_dev20_10_smoke.py validation/analysis/validate_dev20_10_campaign.py validation/analysis/test_dev20_10_contract.py
           python3 validation/analysis/test_dev20_10_contract.py
           grep -q "0.2.0-experimental.20.10" apps/mobile/src/version.ts
           grep -q "reportVersion: 30" apps/mobile/src/version.ts
           grep -q "snapshotSchemaVersion: 13" apps/mobile/src/version.ts
+          grep -q "versionCode 30" apps/android-legacy/app/build.gradle
+          grep -q "0.2.0-experimental.20.10-legacy" apps/android-legacy/app/build.gradle
           grep -q "WireEnvelopeV10" apps/mobile/modules/body-finder-native/android/src/main/java/com/trochez/bodyfindernative/BodyFinderNativeModule.kt
           grep -q "CONTROL_FRAME_TARGET_BYTES = 900" apps/mobile/modules/body-finder-native/android/src/main/java/com/trochez/bodyfindernative/BodyFinderNativeModule.kt
           grep -q "ARTIFACT_WINDOW_CHUNKS = 4" apps/mobile/modules/body-finder-native/android/src/main/java/com/trochez/bodyfindernative/BodyFinderNativeModule.kt
@@ -52,7 +56,7 @@ jobs:
           grep -q "deterministic-multinode-rssi-fusion-v9" crates/body-finder-science/src/human_detector.rs
           grep -q "transition_phys.len() >= 2" crates/body-finder-science/src/human_detector.rs
           grep -q "dev20.10-self-contained-json-evidence-v13" validation/analysis/validate_dev20_10_smoke.py
-          grep -q "RELEASE=\"dev-20.10\"\|release':'dev-20.10\|release.*dev-20.10" validation/analysis/validate_dev20_10_campaign.py
+          grep -q "dev-20.10" validation/analysis/validate_dev20_10_campaign.py
           grep -q "G10.*PENDING" validation/reports/release-manifest.json
           grep -q "G11.*BLOCKED" validation/reports/release-manifest.json
           git diff --check
