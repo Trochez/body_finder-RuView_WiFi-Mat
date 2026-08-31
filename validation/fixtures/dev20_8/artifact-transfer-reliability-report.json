@@ -1,0 +1,7 @@
+{
+  "acceptance_requires_complete_artifact": true,
+  "contract": "ArtifactManifestV1/WireEnvelopeV8",
+  "dedup": true,
+  "reassembly_timeout_ms": 15000,
+  "sha_verified": true
+}

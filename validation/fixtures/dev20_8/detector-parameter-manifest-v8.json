@@ -1,0 +1,14 @@
+{
+  "algorithm": "deterministic-multinode-rssi-fusion-v8",
+  "feature_level_negative_evidence": {
+    "dynamic_baselines": 0,
+    "dynamic_links": 0,
+    "max_cross_link_support": 0.16666666666666666,
+    "max_disturbed_baseline_support": 0.3333333333333333,
+    "max_fused": 0.3
+  },
+  "human_threshold": 0.5,
+  "no_human_threshold": 0.2,
+  "parameter_hash": "5d404d404e08d33cd179aa8657edd93f1e51885f5dfa1268af228465642a8d39",
+  "threshold_only_tuning": false
+}

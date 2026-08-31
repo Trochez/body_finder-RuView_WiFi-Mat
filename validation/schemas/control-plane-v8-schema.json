@@ -1,0 +1,22 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "decision_ack_v8": {
+      "type": [
+        "object",
+        "null"
+      ]
+    },
+    "decision_publication_v8": {
+      "type": [
+        "object",
+        "null"
+      ]
+    },
+    "schema": {
+      "const": "BodyFinderControlPlaneV8"
+    }
+  },
+  "title": "BodyFinderControlPlaneV8",
+  "type": "object"
+}

@@ -1,0 +1,35 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "message_type": {
+      "enum": [
+        "HEARTBEAT",
+        "ARTIFACT_MANIFEST",
+        "ARTIFACT_CHUNK",
+        "ARTIFACT_ACK",
+        "ARTIFACT_NACK"
+      ]
+    },
+    "node_id": {
+      "type": "string"
+    },
+    "schema": {
+      "const": "WireEnvelopeV8"
+    },
+    "seq": {
+      "type": "integer"
+    },
+    "session_id": {
+      "type": "string"
+    }
+  },
+  "required": [
+    "schema",
+    "message_type",
+    "session_id",
+    "node_id",
+    "seq"
+  ],
+  "title": "WireEnvelopeV8",
+  "type": "object"
+}

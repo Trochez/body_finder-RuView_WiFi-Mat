@@ -110,7 +110,7 @@ export default function App() {
   const [visualPositions, setVisualPositions] = useState<Record<string, VisualPosition>>({});
   const [validationRun, setValidationRun] = useState<any>(null);
   const [validationNotice, setValidationNotice] = useState<string | null>(null);
-  const [validationScenario, setValidationScenario] = useState<string>('UNSPECIFIED');
+  const [validationScenario, setValidationScenario] = useState<string>('SMOKE_CAL_EMPTY');
   const validationActionLock = useRef(false);
   const exportSequenceByRun = useRef<Record<string, number>>({});
   const visualFrame = useRef<string | null>(null);
@@ -195,7 +195,7 @@ export default function App() {
 
   useEffect(() => {
     const elected = Boolean(local?.node_id && coordinator === local.node_id);
-    const publication = elected && computedGeometry ? {...computedGeometry, authoritative_presence: {...localPresenceDiagnostic, authoritative:true, source:'coordinator'}} : null;
+    const publication = elected && computedGeometry ? {...computedGeometry, authoritative_presence_digest: localPresenceDiagnostic?.canonical_digest ?? null, authoritative_presence_decision_id: localPresenceDiagnostic?.decision_id ?? null} : null;
     try { BodyFinderNative.updatePublishedGeometry(elected, publication ? JSON.stringify(publication) : null); } catch {}
   }, [local?.node_id, coordinator, computedGeometry, localPresenceDiagnostic]);
 
@@ -267,7 +267,8 @@ export default function App() {
       } else {
         const retained = Array.isArray(diagnostics?.completed_validation_runs_summary) ? diagnostics.completed_validation_runs_summary.length : 0;
         if (retained > 0) setValidationNotice(lang === 'es' ? 'La corrida completada anterior se conservará en el historial.' : 'The previous completed run will be preserved in history.');
-        const result = BodyFinderNative.startValidationRun();
+        if (!VALIDATION_SCENARIOS.includes(validationScenario as any)) { setError('Select an explicit validation scenario before Start.'); return; }
+        const result = BodyFinderNative.startValidationRun(validationScenario);
         if (typeof result === 'string' && result.startsWith('VALIDATION_ENVIRONMENT_INVALID:')) {
           const reason = result.split(':').slice(1).join(':');
           setError(lang === 'es' ? `Ambiente de validación inválido: ${reason}. Desactiva Battery Saver, mantén pantalla encendida y Body Finder en primer plano.` : `Invalid validation environment: ${reason}. Turn Battery Saver off, keep the screen on and Body Finder in foreground.`);
@@ -317,14 +318,14 @@ export default function App() {
       json_self_contained: true, screenshots_required: false,
       export_metadata: {
         device_alias: deviceAlias, device_manufacturer: caps?.manufacturer ?? null, device_model: caps?.model ?? null,
-        node_id: local?.node_id ?? null, run_id: selectedRunId, run_type: runType, snapshot_stage: snapshotStage, scenario: validationScenario,
+        node_id: local?.node_id ?? null, run_id: selectedRunId, run_type: runType, snapshot_stage: snapshotStage, scenario: selectedRun?.scenario ?? validationScenario,
         elapsed_ms: selectedRun?.elapsed_ms ?? null, snapshot_frozen: selectedRun?.snapshot_frozen ?? false,
         source_long_run_id: sourceLongRunId, export_sequence: exportSequence, generated_at: new Date().toISOString(),
         build: BUILD, protocol_version: 2, suggested_filename: suggestedFilename,
       },
       truth: 'LIVE_DEVICE_CAPABILITIES__VALIDATED_COARSE_BLE_METRIC_0P5_TO_5M__BOUNDED_HOLDOVER__ADAPTIVE_FILTERED_PRIMARY_WITH_FULL_COHORT_AND_PER_PEER_STARVATION_RECOVERY__RANGING_MANAGER_BLE_YIELD__RECIPROCAL_FUSION__AUTOGEOMETRY_EXPERIMENTAL_NOT_RESCUE_VALIDATED',
       evidence_contract: {
-        schema: 'dev20.5-self-contained-json-evidence-v8', screenshots_required: false, json_self_contained: true,
+        schema: 'dev20.8-self-contained-json-evidence-v11', screenshots_required: false, json_self_contained: true,
         required_external_input: 'ground_truth_and_scenario_metadata_only_for_final_validator',
         diagnostic_source: 'this JSON export',
       },
@@ -332,7 +333,7 @@ export default function App() {
       human_presence_preview: authoritativeSnapshot,
       human_presence_calibration_status: calibrationStatusSnapshot,
       snapshot_consistency_digest: authoritativeSnapshot?.canonical_digest ?? null,
-      scenario: validationScenario,
+      scenario: selectedRun?.scenario ?? validationScenario,
       human_localization_validated: RELEASE.humanLocalizationValidated, rescue_use_validated: RELEASE.rescueUseValidated,
       export_auto_finalized_validation_run: autoFinalizedValidationRun,
       node_id: local?.node_id ?? null, capabilities: caps,

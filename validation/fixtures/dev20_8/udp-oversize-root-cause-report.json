@@ -1,0 +1,8 @@
+{
+  "confirmed": true,
+  "coordinator_empty_bytes": 107507,
+  "coordinator_human_bytes": 103932,
+  "max_application_udp_bytes": 1200,
+  "previous_send_errors_swallowed": true,
+  "remediation": "WireEnvelopeV8 hard budget + chunked SHA artifact transport"
+}

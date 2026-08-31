@@ -75,6 +75,7 @@ private data class PeerStarvationCounterSnapshot(
 private object ValidationRuntime {
   const val MAX_COMPLETED_VALIDATION_RUNS = 5
   @Volatile var runId: String? = null
+  @Volatile var scenario: String = "UNSPECIFIED"
   @Volatile var startedWallMs: Long? = null
   @Volatile var endedWallMs: Long? = null
   @Volatile var appVisibility: String = "UNKNOWN"
@@ -316,7 +317,7 @@ private object ValidationRuntime {
       .put("peer_starvation_recovery_failure_delta", base.optLong("peer_starvation_recovery_failure_delta"))
     base
       .put("snapshot_frozen", true)
-      .put("snapshot_schema_version", 10)
+      .put("snapshot_schema_version", 11)
       .put("expected_peer_count_at_start", expectedPeerCountAtStart)
       .put("expected_peer_ids_at_start", JSONArray(expectedPeerIdsAtStart))
       .put("preflight_at_start", try { JSONObject(preflightAtStartJson) } catch (_: Throwable) { JSONObject() })
@@ -412,6 +413,7 @@ private object ValidationRuntime {
     return JSONObject()
       .put("active", runId != null && endedWallMs == null)
       .put("run_id", runId ?: JSONObject.NULL)
+      .put("scenario", scenario)
       .put("started_wall_ms", start ?: JSONObject.NULL)
       .put("ended_wall_ms", endedWallMs ?: JSONObject.NULL)
       .put("snapshot_wall_ms", effectiveEnd)
@@ -508,6 +510,54 @@ private object ValidationRuntime {
   }
 
   @Synchronized fun selectedRunId(): String? = selectedCompletedRunId ?: completedRuns.lastOrNull()?.runId
+}
+
+
+private object WireTransportV8 {
+  const val MAX_DATAGRAM_BYTES = 1200
+  private const val CHUNK_BYTES = 640
+  private const val REDUNDANCY_ROUNDS = 3
+  private data class Assembly(val sha:String,val count:Int,val created:Long,val chunks:java.util.concurrent.ConcurrentHashMap<Int,ByteArray> = java.util.concurrent.ConcurrentHashMap())
+  private val assemblies = java.util.concurrent.ConcurrentHashMap<String,Assembly>()
+  val oversizeBlockCount = java.util.concurrent.atomic.AtomicLong(0)
+  val sendErrorCount = java.util.concurrent.atomic.AtomicLong(0)
+  val maxDatagramBytesObserved = java.util.concurrent.atomic.AtomicLong(0)
+  val txFrames = java.util.concurrent.atomic.AtomicLong(0)
+  val rxFrames = java.util.concurrent.atomic.AtomicLong(0)
+  val artifactStarted = java.util.concurrent.atomic.AtomicLong(0)
+  val artifactCompleted = java.util.concurrent.atomic.AtomicLong(0)
+  val artifactFailed = java.util.concurrent.atomic.AtomicLong(0)
+  @Volatile var lastSendError:String?=null
+  private fun sha(bytes:ByteArray)=java.security.MessageDigest.getInstance("SHA-256").digest(bytes).joinToString(""){"%02x".format(it)}
+  private fun envelope(type:String,node:String,session:String,seq:Long,body:(JSONObject)->Unit):ByteArray {
+    val o=JSONObject().put("schema","WireEnvelopeV8").put("message_type",type).put("session_id",session).put("node_id",node).put("seq",seq)
+    body(o); val b=o.toString().toByteArray(Charsets.UTF_8); maxDatagramBytesObserved.updateAndGet{v->kotlin.math.max(v,b.size.toLong())}
+    if(b.size>MAX_DATAGRAM_BYTES){oversizeBlockCount.incrementAndGet();throw IllegalStateException("WIRE_OVERSIZE_${b.size}")}; return b
+  }
+  fun frames(payload:ByteArray,node:String,session:String,seq:Long):List<ByteArray>{
+    val id="adv:$node:$seq"; val digest=sha(payload); val chunks=payload.toList().chunked(CHUNK_BYTES).map{it.toByteArray()}; val out=mutableListOf<ByteArray>()
+    out += envelope("HEARTBEAT",node,session,seq){it.put("wall_ms",System.currentTimeMillis()).put("artifact_id",id).put("artifact_sha256",digest).put("artifact_size",payload.size).put("chunk_count",chunks.size)}
+    out += envelope("ARTIFACT_MANIFEST",node,session,seq){it.put("artifact_id",id).put("artifact_type","ADVERTISEMENT_SNAPSHOT_V8").put("artifact_sha256",digest).put("artifact_size",payload.size).put("chunk_count",chunks.size)}
+    repeat(REDUNDANCY_ROUNDS){ round -> chunks.forEachIndexed{idx,c->out += envelope("ARTIFACT_CHUNK",node,session,seq){it.put("artifact_id",id).put("artifact_sha256",digest).put("chunk_index",idx).put("chunk_count",chunks.size).put("redundancy_round",round).put("payload_b64",android.util.Base64.encodeToString(c,android.util.Base64.NO_WRAP))}} }
+    return out
+  }
+  fun send(socket:MulticastSocket,address:InetAddress,port:Int,frames:List<ByteArray>){
+    for(frame in frames){
+      if(frame.size>MAX_DATAGRAM_BYTES){oversizeBlockCount.incrementAndGet();continue}
+      try{socket.send(DatagramPacket(frame,frame.size,address,port));txFrames.incrementAndGet()}catch(t:Throwable){sendErrorCount.incrementAndGet();lastSendError="${t.javaClass.simpleName}:${t.message}"}
+    }
+  }
+  fun consume(text:String):JSONObject?{
+    val o=try{JSONObject(text)}catch(_:Throwable){return null}; if(o.optString("schema")!="WireEnvelopeV8")return o; rxFrames.incrementAndGet()
+    if(o.optString("session_id")!=FabricRuntime.sessionId)return null
+    val node=o.optString("node_id"); val now=System.currentTimeMillis(); when(o.optString("message_type")){
+      "HEARTBEAT"->{val prior=FabricRuntime.peers[node];if(prior!=null)FabricRuntime.peers[node]=Pair(prior.first,now);FabricRuntime.peerLastSeenWallMs[node]=now;return null}
+      "ARTIFACT_MANIFEST"->{val id=o.optString("artifact_id");assemblies.computeIfAbsent(id){artifactStarted.incrementAndGet();Assembly(o.optString("artifact_sha256"),o.optInt("chunk_count"),now)};return null}
+      "ARTIFACT_CHUNK"->{val id=o.optString("artifact_id");val count=o.optInt("chunk_count");val a=assemblies.computeIfAbsent(id){artifactStarted.incrementAndGet();Assembly(o.optString("artifact_sha256"),count,now)};val idx=o.optInt("chunk_index",-1);if(idx in 0 until a.count)try{a.chunks.putIfAbsent(idx,android.util.Base64.decode(o.optString("payload_b64"),android.util.Base64.DEFAULT))}catch(_:Throwable){};if(a.chunks.size==a.count){val bytes=(0 until a.count).flatMap{(a.chunks[it]?:byteArrayOf()).toList()}.toByteArray();assemblies.remove(id);if(sha(bytes)!=a.sha){artifactFailed.incrementAndGet();return null};artifactCompleted.incrementAndGet();return try{JSONObject(String(bytes,Charsets.UTF_8))}catch(_:Throwable){artifactFailed.incrementAndGet();null}};assemblies.entries.removeIf{now-it.value.created>15_000};return null}
+      else->return null
+    }
+  }
+  fun telemetry()=JSONObject().put("schema","WireTransportTelemetryV8").put("max_datagram_budget_bytes",MAX_DATAGRAM_BYTES).put("max_datagram_bytes_observed",maxDatagramBytesObserved.get()).put("wire_oversize_block_count",oversizeBlockCount.get()).put("wire_send_error_count",sendErrorCount.get()).put("wire_last_send_error",lastSendError?:JSONObject.NULL).put("tx_frames",txFrames.get()).put("rx_frames",rxFrames.get()).put("artifact_transfer_started",artifactStarted.get()).put("artifact_transfer_completed",artifactCompleted.get()).put("artifact_transfer_failed",artifactFailed.get()).put("artifact_reassembly_pending",assemblies.size)
 }
 
 private object FabricRuntime {
@@ -777,7 +827,9 @@ class BodyFinderNativeModule : Module() {
       EnvironmentViolationTracker.noteVisibility(now, visibility)
       true
     }
-    Function("startValidationRun") {
+    Function("startValidationRun") { scenario: String ->
+      if (scenario.isBlank() || scenario == "UNSPECIFIED") return@Function "VALIDATION_ENVIRONMENT_INVALID:SCENARIO_REQUIRED"
+      ValidationRuntime.scenario = scenario
       val ctx = appContext.reactContext ?: return@Function "VALIDATION_ENVIRONMENT_INVALID:NO_CONTEXT"
       var now = System.currentTimeMillis()
       val previousStrategy = BleAcquisitionPolicy.currentStrategy()
@@ -2138,6 +2190,7 @@ class BodyFinderNativeModule : Module() {
     put("position", JSONObject.NULL)
     put("scanning", FabricRuntime.scanning)
     put("ble_identity", bleIdentity())
+    put("wire_transport_v8", WireTransportV8.telemetry())
     put("ranges", rangeObservations())
     put("manual_geometry_override", false)
     val controlPlane = FabricRuntime.controlPlaneJson
@@ -2290,7 +2343,7 @@ class BodyFinderNativeModule : Module() {
             socket.receive(packet)
             FabricRuntime.rxPackets.incrementAndGet()
             val text = String(packet.data, packet.offset, packet.length, Charsets.UTF_8)
-            val obj = JSONObject(text)
+            val obj = WireTransportV8.consume(text) ?: continue
             if (obj.optInt("protocol_version") == PROTOCOL) FabricRuntime.rxProtocolV2Packets.incrementAndGet()
             val remoteId = obj.optString("node_id")
             if (obj.optInt("protocol_version") == PROTOCOL && obj.optString("session_id") == FabricRuntime.sessionId) {

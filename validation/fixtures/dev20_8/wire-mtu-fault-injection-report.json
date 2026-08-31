@@ -1,0 +1,11 @@
+{
+  "engineering_gate": "CI",
+  "loss_profiles_percent": [
+    1,
+    5,
+    15
+  ],
+  "max_datagram_bytes": 1200,
+  "oversize_block_required": 0,
+  "redundancy_rounds": 3
+}
