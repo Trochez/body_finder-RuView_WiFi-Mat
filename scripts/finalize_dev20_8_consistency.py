@@ -5,14 +5,9 @@ ROOT=Path(__file__).resolve().parents[1]
 PARAMS=ROOT/'apps/mobile/src/detectorParameters.ts'
 KT=ROOT/'apps/mobile/modules/body-finder-native/android/src/main/java/com/trochez/bodyfindernative/BodyFinderNativeModule.kt'
 HP=ROOT/'apps/mobile/src/humanPresence.ts'
-WF=ROOT/'.github/workflows/release-dev20.8.yml'
 
 p=PARAMS.read_text(encoding='utf-8').replace('wireChunkPayloadBytes:640','wireChunkPayloadBytes:512')
 PARAMS.write_text(p,encoding='utf-8')
-
-if WF.exists():
-    w=WF.read_text(encoding='utf-8').replace("'redownload_verified':False","'redownload_verified':True")
-    WF.write_text(w,encoding='utf-8')
 
 kt=KT.read_text(encoding='utf-8'); hp=HP.read_text(encoding='utf-8'); params=PARAMS.read_text(encoding='utf-8')
 required_kt=[
@@ -30,5 +25,4 @@ if missing: raise SystemExit('control/artifact plane invariants missing: '+repr(
 if 'decision_artifact:cached.decision' in hp: raise SystemExit('decision artifact still inline')
 if 'artifact:cal.artifact' in hp: raise SystemExit('calibration artifact still inline')
 if 'wireChunkPayloadBytes:512' not in params or 'wireMaxDatagramBytes:1200' not in params: raise SystemExit('declared MTU/chunk drift')
-if WF.exists() and "'redownload_verified':True" not in WF.read_text(encoding='utf-8'): raise SystemExit('release redownload verification metadata not frozen true')
 print('dev20.8 final consistency PASS')
