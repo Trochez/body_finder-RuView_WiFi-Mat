@@ -10,7 +10,7 @@ permissions:
 
 concurrency:
   group: bootstrap-dev20-8
-  cancel-in-progress: false
+  cancel-in-progress: true
 
 jobs:
   implement-and-verify:
@@ -25,26 +25,29 @@ jobs:
       - uses: actions/setup-java@v5
         with: {distribution: temurin, java-version: '17'}
       - uses: dtolnay/rust-toolchain@stable
-      - name: Apply transport gate remediation and commit
+      - name: Apply complete dev20.8 reliable wire/artifact remediation and commit
         run: |
           set -euxo pipefail
-          python3 scripts/fix_dev20_8_transport_gate.py
+          python3 scripts/apply_dev20_8_reliable_artifacts.py
+          python3 scripts/finalize_dev20_8_consistency.py
           cargo fmt --all
           git config user.name 'body-finder-release-bot'
           git config user.email 'actions@github.com'
           git add -A
           git diff --cached --check
           if ! git diff --cached --quiet; then
-            git commit -m 'fix(dev20.8): enforce framed UDP transport and reconstructed peer state'
+            git commit -m 'feat(dev20.8): complete reliable typed wire and artifact plane'
             git push origin HEAD:dev20.8-remediation-20260830
           fi
-      - name: Contract and validator gates
+      - name: Contract, validator and transport fault gates
         run: |
           set -euxo pipefail
-          python3 -m py_compile validation/analysis/validate_dev20_8_smoke.py validation/analysis/validate_dev20_8_campaign.py validation/analysis/test_dev20_8_contract.py
+          python3 -m py_compile validation/analysis/validate_dev20_8_smoke.py validation/analysis/validate_dev20_8_campaign.py validation/analysis/test_dev20_8_contract.py validation/analysis/test_dev20_8_transport_model.py
           python3 validation/analysis/test_dev20_8_contract.py
+          python3 validation/analysis/test_dev20_8_transport_model.py
           python3 validation/analysis/test_post_dev19_v1.py
           python3 validation/analysis/validate_dev19_baseline.py --output /tmp/dev19-baseline.json
+          python3 scripts/finalize_dev20_8_consistency.py
       - name: Rust canonical engine gates
         run: |
           set -euxo pipefail
