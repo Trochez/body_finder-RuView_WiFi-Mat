@@ -1,0 +1,6 @@
+{
+  "calibration_ack_target": "3/3",
+  "contract": "BodyFinderControlPlaneV8",
+  "decision_ack_target": "3/3",
+  "physical_verification": "PENDING_G10"
+}

@@ -1,0 +1,7 @@
+{
+  "algorithm": "deterministic-multinode-rssi-fusion-v8",
+  "dev20_7_empty_target": "NO_HUMAN_EVIDENCE",
+  "dev20_7_human_must_remain": "HUMAN_EVIDENCE",
+  "parameter_hash": "5d404d404e08d33cd179aa8657edd93f1e51885f5dfa1268af228465642a8d39",
+  "threshold_only_tuning": false
+}

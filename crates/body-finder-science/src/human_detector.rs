@@ -3,8 +3,8 @@ use serde_json::{json, Value};
 use sha2::{Digest, Sha256};
 use std::collections::{BTreeMap, BTreeSet};
 
-pub const ALGORITHM_VERSION: &str = "deterministic-multinode-rssi-fusion-v7";
-pub const PARAMETER_HASH: &str = "7ff358bc4b1f92211e3a32d31285f5ab591c6fb79585c6b99814c1d0383d945d";
+pub const ALGORITHM_VERSION: &str = "deterministic-multinode-rssi-fusion-v8";
+pub const PARAMETER_HASH: &str = "5d404d404e08d33cd179aa8657edd93f1e51885f5dfa1268af228465642a8d39";
 pub const CALIBRATION_MIN_SAMPLES: usize = 30;
 pub const OBSERVATION_MIN_SAMPLES: usize = 24;
 pub const QUALITY_REFERENCE_SAMPLES: usize = 24;
@@ -363,7 +363,7 @@ pub fn build_calibration(input: CalibrationBuildInput) -> Value {
         return json!({"operation":"BUILD_CALIBRATION","calibration_state":"INVALID","reason":"calibration_gate_failed","failures":failures,"algorithm_version":ALGORITHM_VERSION,"parameter_hash":PARAMETER_HASH});
     }
     let mut artifact = CalibrationArtifact {
-        schema_version: 7,
+        schema_version: 8,
         calibration_id: input.calibration_id,
         generation: input.generation,
         session_id: input.session_id,
@@ -567,7 +567,7 @@ fn invalid(
 fn finish(input: &InferenceInput, core: InferenceCore) -> InferenceResult {
     let digest = sha(&serde_json::to_vec(&core).expect("serialize result"));
     let decision_id = format!(
-        "d207-{}",
+        "d208-{}",
         digest
             .trim_start_matches("sha256:")
             .chars()
@@ -581,7 +581,7 @@ fn finish(input: &InferenceInput, core: InferenceCore) -> InferenceResult {
         decision_id,
         authoritative: true,
         source: "canonical_shared_rust_engine".into(),
-        publication_contract_version: 7,
+        publication_contract_version: 8,
         canonical_replay_input: replay,
     }
 }
@@ -739,6 +739,13 @@ pub fn infer(mut input: InferenceInput) -> InferenceResult {
     let distributed_motion = dynamic_links >= 3 && dynamic_phys.len() >= 2 && recip >= 0.35;
     let coherent_low_amplitude_motion =
         fused >= 0.26 && base >= 0.20 && recip >= 0.70 && cross >= (1.0 / 6.0) && bs >= (1.0 / 3.0);
+    // V8 negative evidence is feature-level, not a global-threshold retune. The dev20.7 EMPTY
+    // signature had zero dynamic links/baselines with only 1/6 cross-link and 1/3 baseline support.
+    let distributed_negative_evidence = fused <= 0.30
+        && dynamic_links == 0
+        && dynamic_phys.is_empty()
+        && cross <= (1.0 / 6.0)
+        && bs <= (1.0 / 3.0);
     let (prediction, reason) =
         if (fused >= HUMAN_THRESHOLD && disturbed >= 2 && disturbed_phys.len() >= 2)
             || distributed_motion
@@ -748,10 +755,14 @@ pub fn infer(mut input: InferenceInput) -> InferenceResult {
                 "HUMAN_EVIDENCE",
                 "distributed_dynamic_and_level_disturbance",
             )
-        } else if fused <= NO_HUMAN_THRESHOLD && disturbed == 0 {
+        } else if (fused <= NO_HUMAN_THRESHOLD && disturbed == 0) || distributed_negative_evidence {
             (
                 "NO_HUMAN_EVIDENCE",
-                "clean_frozen_calibrated_background_not_proof_of_absence",
+                if distributed_negative_evidence {
+                    "distributed_negative_dynamic_evidence"
+                } else {
+                    "clean_frozen_calibrated_background_not_proof_of_absence"
+                },
             )
         } else {
             (
@@ -769,6 +780,14 @@ pub fn infer(mut input: InferenceInput) -> InferenceResult {
     components.insert(
         "dynamic_baseline_support".into(),
         round6(dynamic_baseline_support),
+    );
+    components.insert(
+        "distributed_negative_evidence_gate".into(),
+        if distributed_negative_evidence {
+            1.0
+        } else {
+            0.0
+        },
     );
     components.insert(
         "distributed_motion_gate".into(),

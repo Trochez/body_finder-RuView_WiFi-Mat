@@ -1,0 +1,17 @@
+{
+  "engineering_gate": "CI",
+  "fallback_cases": [
+    "multicast_blackhole_broadcast_recovers",
+    "broadcast_blackhole_multicast_recovers",
+    "both_blackhole_fail_closed"
+  ],
+  "initial_full_send_rounds": 1,
+  "loss_profiles_percent": [
+    1,
+    5,
+    15
+  ],
+  "max_datagram_bytes": 1200,
+  "oversize_block_required": 0,
+  "selective_nack_retransmission": true
+}

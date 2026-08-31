@@ -1,0 +1,12 @@
+{
+  "acceptance_requires_complete_artifact": true,
+  "ack_contract": "ARTIFACT_ACK",
+  "cache_bounded": true,
+  "chunk_crc32_verified": true,
+  "contract": "ArtifactManifestV1/WireEnvelopeV8",
+  "dedup": true,
+  "final_sha256_verified": true,
+  "nack_contract": "ARTIFACT_NACK",
+  "reassembly_timeout_ms": 15000,
+  "selective_retransmission": true
+}

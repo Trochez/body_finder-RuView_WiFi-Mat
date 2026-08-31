@@ -1,0 +1,8 @@
+{
+  "classification": "DEVELOPMENT_REGRESSION",
+  "export_count": 6,
+  "failures": 24,
+  "final_go": false,
+  "root_cause": "COORDINATOR_UDP_ADVERTISEMENT_EXCEEDS_LEGAL_UDP_PAYLOAD",
+  "source_release": "dev-20.7"
+}

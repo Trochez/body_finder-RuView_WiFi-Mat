@@ -1,0 +1,39 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": true,
+  "properties": {
+    "build": {
+      "const": "0.2.0-experimental.20.8"
+    },
+    "evidence_export_valid": {
+      "type": "boolean"
+    },
+    "report_version": {
+      "const": 28
+    },
+    "scenario": {
+      "enum": [
+        "SMOKE_CAL_EMPTY",
+        "HUMAN_MOVING",
+        "EMPTY_CAL",
+        "EMPTY_TEST",
+        "HUMAN_STATIONARY_CENTER",
+        "HUMAN_NEAR_LENOVO",
+        "HUMAN_NEAR_PIXEL10",
+        "HUMAN_NEAR_PIXEL7",
+        "HUMAN_OUTSIDE",
+        "NON_HUMAN_MOTION"
+      ]
+    }
+  },
+  "required": [
+    "build",
+    "report_version",
+    "scenario",
+    "local",
+    "validation_run",
+    "evidence_export_valid"
+  ],
+  "title": "dev20.8 evidence v11",
+  "type": "object"
+}
