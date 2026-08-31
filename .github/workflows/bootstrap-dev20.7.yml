@@ -31,7 +31,7 @@ jobs:
       - name: Apply dev20.7 remediation
         run: |
           set -euxo pipefail
-          python3 scripts/apply_dev20_7_delta.py
+          python3 scripts/run_dev20_7_delta.py
           cargo fmt --all
       - name: Engineering verification G0-G7
         run: |
