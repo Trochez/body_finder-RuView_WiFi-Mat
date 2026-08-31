@@ -1,1 +1,1 @@
-trigger dev20.8 final reliable typed-wire gates retry 10 2026-08-30T22:42-05:00
+trigger dev20.8 normalized helper full gates retry 11 2026-08-30T22:47-05:00
