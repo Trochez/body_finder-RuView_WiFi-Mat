@@ -1,0 +1,3 @@
+dev-20.11 release trigger
+baseline=81c4ea7bd40af247a24ae60c896117c92d38f2b4
+physical_status=G10_PENDING,G11_BLOCKED,G12_PENDING
