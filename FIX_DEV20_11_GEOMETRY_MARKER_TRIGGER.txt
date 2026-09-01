@@ -1,0 +1,1 @@
+make GeometryPublicationV11 explicit in generated autogeometry module
