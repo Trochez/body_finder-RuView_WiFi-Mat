@@ -86,6 +86,9 @@ jobs:
           grep -q "RANGE_FRAME_SCHEMA = \"RangeFrameV9\"" apps/mobile/modules/body-finder-native/android/src/main/java/com/trochez/bodyfindernative/BodyFinderNativeModule.kt
           grep -q "ArtifactManifestV4" apps/mobile/modules/body-finder-native/android/src/main/java/com/trochez/bodyfindernative/BodyFinderNativeModule.kt
           grep -q "WireTransportTelemetryV12" apps/mobile/modules/body-finder-native/android/src/main/java/com/trochez/bodyfindernative/BodyFinderNativeModule.kt
+          grep -q "criticalControlFailureCount" apps/mobile/modules/body-finder-native/android/src/main/java/com/trochez/bodyfindernative/BodyFinderNativeModule.kt
+          grep -q "nackBackoffMs" apps/mobile/modules/body-finder-native/android/src/main/java/com/trochez/bodyfindernative/BodyFinderNativeModule.kt
+          grep -q "val activeRunId=runId?:return false" apps/mobile/modules/body-finder-native/android/src/main/java/com/trochez/bodyfindernative/BodyFinderNativeModule.kt
           grep -q "startDistributedValidationRun" apps/mobile/App.tsx
           grep -q "commitDistributedFreezeAndEnd" apps/mobile/App.tsx
           python3 -m py_compile validation/analysis/validate_dev20_12_preflight.py validation/analysis/validate_dev20_12_smoke.py validation/analysis/build_dev20_12_final_report.py validation/analysis/test_dev20_12_multi_runtime.py validation/analysis/test_dev20_12_contract.py
@@ -123,7 +126,9 @@ jobs:
             git push origin HEAD:main
           fi
           echo "SOURCE_SHA=$(git rev-parse HEAD)" >> "$GITHUB_ENV"
-      - name: Build package publish verify exact release
+      - name: Build package publish and verify exact final release
         env:
           GH_TOKEN: ${{ github.token }}
-        run: bash scripts/package_dev20_12_release.sh
+        run: |
+          bash scripts/package_dev20_12_release.sh
+          bash scripts/verify_dev20_12_release_final.sh
