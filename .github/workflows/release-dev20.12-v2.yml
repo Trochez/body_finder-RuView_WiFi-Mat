@@ -1,0 +1,129 @@
+name: Release dev20.12 v2
+
+on:
+  push:
+    branches: [main]
+    paths: [RELEASE_DEV20_12_TRIGGER_V2.txt]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+concurrency:
+  group: release-dev20-12-v2
+  cancel-in-progress: true
+
+env:
+  BUILD_VERSION: 0.2.0-experimental.20.12
+  DETECTOR_ALGORITHM: deterministic-multinode-rssi-fusion-v9
+  DETECTOR_HASH: f5795d40fbfb1de728b8576e214b249ada67f70d7962e1bf7794eb9c7d251f17
+
+jobs:
+  windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: {python-version: '3.12'}
+      - uses: dtolnay/rust-toolchain@stable
+      - run: python scripts/implement_dev20_12.py
+      - run: python scripts/fix_dev20_12_generated.py
+      - run: cargo build --release -p body-finder-node -p body-finder-science --bins
+      - shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force dist\win | Out-Null
+          Copy-Item target\release\body-finder-node.exe dist\win\
+          Copy-Item target\release\body-finder-detector.exe dist\win\
+          if (Test-Path target\release\body-finder-replay.exe) { Copy-Item target\release\body-finder-replay.exe dist\win\ }
+          if (Test-Path target\release\body-finder-validate-session.exe) { Copy-Item target\release\body-finder-validate-session.exe dist\win\ }
+          if (Test-Path target\release\body-finder-rf-recorder.exe) { Copy-Item target\release\body-finder-rf-recorder.exe dist\win\ }
+          Copy-Item target\release\body-finder-detector.exe dist\body-finder-detector-windows-x86_64.exe
+          Compress-Archive dist\win\* dist\body-finder-windows-wsl-x86_64.zip
+      - uses: actions/upload-artifact@v4
+        with:
+          name: dev20-12-windows-v2
+          path: |
+            dist/body-finder-windows-wsl-x86_64.zip
+            dist/body-finder-detector-windows-x86_64.exe
+
+  release:
+    needs: windows
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+        with: {fetch-depth: 0}
+      - uses: actions/setup-python@v5
+        with: {python-version: '3.12'}
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: apps/mobile/package-lock.json
+      - uses: actions/setup-java@v5
+        with: {distribution: temurin, java-version: '17'}
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: gradle/actions/setup-gradle@v4
+        with: {gradle-version: '8.10.2'}
+      - uses: actions/download-artifact@v4
+        with:
+          name: dev20-12-windows-v2
+          path: dist
+      - name: Apply implementation
+        run: |
+          python3 scripts/implement_dev20_12.py
+          python3 scripts/fix_dev20_12_generated.py
+      - name: G0-G9 contracts regressions and isolated runtimes
+        run: |
+          set -euxo pipefail
+          grep -q "0.2.0-experimental.20.12" apps/mobile/src/version.ts
+          grep -q "reportVersion: 32" apps/mobile/src/version.ts
+          grep -q "snapshotSchemaVersion: 15" apps/mobile/src/version.ts
+          grep -q "$DETECTOR_ALGORITHM" crates/body-finder-science/src/human_detector.rs
+          grep -q "$DETECTOR_HASH" apps/mobile/src/detectorParameters.ts
+          grep -q "BodyFinderControlPlaneV10" apps/mobile/src/humanPresence.ts
+          grep -q "RunStartCommitV1" apps/mobile/src/campaignControl.ts
+          grep -q "RunFreezeCommitV2" apps/mobile/src/campaignControl.ts
+          grep -q "COMPACT_CONTROL_PAYLOAD_TARGET_BYTES = 600" apps/mobile/modules/body-finder-native/android/src/main/java/com/trochez/bodyfindernative/BodyFinderNativeModule.kt
+          grep -q "RANGE_FRAME_SCHEMA = \"RangeFrameV9\"" apps/mobile/modules/body-finder-native/android/src/main/java/com/trochez/bodyfindernative/BodyFinderNativeModule.kt
+          grep -q "ArtifactManifestV4" apps/mobile/modules/body-finder-native/android/src/main/java/com/trochez/bodyfindernative/BodyFinderNativeModule.kt
+          grep -q "WireTransportTelemetryV12" apps/mobile/modules/body-finder-native/android/src/main/java/com/trochez/bodyfindernative/BodyFinderNativeModule.kt
+          grep -q "startDistributedValidationRun" apps/mobile/App.tsx
+          grep -q "commitDistributedFreezeAndEnd" apps/mobile/App.tsx
+          python3 -m py_compile validation/analysis/validate_dev20_12_preflight.py validation/analysis/validate_dev20_12_smoke.py validation/analysis/build_dev20_12_final_report.py validation/analysis/test_dev20_12_multi_runtime.py validation/analysis/test_dev20_12_contract.py
+          python3 validation/analysis/test_dev20_12_contract.py
+          python3 validation/analysis/test_post_dev19_v1.py
+          python3 validation/analysis/validate_dev19_baseline.py --output /tmp/dev19-baseline.json
+          python3 - <<'PY'
+          import json,pathlib
+          for n in ['dev20.12-evidence-schema-v15.json','dev20.12-campaign-schema.json','scenario-command-v1-schema.json','run-start-v1-schema.json','snapshot-freeze-v2-schema.json','control-plane-v10-schema.json','wire-transport-telemetry-v12-schema.json','range-frame-v9-schema.json','geometry-publication-v11-schema.json','artifact-manifest-v4-schema.json']:
+              json.loads((pathlib.Path('validation/schemas')/n).read_text())
+          assert json.loads(pathlib.Path('validation/reports/dev20.11-g10-no-go-verdict.json').read_text())['g10_go'] is False
+          PY
+          cargo fmt --all -- --check
+          cargo test --workspace --all-targets
+          cargo build --release -p body-finder-node -p body-finder-science --bins
+      - name: TypeScript gate
+        working-directory: apps/mobile
+        run: |
+          npm ci --no-audit --no-fund
+          npm run typecheck
+      - name: Android native compile/unit gate
+        working-directory: apps/mobile
+        run: |
+          CI=1 npx expo prebuild --platform android --clean
+          chmod +x android/gradlew
+          ./android/gradlew -p android testReleaseUnitTest --stacktrace
+      - name: Commit verified source
+        run: |
+          set -euxo pipefail
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git add -A
+          if ! git diff --cached --quiet; then
+            git commit -m 'feat(dev20.12): durable authority distributed start freeze artifact v4 remediation'
+            git push origin HEAD:main
+          fi
+          echo "SOURCE_SHA=$(git rev-parse HEAD)" >> "$GITHUB_ENV"
+      - name: Build package publish verify exact release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: bash scripts/package_dev20_12_release.sh
