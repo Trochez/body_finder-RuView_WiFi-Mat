@@ -1,0 +1,6 @@
+{
+  "ack_quorum": 2,
+  "bounded_window": true,
+  "schema": "ArtifactV3StabilityReport",
+  "status": "ENGINEERING_IMPLEMENTED"
+}

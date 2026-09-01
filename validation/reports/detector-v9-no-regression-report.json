@@ -1,0 +1,6 @@
+{
+  "algorithm": "deterministic-multinode-rssi-fusion-v9",
+  "parameter_hash": "f5795d40fbfb1de728b8576e214b249ada67f70d7962e1bf7794eb9c7d251f17",
+  "schema": "DetectorV9NoRegressionReport",
+  "status": "FROZEN"
+}

@@ -1,3 +1,4 @@
+export const GEOMETRY_PUBLICATION_SCHEMA='GeometryPublicationV11';
 export type RangeQuality = 'HIGH' | 'MEDIUM' | 'LOW' | 'REJECTED';
 export type GeometryState =
   | 'DISCOVERING_NODES'
@@ -100,7 +101,7 @@ export type GeometrySelection = {
   source:
     | 'LOCAL_ELECTED_COORDINATOR'
     | 'ELECTED_COORDINATOR_PUBLICATION'
-    | 'COORDINATOR_PUBLICATION_V10'
+    | 'COORDINATOR_PUBLICATION_V11'
     | 'LOCAL_DETERMINISTIC_FALLBACK_AWAITING_COORDINATOR_PUBLICATION';
   publication_rejection_reason?: string | null;
 };
@@ -590,18 +591,23 @@ export function solveGeometry(inputNodes: Advertisement[]): GeometrySolution | n
   };
 }
 
+const GEOMETRY_PUBLICATION_HOLDOVER_MS=6_000;
+const lastGoodGeometryBySession=new Map<string,{at:number,solution:GeometrySolution}>();
+function rememberGeometry(session:string|undefined,solution:GeometrySolution|null){if(session&&solution?.dimension==='2D'&&solution.state==='GEOMETRY_2D')lastGoodGeometryBySession.set(session,{at:Date.now(),solution});}
+function heldGeometry(session:string|undefined){const h=session?lastGoodGeometryBySession.get(session):undefined;return h&&Date.now()-h.at<=GEOMETRY_PUBLICATION_HOLDOVER_MS?h.solution:null;}
+
 export function chooseCoordinatorGeometry(
   nodes: Advertisement[], coordinatorNodeId: string | null, localNodeId: string | null, localSolution: GeometrySolution | null,
 ): GeometrySelection {
-  if (coordinatorNodeId && coordinatorNodeId === localNodeId) return { solution: localSolution, source: 'LOCAL_ELECTED_COORDINATOR', publication_rejection_reason: null };
+  if (coordinatorNodeId && coordinatorNodeId === localNodeId) { rememberGeometry(nodes.find(n=>n.node_id===localNodeId)?.session_id,localSolution); return { solution: localSolution ?? heldGeometry(nodes.find(n=>n.node_id===localNodeId)?.session_id), source: 'LOCAL_ELECTED_COORDINATOR', publication_rejection_reason: localSolution?null:'LOCAL_HOLDOVER' }; }
   const coordinator = coordinatorNodeId ? nodes.find(node => node.node_id === coordinatorNodeId) : undefined;
-  if (!coordinator) return { solution: localSolution, source: 'LOCAL_DETERMINISTIC_FALLBACK_AWAITING_COORDINATOR_PUBLICATION', publication_rejection_reason: 'COORDINATOR_NOT_PRESENT' };
+  if (!coordinator) {rememberGeometry(nodes[0]?.session_id,localSolution);return { solution: localSolution ?? heldGeometry(nodes[0]?.session_id), source: 'LOCAL_DETERMINISTIC_FALLBACK_AWAITING_COORDINATOR_PUBLICATION', publication_rejection_reason: 'COORDINATOR_NOT_PRESENT' };}
   const publication:any = coordinator.published_geometry;
-  if (!publication) return { solution: localSolution, source: 'LOCAL_DETERMINISTIC_FALLBACK_AWAITING_COORDINATOR_PUBLICATION', publication_rejection_reason: 'PUBLICATION_ABSENT' };
+  if (!publication) {rememberGeometry(coordinator.session_id,localSolution);return { solution: localSolution ?? heldGeometry(coordinator.session_id), source: 'LOCAL_DETERMINISTIC_FALLBACK_AWAITING_COORDINATOR_PUBLICATION', publication_rejection_reason: 'PUBLICATION_ABSENT' };}
   if (coordinator.geometry_publisher_node_id !== coordinatorNodeId || publication.publisher_node_id !== coordinatorNodeId) return { solution: localSolution, source: 'LOCAL_DETERMINISTIC_FALLBACK_AWAITING_COORDINATOR_PUBLICATION', publication_rejection_reason: 'WRONG_COORDINATOR_PUBLISHER' };
   if (publication.publication_session_id && publication.publication_session_id !== coordinator.session_id) return { solution: localSolution, source: 'LOCAL_DETERMINISTIC_FALLBACK_AWAITING_COORDINATOR_PUBLICATION', publication_rejection_reason: 'PUBLICATION_SESSION_MISMATCH' };
   if (!publication.frame_id || !Array.isArray(publication.positions)) return { solution: localSolution, source: 'LOCAL_DETERMINISTIC_FALLBACK_AWAITING_COORDINATOR_PUBLICATION', publication_rejection_reason: 'PUBLICATION_MALFORMED' };
-  return { solution: publication, source: 'COORDINATOR_PUBLICATION_V10', publication_rejection_reason: null };
+  rememberGeometry(coordinator.session_id,publication);return { solution: publication, source: 'COORDINATOR_PUBLICATION_V11', publication_rejection_reason: null };
 }
 
 export function estimateHuman(nodes: Advertisement[], geometry: GeometrySolution | null): HumanEstimate | null {

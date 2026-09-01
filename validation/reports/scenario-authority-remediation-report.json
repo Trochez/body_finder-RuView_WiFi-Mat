@@ -1,0 +1,5 @@
+{
+  "ack_quorum": 3,
+  "schema": "ScenarioAuthorityRemediationV1",
+  "status": "ENGINEERING_IMPLEMENTED"
+}

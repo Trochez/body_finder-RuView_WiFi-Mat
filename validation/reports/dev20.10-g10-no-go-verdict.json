@@ -1,0 +1,11 @@
+{
+  "confirmed_blockers": [
+    "SCENARIO_AUTHORITY",
+    "FROZEN_AUTHORITY",
+    "GEOMETRY_CONTINUITY",
+    "CONTROL_FRAME_MTU",
+    "ARTIFACT_STORM"
+  ],
+  "g10_go": false,
+  "schema": "Dev20.10G10NoGoV1"
+}

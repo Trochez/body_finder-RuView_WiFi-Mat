@@ -1,0 +1,20 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": true,
+  "properties": {
+    "control_frame_target_bytes": {
+      "const": 900
+    },
+    "max_datagram_budget_bytes": {
+      "const": 1200
+    },
+    "schema": {
+      "const": "WireTransportTelemetryV11"
+    }
+  },
+  "required": [
+    "schema"
+  ],
+  "title": "WireTransportTelemetryV11",
+  "type": "object"
+}

@@ -1,0 +1,5 @@
+{
+  "ready_quorum": 3,
+  "schema": "SnapshotAuthorityDurabilityV1",
+  "status": "ENGINEERING_IMPLEMENTED"
+}

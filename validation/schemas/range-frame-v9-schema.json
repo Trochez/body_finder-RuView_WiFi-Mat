@@ -1,6 +1,14 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "additionalProperties": true,
+  "properties": {
+    "message_type": {
+      "const": "RANGE_FRAME"
+    }
+  },
+  "required": [
+    "message_type"
+  ],
   "title": "RangeFrameV9",
   "type": "object"
 }

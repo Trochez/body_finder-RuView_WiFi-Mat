@@ -2,13 +2,16 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "additionalProperties": true,
   "properties": {
-    "schema": {
-      "const": "BodyFinderControlPlaneV9"
+    "g11_go": {
+      "type": "boolean"
+    },
+    "release": {
+      "const": "dev-20.11"
     }
   },
   "required": [
-    "schema"
+    "release"
   ],
-  "title": "BodyFinderControlPlaneV9",
+  "title": "Dev20.11Campaign",
   "type": "object"
 }

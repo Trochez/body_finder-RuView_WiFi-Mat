@@ -1,0 +1,19 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": true,
+  "properties": {
+    "build": {
+      "const": "0.2.0-experimental.20.11"
+    },
+    "report_version": {
+      "const": 31
+    }
+  },
+  "required": [
+    "build",
+    "report_version",
+    "validation_run"
+  ],
+  "title": "Dev20.11EvidenceV14",
+  "type": "object"
+}

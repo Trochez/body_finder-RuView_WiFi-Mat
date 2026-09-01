@@ -1,0 +1,22 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": true,
+  "properties": {
+    "command_digest": {
+      "type": "string"
+    },
+    "scenario": {
+      "type": "string"
+    },
+    "schema": {
+      "const": "ScenarioCommandV1"
+    }
+  },
+  "required": [
+    "schema",
+    "command_digest",
+    "scenario"
+  ],
+  "title": "ScenarioCommandV1",
+  "type": "object"
+}

@@ -1,0 +1,7 @@
+{
+  "compact_target": 760,
+  "control_max": 900,
+  "datagram_max": 1200,
+  "schema": "ControlFrameMtuV11Report",
+  "status": "ENGINEERING_IMPLEMENTED"
+}

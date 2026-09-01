@@ -324,7 +324,7 @@ private object ValidationRuntime {
       .put("peer_starvation_recovery_failure_delta", base.optLong("peer_starvation_recovery_failure_delta"))
     base
       .put("snapshot_frozen", true)
-      .put("snapshot_schema_version", 13)
+      .put("snapshot_schema_version", 14)
       .put("expected_peer_count_at_start", expectedPeerCountAtStart)
       .put("expected_peer_ids_at_start", JSONArray(expectedPeerIdsAtStart))
       .put("preflight_at_start", try { JSONObject(preflightAtStartJson) } catch (_: Throwable) { JSONObject() })
@@ -476,7 +476,7 @@ private object ValidationRuntime {
       .put("ranging_real_result_delta", ((if (Build.VERSION.SDK_INT >= 36) SystemRangingApi36.counterSnapshot().realDistanceResults else 0) - baselineRangingReal).coerceAtLeast(0))
       .put("ranging_close_failure_delta", ((if (Build.VERSION.SDK_INT >= 36) SystemRangingApi36.counterSnapshot().closeFailures else 0) - baselineRangingClose).coerceAtLeast(0))
       .put("snapshot_frozen", false)
-      .put("snapshot_schema_version", 13)
+      .put("snapshot_schema_version", 14)
       .put("expected_peer_count_at_start", expectedPeerCountAtStart)
       .put("expected_peer_ids_at_start", JSONArray(expectedPeerIdsAtStart))
   }
@@ -532,6 +532,8 @@ private object WireTransportV10 {
   const val MAX_DATAGRAM_BYTES = 1200
   const val RANGE_FRAME_TARGET_BYTES = 1050
   const val CONTROL_FRAME_TARGET_BYTES = 900
+  const val COMPACT_CONTROL_PAYLOAD_TARGET_BYTES = 760
+  private const val GEOMETRY_PUBLICATION_LEASE_MS = 6_000L
   private const val CHUNK_BYTES = 512
   private const val ASSEMBLY_TIMEOUT_MS = 15_000L
   private const val NACK_INTERVAL_MS = 1_000L
@@ -551,7 +553,7 @@ private object WireTransportV10 {
   private data class CachedArtifact(val sha:String,val payload:JSONObject,val completedWallMs:Long)
   private data class OutboundArtifact(
     val artifactId:String,val artifactType:String,val sha:String,val generation:Long,val node:String,val session:String,
-    val chunks:List<ByteArray>,var seq:Long,var lastFullSendWallMs:Long=0L,var nextChunkIndex:Int=0,var retryBackoffMs:Long=FULL_RETRY_MS,var lastNackSignature:String="",var lastNackWallMs:Long=0L,
+    val chunks:List<ByteArray>,var seq:Long,val priority:String="DIAGNOSTIC",val supersedesArtifactId:String?=null,var lastManifestWallMs:Long=0L,var lastFullSendWallMs:Long=0L,var nextChunkIndex:Int=0,var retryBackoffMs:Long=FULL_RETRY_MS,var lastNackSignature:String="",var lastNackWallMs:Long=0L,
     val ackPeers:MutableSet<String> = java.util.concurrent.ConcurrentHashMap.newKeySet()
   )
   data class WireReply(val address:InetAddress,val frame:ByteArray)
@@ -567,6 +569,10 @@ private object WireTransportV10 {
   private val txBytesByType=java.util.concurrent.ConcurrentHashMap<String,java.util.concurrent.atomic.AtomicLong>()
   private val rxBytesByType=java.util.concurrent.ConcurrentHashMap<String,java.util.concurrent.atomic.AtomicLong>()
   private val maxBytesByType=java.util.concurrent.ConcurrentHashMap<String,java.util.concurrent.atomic.AtomicLong>()
+  private val maxControlBytesByKey=java.util.concurrent.ConcurrentHashMap<String,java.util.concurrent.atomic.AtomicLong>()
+  private val oversizeControlKeyCounts=java.util.concurrent.ConcurrentHashMap<String,java.util.concurrent.atomic.AtomicLong>()
+  @Volatile private var lastOversizeControlKey:String?=null
+  @Volatile private var lastOversizeSha256:String?=null
   private val oversizeDropByType=java.util.concurrent.ConcurrentHashMap<String,java.util.concurrent.atomic.AtomicLong>()
   val requiredFrameOversizeCount=java.util.concurrent.atomic.AtomicLong(0)
 
@@ -624,6 +630,11 @@ private object WireTransportV10 {
   private fun safeAdd(out:MutableList<ByteArray>,type:String,node:String,session:String,seq:Long,body:(JSONObject)->Unit){
     try{out+=envelope(type,node,session,seq,body)}catch(t:Throwable){lastSendError="${t.javaClass.simpleName}:${t.message}"}
   }
+  private fun safeAddControl(out:MutableList<ByteArray>,key:String,value:Any?,node:String,session:String,seq:Long){
+    val compact=JSONObject().put("control_key",key).put("control_value",value).toString().toByteArray(Charsets.UTF_8)
+    if(compact.size>COMPACT_CONTROL_PAYLOAD_TARGET_BYTES){oversizeControlKeyCounts.computeIfAbsent(key){java.util.concurrent.atomic.AtomicLong(0)}.incrementAndGet();lastOversizeControlKey=key;lastOversizeSha256=sha(compact);return}
+    try{val frame=envelope("CONTROL_FRAME",node,session,seq){o->o.put("control_key",key).put("control_value",value)};maxControlBytesByKey.computeIfAbsent(key){java.util.concurrent.atomic.AtomicLong(0)}.updateAndGet{v->kotlin.math.max(v,frame.size.toLong())};out+=frame}catch(t:Throwable){oversizeControlKeyCounts.computeIfAbsent(key){java.util.concurrent.atomic.AtomicLong(0)}.incrementAndGet();lastOversizeControlKey=key;lastOversizeSha256=sha(compact);lastSendError="${t.javaClass.simpleName}:${t.message}"}
+  }
   @Synchronized private fun putArtifactCache(id:String,value:CachedArtifact){
     artifactCache[id]=value
     while(artifactCache.size>MAX_ARTIFACT_CACHE){val it=artifactCache.entries.iterator();if(it.hasNext()){it.next();it.remove();artifactCacheEvictions.incrementAndGet()}else break}
@@ -655,9 +666,9 @@ private object WireTransportV10 {
     if(id.isBlank()||type.isBlank()||payload==null||payload===JSONObject.NULL)return null
     val bytes=canonical(payload).toByteArray(Charsets.UTF_8);val digest=sha(bytes);val chunks=bytes.toList().chunked(CHUNK_BYTES).map{it.toByteArray()};if(chunks.isEmpty())return null
     val existing=outboundArtifact(id);if(existing!=null&&existing.sha==digest){existing.seq=seq;return existing}
-    return OutboundArtifact(id,type,digest,item.optLong("generation",0L),node,session,chunks,seq).also{putOutbound(it)}
+    val generation=item.optLong("generation",0L);val priority=item.optString("priority","DIAGNOSTIC");val supersedes=item.optString("supersedes_artifact_id").takeIf{it.isNotBlank()};synchronized(this){outbound.values.filter{it.artifactType==type&&it.artifactId!=id&&it.generation<=generation}.map{it.artifactId}.forEach{outbound.remove(it)}};return OutboundArtifact(id,type,digest,generation,node,session,chunks,seq,priority,supersedes).also{putOutbound(it)}
   }
-  private fun manifestFrame(a:OutboundArtifact)=envelope("ARTIFACT_MANIFEST",a.node,a.session,a.seq){it.put("artifact_id",a.artifactId).put("artifact_type",a.artifactType).put("artifact_sha256",a.sha).put("artifact_size",a.chunks.sumOf{x->x.size}).put("chunk_count",a.chunks.size).put("generation",a.generation)}
+  private fun manifestFrame(a:OutboundArtifact)=envelope("ARTIFACT_MANIFEST",a.node,a.session,a.seq){it.put("schema","ArtifactManifestV3").put("artifact_id",a.artifactId).put("artifact_type",a.artifactType).put("artifact_sha256",a.sha).put("artifact_size",a.chunks.sumOf{x->x.size}).put("chunk_count",a.chunks.size).put("generation",a.generation).put("priority",a.priority).put("supersedes_artifact_id",a.supersedesArtifactId?:JSONObject.NULL)}
   private fun chunkFrame(a:OutboundArtifact,index:Int,seq:Long=a.seq)=envelope("ARTIFACT_CHUNK",a.node,a.session,seq){val c=a.chunks[index];it.put("artifact_id",a.artifactId).put("artifact_sha256",a.sha).put("chunk_index",index).put("chunk_count",a.chunks.size).put("payload_crc32",crc32(c)).put("payload_b64",android.util.Base64.encodeToString(c,android.util.Base64.NO_WRAP))}
   private fun ackFrame(id:String,digest:String,seq:Long)=envelope("ARTIFACT_ACK",FabricRuntime.nodeId,FabricRuntime.sessionId,seq){it.put("artifact_id",id).put("artifact_sha256",digest).put("complete",true)}
   private fun nackFrame(id:String,digest:String,missing:List<Int>,seq:Long)=envelope("ARTIFACT_NACK",FabricRuntime.nodeId,FabricRuntime.sessionId,seq){it.put("artifact_id",id).put("artifact_sha256",digest).put("missing_chunks",JSONArray(missing.take(ARTIFACT_WINDOW_CHUNKS)))}
@@ -674,24 +685,22 @@ private object WireTransportV10 {
     if(cp!=null){
       val payloads=cp.optJSONArray("artifact_payloads_v1")?:JSONArray()
       for(i in 0 until payloads.length()){val item=payloads.optJSONObject(i)?:continue;registerArtifact(item,node,session,seq)?.let{artifacts[it.artifactId]=it}}
-      val meta=JSONObject();for(k in listOf("schema","session_id","node_id"))if(cp.has(k))meta.put(k,cp.opt(k));safeAdd(out,"CONTROL_FRAME",node,session,seq){o->o.put("control_key","__meta__").put("control_value",meta)}
-      for(k in listOf("logical_membership_state","calibration_publication_v8","calibration_ack_v8","decision_publication_v8","decision_ack_v8")){
+      val meta=JSONObject();for(k in listOf("schema","session_id","node_id"))if(cp.has(k))meta.put(k,cp.opt(k));safeAddControl(out,"__meta__",meta,node,session,seq)
+      for(k in listOf("logical_membership_state","calibration_publication_v9","calibration_ack_v9","decision_publication_v9","decision_ack_v9","scenario_command_v1","scenario_ack_v1","run_freeze_prepare_v1","snapshot_ready_v1","run_freeze_commit_v1")){
         if(!cp.has(k)||cp.isNull(k))continue;val value=cp.opt(k);val copy=if(value is JSONObject)JSONObject(value.toString())else value
         if(copy is JSONObject){val id=copy.optString("calibration_artifact_id").ifBlank{copy.optString("decision_artifact_id")};artifacts[id]?.let{copy.put("artifact_sha256",it.sha)}}
-        safeAdd(out,"CONTROL_FRAME",node,session,seq){o->o.put("control_key",k).put("control_value",copy)}
+        safeAddControl(out,k,copy,node,session,seq)
       }
       val now=System.currentTimeMillis()
-      for(a in artifacts.values){
-        try{out+=manifestFrame(a)}catch(t:Throwable){lastSendError="${t.javaClass.simpleName}:${t.message}"}
-        if(a.ackPeers.size<EXPECTED_REMOTE_ACKS&&now-a.lastFullSendWallMs>=a.retryBackoffMs){val end=(a.nextChunkIndex+ARTIFACT_WINDOW_CHUNKS).coerceAtMost(a.chunks.size);for(i in a.nextChunkIndex until end)try{out+=chunkFrame(a,i)}catch(t:Throwable){lastSendError="${t.javaClass.simpleName}:${t.message}"};a.nextChunkIndex=if(end>=a.chunks.size)0 else end;if(a.nextChunkIndex==0)a.retryBackoffMs=(a.retryBackoffMs*2).coerceAtMost(MAX_RETRY_BACKOFF_MS);a.lastFullSendWallMs=now}
-      }
+      for(a in artifacts.values){if(a.ackPeers.size<EXPECTED_REMOTE_ACKS&&now-a.lastManifestWallMs>=2_000L){try{out+=manifestFrame(a);a.lastManifestWallMs=now}catch(t:Throwable){lastSendError="${t.javaClass.simpleName}:${t.message}"}}}
+      val rank=mapOf("CALIBRATION" to 0,"DECISION_FINAL" to 1,"DECISION_LIVE" to 2,"DIAGNOSTIC" to 3);val a=artifacts.values.filter{it.ackPeers.size<EXPECTED_REMOTE_ACKS&&now-it.lastFullSendWallMs>=it.retryBackoffMs}.sortedWith(compareBy<OutboundArtifact>{rank[it.priority]?:9}.thenByDescending{it.generation}).firstOrNull();if(a!=null){val end=(a.nextChunkIndex+ARTIFACT_WINDOW_CHUNKS).coerceAtMost(a.chunks.size);for(i in a.nextChunkIndex until end)try{out+=chunkFrame(a,i)}catch(t:Throwable){lastSendError="${t.javaClass.simpleName}:${t.message}"};a.nextChunkIndex=if(end>=a.chunks.size)0 else end;if(a.nextChunkIndex==0)a.retryBackoffMs=(a.retryBackoffMs*2).coerceAtMost(MAX_RETRY_BACKOFF_MS);a.lastFullSendWallMs=now}
     }
     val g=advertisement.optJSONObject("published_geometry")
     if(g!=null){
       val meta=JSONObject();for(k in listOf("frame_id","revision","generated_monotonic_ns","dimension","state","anchor_node_id","axis_node_id","residual_rms_m","condition_score","reason"))if(g.has(k))meta.put(k,g.opt(k));safeAdd(out,"GEOMETRY_FRAME",node,session,seq){o->o.put("geometry",meta)}
       val positions=g.optJSONArray("positions")?:JSONArray();for(i in 0 until positions.length()){val p=positions.optJSONObject(i)?:continue;safeAdd(out,"GEOMETRY_POSITION_FRAME",node,session,seq){o->o.put("position",p)}}
     }
-    return out
+    val priority=mapOf("HEARTBEAT" to 0,"RANGE_FRAME" to 1,"GEOMETRY_FRAME" to 2,"GEOMETRY_POSITION_FRAME" to 3,"CONTROL_FRAME" to 4,"ARTIFACT_MANIFEST" to 5,"ARTIFACT_ACK" to 6,"ARTIFACT_NACK" to 6,"ARTIFACT_CHUNK" to 7);return out.sortedBy{priority[frameType(it)]?:9}
   }
   private fun frameType(frame:ByteArray):String=try{JSONObject(String(frame,Charsets.UTF_8)).optString("message_type","UNKNOWN")}catch(_:Throwable){"UNKNOWN"}
   fun send(socket:MulticastSocket,address:InetAddress,port:Int,frames:List<ByteArray>){
@@ -715,9 +724,9 @@ private object WireTransportV10 {
       "HEARTBEAT"->{if(!applyDedup(o))return ConsumeResult(null,emptyList());val d=doc(node,session);for(k in listOf("protocol_version","instance_epoch","display_name","platform","coordinator_score","rssi_dbm","baseline_rssi_dbm","baseline_sigma_db","scanning","ble_identity","manual_geometry_override"))if(o.has(k))d.put(k,o.opt(k));return ConsumeResult(d,replies)}
       "RANGE_FRAME"->{val key=o.optString("range_key");if(!applyDedup(o,key))return ConsumeResult(null,emptyList());val receiveMono=SystemClock.elapsedRealtimeNanos();val senderAge=o.optLong("sender_range_age_ms",-1L);if(senderAge<0L)return ConsumeResult(null,emptyList());val r=JSONObject().put("session_id",session).put("observer_node_id",o.optString("observer_node_id",node)).put("peer_node_id",o.optString("peer_node_id")).put("technology",o.optString("technology")).put("monotonic_ns",0L).put("sender_range_age_ms",senderAge).put("sender_temporal_state",o.optString("sender_temporal_state","FRESH")).put("sender_sequence",o.optLong("sender_sequence",seq)).put("instance_epoch",o.optString("instance_epoch")).put("received_local_monotonic_ns",receiveMono).put("effective_age_ms",senderAge).put("distance_m",o.opt("distance_m")).put("distance_sigma_m",o.opt("distance_sigma_m")).put("rssi_dbm",o.opt("rssi_dbm")).put("quality",o.optString("quality","LOW")).put("range_domain_state",o.optString("range_domain_state","FRESH")).put("range_status",o.optString("range_status","UNKNOWN")).put("source_detail","WireEnvelopeV10 compact range; foreign monotonic excluded from freshness arithmetic");val d=doc(node,session);d.put("instance_epoch",o.optString("instance_epoch"));updateRange(d,r);return ConsumeResult(d,replies)}
       "CONTROL_FRAME"->{val key=o.optString("control_key");if(!applyDedup(o,key))return ConsumeResult(null,emptyList());val d=doc(node,session);val cp=d.optJSONObject("control_plane")?:JSONObject();val value=o.opt("control_value");if(key=="__meta__"&&value is JSONObject){value.keys().forEach{k->cp.put(k,value.opt(k))}}else cp.put(key,value);d.put("control_plane",cp);return ConsumeResult(d,replies)}
-      "GEOMETRY_FRAME"->{if(!applyDedup(o,"meta"))return ConsumeResult(null,emptyList());val d=doc(node,session);val g=o.optJSONObject("geometry")?:JSONObject();val existing=d.optJSONObject("published_geometry");if(existing!=null&&existing.has("positions"))g.put("positions",existing.optJSONArray("positions"));d.put("geometry_publisher_node_id",node);g.put("schema","GeometryPublicationV10").put("publisher_node_id",node).put("publisher_instance_epoch",o.optString("instance_epoch")).put("publication_session_id",session).put("publication_sequence",seq).put("received_local_monotonic_ns",SystemClock.elapsedRealtimeNanos());d.put("published_geometry",g);return ConsumeResult(d,replies)}
+      "GEOMETRY_FRAME"->{if(!applyDedup(o,"meta"))return ConsumeResult(null,emptyList());val d=doc(node,session);val g=o.optJSONObject("geometry")?:JSONObject();val existing=d.optJSONObject("published_geometry");if(existing!=null&&existing.has("positions"))g.put("positions",existing.optJSONArray("positions"));d.put("geometry_publisher_node_id",node);g.put("schema","GeometryPublicationV11").put("publication_lease_ms",GEOMETRY_PUBLICATION_LEASE_MS).put("publisher_node_id",node).put("publisher_instance_epoch",o.optString("instance_epoch")).put("publication_session_id",session).put("publication_sequence",seq).put("received_local_monotonic_ns",SystemClock.elapsedRealtimeNanos());d.put("published_geometry",g);return ConsumeResult(d,replies)}
       "GEOMETRY_POSITION_FRAME"->{val p=o.optJSONObject("position")?:return ConsumeResult(null,emptyList());if(!applyDedup(o,p.optString("node_id")))return ConsumeResult(null,emptyList());val d=doc(node,session);updateGeometryPosition(d,p);return ConsumeResult(d,replies)}
-      "ARTIFACT_MANIFEST"->{val id=o.optString("artifact_id");val digest=o.optString("artifact_sha256");val count=o.optInt("chunk_count");if(id.isBlank()||digest.isBlank()||count<=0||count>4096)return ConsumeResult(null,emptyList());val cached=cachedArtifact(id);if(cached!=null&&cached.sha==digest){artifactCacheHits.incrementAndGet();artifactAckTx.incrementAndGet();replies+=reply(source,ackFrame(id,digest,now));return ConsumeResult(artifactDoc(node,session,id,cached.payload,digest),replies)};assemblies.computeIfAbsent(id){artifactStarted.incrementAndGet();Assembly(id,o.optString("artifact_type"),digest,count,o.optLong("generation",0L),now,source)};return ConsumeResult(null,replies)}
+      "ARTIFACT_MANIFEST"->{val id=o.optString("artifact_id");val digest=o.optString("artifact_sha256");val count=o.optInt("chunk_count");if(id.isBlank()||digest.isBlank()||count<=0||count>4096)return ConsumeResult(null,emptyList());val cached=cachedArtifact(id);if(cached!=null&&cached.sha==digest){artifactCacheHits.incrementAndGet();artifactAckTx.incrementAndGet();replies+=reply(source,ackFrame(id,digest,now));return ConsumeResult(artifactDoc(node,session,id,cached.payload,digest),replies)};val incomingType=o.optString("artifact_type");val incomingGeneration=o.optLong("generation",0L);assemblies.entries.filter{it.value.artifactType==incomingType&&it.value.generation<=incomingGeneration&&it.key!=id}.forEach{assemblies.remove(it.key)};assemblies.computeIfAbsent(id){artifactStarted.incrementAndGet();Assembly(id,incomingType,digest,count,incomingGeneration,now,source)};return ConsumeResult(null,replies)}
       "ARTIFACT_CHUNK"->{val id=o.optString("artifact_id");val digest=o.optString("artifact_sha256");val count=o.optInt("chunk_count");val idx=o.optInt("chunk_index",-1);if(id.isBlank()||digest.isBlank()||idx !in 0 until count)return ConsumeResult(null,emptyList());val a=assemblies.computeIfAbsent(id){artifactStarted.incrementAndGet();Assembly(id,"UNKNOWN",digest,count,0L,now,source)};if(a.sha!=digest||a.count!=count){artifactFailed.incrementAndGet();return ConsumeResult(null,replies)};val chunk=try{android.util.Base64.decode(o.optString("payload_b64"),android.util.Base64.DEFAULT)}catch(_:Throwable){byteArrayOf()};if(chunk.size>CHUNK_BYTES||crc32(chunk)!=o.optLong("payload_crc32",-1L)){artifactFailed.incrementAndGet();artifactNackTx.incrementAndGet();replies+=reply(source,nackFrame(id,digest,listOf(idx),now));return ConsumeResult(null,replies)};if(a.chunks.putIfAbsent(idx,chunk)!=null)artifactDedupChunks.incrementAndGet();if(a.chunks.size==a.count){val payload=(0 until a.count).flatMap{(a.chunks[it]?:byteArrayOf()).toList()}.toByteArray();assemblies.remove(id);if(sha(payload)!=a.sha){artifactFailed.incrementAndGet();artifactNackTx.incrementAndGet();replies+=reply(source,nackFrame(id,digest,(0 until count).toList(),now));return ConsumeResult(null,replies)};val obj=try{JSONObject(String(payload,Charsets.UTF_8))}catch(_:Throwable){artifactFailed.incrementAndGet();return ConsumeResult(null,replies)};putArtifactCache(id,CachedArtifact(digest,obj,now));artifactCompleted.incrementAndGet();artifactAckTx.incrementAndGet();replies+=reply(source,ackFrame(id,digest,now));return ConsumeResult(artifactDoc(node,session,id,obj,digest),replies)};if(idx==count-1){val miss=missing(a);if(miss.isNotEmpty()){a.lastNackWallMs=now;artifactNackTx.incrementAndGet();replies+=reply(source,nackFrame(id,digest,miss,now))}};return ConsumeResult(null,replies)}
       "ARTIFACT_ACK"->{artifactAckRx.incrementAndGet();val id=o.optString("artifact_id");val a=outboundArtifact(id);if(a!=null&&a.sha==o.optString("artifact_sha256"))a.ackPeers.add(node);return ConsumeResult(null,replies)}
       "ARTIFACT_NACK"->{artifactNackRx.incrementAndGet();val id=o.optString("artifact_id");val a=outboundArtifact(id)?:return ConsumeResult(null,replies);if(a.sha!=o.optString("artifact_sha256"))return ConsumeResult(null,replies);val miss=o.optJSONArray("missing_chunks")?:JSONArray();val requested=(0 until miss.length()).map{miss.optInt(it,-1)}.filter{it in a.chunks.indices}.distinct().sorted();val sig=requested.joinToString(",");if(sig==a.lastNackSignature&&now-a.lastNackWallMs<NACK_INTERVAL_MS)return ConsumeResult(null,replies);a.lastNackSignature=sig;a.lastNackWallMs=now;for(idx in requested.take(ARTIFACT_WINDOW_CHUNKS)){artifactRetransmitChunks.incrementAndGet();replies+=reply(source,chunkFrame(a,idx,now))};return ConsumeResult(null,replies)}
@@ -732,8 +741,8 @@ private object WireTransportV10 {
   }
   fun noteReceiveError(t:Throwable){receiveErrorCount.incrementAndGet();lastReceiveError="${t.javaClass.simpleName}:${t.message}"}
   fun telemetry()=JSONObject()
-    .put("schema","WireTransportTelemetryV10").put("max_datagram_budget_bytes",MAX_DATAGRAM_BYTES).put("range_frame_target_bytes",RANGE_FRAME_TARGET_BYTES).put("control_frame_target_bytes",CONTROL_FRAME_TARGET_BYTES).put("chunk_payload_bytes",CHUNK_BYTES).put("artifact_window_chunks",ARTIFACT_WINDOW_CHUNKS)
-    .put("max_datagram_bytes_observed",maxDatagramBytesObserved.get()).put("max_datagram_bytes_by_type",mapJson(maxBytesByType)).put("oversize_drop_by_type",mapJson(oversizeDropByType)).put("wire_oversize_block_count",oversizeBlockCount.get()).put("required_frame_oversize_count",requiredFrameOversizeCount.get())
+    .put("schema","WireTransportTelemetryV11").put("max_datagram_budget_bytes",MAX_DATAGRAM_BYTES).put("range_frame_target_bytes",RANGE_FRAME_TARGET_BYTES).put("control_frame_target_bytes",CONTROL_FRAME_TARGET_BYTES).put("chunk_payload_bytes",CHUNK_BYTES).put("artifact_window_chunks",ARTIFACT_WINDOW_CHUNKS)
+    .put("max_datagram_bytes_observed",maxDatagramBytesObserved.get()).put("max_datagram_bytes_by_type",mapJson(maxBytesByType)).put("oversize_drop_by_type",mapJson(oversizeDropByType)).put("wire_oversize_block_count",oversizeBlockCount.get()).put("required_frame_oversize_count",requiredFrameOversizeCount.get()).put("max_control_bytes_by_key",mapJson(maxControlBytesByKey)).put("oversize_control_key_counts",mapJson(oversizeControlKeyCounts)).put("last_oversize_control_key",lastOversizeControlKey?:JSONObject.NULL).put("last_oversize_sha256",lastOversizeSha256?:JSONObject.NULL)
     .put("wire_send_error_count",sendErrorCount.get()).put("wire_last_send_error",lastSendError?:JSONObject.NULL).put("wire_receive_error_count",receiveErrorCount.get()).put("wire_last_receive_error",lastReceiveError?:JSONObject.NULL)
     .put("tx_frames",txFrames.get()).put("rx_frames",rxFrames.get()).put("tx_frames_by_type",mapJson(txFramesByType)).put("rx_frames_by_type",mapJson(rxFramesByType)).put("tx_bytes_by_type",mapJson(txBytesByType)).put("rx_bytes_by_type",mapJson(rxBytesByType))
     .put("artifact_transfer_started",artifactStarted.get()).put("artifact_transfer_completed",artifactCompleted.get()).put("artifact_transfer_failed",artifactFailed.get()).put("artifact_reassembly_pending",assemblies.size)
@@ -941,6 +950,10 @@ class BodyFinderNativeModule : Module() {
 
     Function("evaluateHumanPresenceJson") { inputJson: String ->
       nativeEvaluateHumanPresence(inputJson)
+    }
+
+    Function("sha256Text") { text: String ->
+      MessageDigest.getInstance("SHA-256").digest(text.toByteArray(Charsets.UTF_8)).joinToString("") { "%02x".format(it) }
     }
 
     Function("shareJsonFile") { json: String, requestedFilename: String ->
@@ -2259,7 +2272,7 @@ class BodyFinderNativeModule : Module() {
     put("rx_same_session_packets", FabricRuntime.rxSameSessionPackets.get())
     put("peer_count_active", FabricRuntime.peers.size)
     put("peer_expire_count", FabricRuntime.peerExpireCount.get())
-    put("wire_transport_v10", WireTransportV10.telemetry())
+    put("wire_transport_v11", WireTransportV10.telemetry())
     val peers = JSONArray()
     FabricRuntime.peerPacketCounts.forEach { (nodeId, count) ->
       val lastSeen = FabricRuntime.peerLastSeenWallMs[nodeId]
@@ -2374,7 +2387,7 @@ class BodyFinderNativeModule : Module() {
     put("position", JSONObject.NULL)
     put("scanning", FabricRuntime.scanning)
     put("ble_identity", bleIdentity())
-    put("wire_transport_v10", WireTransportV10.telemetry())
+    put("wire_transport_v11", WireTransportV10.telemetry())
     put("ranges", rangeObservations())
     put("manual_geometry_override", false)
     val controlPlane = FabricRuntime.controlPlaneJson

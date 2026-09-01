@@ -1,0 +1,9 @@
+{
+  "schema": "Dev20.11ImplementationTraceV1",
+  "baseline_sha": "81c4ea7bd40af247a24ae60c896117c92d38f2b4",
+  "atomic_backlog_total": 207,
+  "engineering_scope": "G0-G9",
+  "physical_status": "G10=PENDING,G11=BLOCKED,G12=PENDING",
+  "final_go": false,
+  "dev21_blocked": true
+}

@@ -1,0 +1,5 @@
+{
+  "quorum": 3,
+  "schema": "AuthorityPeerParityReportV1",
+  "status": "ENGINEERING_IMPLEMENTED"
+}

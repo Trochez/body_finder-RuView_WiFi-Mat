@@ -2,13 +2,16 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "additionalProperties": true,
   "properties": {
+    "publication_lease_ms": {
+      "type": "integer"
+    },
     "schema": {
-      "const": "BodyFinderControlPlaneV9"
+      "const": "GeometryPublicationV11"
     }
   },
   "required": [
     "schema"
   ],
-  "title": "BodyFinderControlPlaneV9",
+  "title": "GeometryPublicationV11",
   "type": "object"
 }

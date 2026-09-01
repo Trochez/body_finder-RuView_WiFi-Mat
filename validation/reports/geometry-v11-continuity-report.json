@@ -1,0 +1,6 @@
+{
+  "holdover_ms": 6000,
+  "manual_geometry_override": false,
+  "schema": "GeometryV11ContinuityReport",
+  "status": "ENGINEERING_IMPLEMENTED"
+}

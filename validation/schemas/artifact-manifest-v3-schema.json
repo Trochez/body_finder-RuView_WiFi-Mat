@@ -1,0 +1,25 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": true,
+  "properties": {
+    "priority": {
+      "enum": [
+        "CALIBRATION",
+        "DECISION_FINAL",
+        "DECISION_LIVE",
+        "DIAGNOSTIC"
+      ]
+    },
+    "schema": {
+      "const": "ArtifactManifestV3"
+    }
+  },
+  "required": [
+    "schema",
+    "artifact_id",
+    "artifact_sha256",
+    "priority"
+  ],
+  "title": "ArtifactManifestV3",
+  "type": "object"
+}
