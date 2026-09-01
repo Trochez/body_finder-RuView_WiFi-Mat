@@ -64,7 +64,7 @@ wr(p,s)
 
 # GeometryPublicationV11 with bounded 2D holdover/local fallback
 p='apps/mobile/src/autogeometry.ts';s=rd(p).replace("| 'COORDINATOR_PUBLICATION_V10'","| 'COORDINATOR_PUBLICATION_V11'",1)
-s=s.replace("export type GeometryPublication = GeometrySolution & {","export const GEOMETRY_PUBLICATION_SCHEMA='GeometryPublicationV11';\nexport type GeometryPublication = GeometrySolution & {",1)
+s=s.replace("export type RangeQuality = 'HIGH' | 'MEDIUM' | 'LOW' | 'REJECTED';","export const GEOMETRY_PUBLICATION_SCHEMA='GeometryPublicationV11';\nexport type RangeQuality = 'HIGH' | 'MEDIUM' | 'LOW' | 'REJECTED';",1)
 a='export function chooseCoordinatorGeometry(\n';b="const GEOMETRY_PUBLICATION_HOLDOVER_MS=6_000;\nconst lastGoodGeometryBySession=new Map<string,{at:number,solution:GeometrySolution}>();\nfunction rememberGeometry(session:string|undefined,solution:GeometrySolution|null){if(session&&solution?.dimension==='2D'&&solution.state==='GEOMETRY_2D')lastGoodGeometryBySession.set(session,{at:Date.now(),solution});}\nfunction heldGeometry(session:string|undefined){const h=session?lastGoodGeometryBySession.get(session):undefined;return h&&Date.now()-h.at<=GEOMETRY_PUBLICATION_HOLDOVER_MS?h.solution:null;}\n\n"+a
 if a not in s:raise SystemExit('geometry marker missing')
 s=s.replace(a,b,1)
