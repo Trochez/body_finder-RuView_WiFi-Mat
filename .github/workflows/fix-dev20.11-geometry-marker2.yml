@@ -1,0 +1,35 @@
+name: Fix dev20.11 concrete geometry marker
+
+on:
+  push:
+    branches: [main]
+    paths: [FIX_DEV20_11_GEOMETRY_MARKER2_TRIGGER.txt]
+
+permissions:
+  contents: write
+
+jobs:
+  fix:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Insert V11 schema marker at real autogeometry anchor
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          p=Path('scripts/implement_dev20_11.py')
+          s=p.read_text(encoding='utf-8')
+          old='s=s.replace("export type GeometryPublication = GeometrySolution & {","export const GEOMETRY_PUBLICATION_SCHEMA=\'GeometryPublicationV11\';\\nexport type GeometryPublication = GeometrySolution & {",1)'
+          new='s=s.replace("export type RangeQuality = \'HIGH\' | \'MEDIUM\' | \'LOW\' | \'REJECTED\';","export const GEOMETRY_PUBLICATION_SCHEMA=\'GeometryPublicationV11\';\\nexport type RangeQuality = \'HIGH\' | \'MEDIUM\' | \'LOW\' | \'REJECTED\';",1)'
+          if old not in s: raise SystemExit('old geometry marker transformation missing')
+          p.write_text(s.replace(old,new,1),encoding='utf-8')
+          compile(p.read_text(encoding='utf-8'),str(p),'exec')
+          PY
+      - name: Commit fix
+        run: |
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git add scripts/implement_dev20_11.py
+          git diff --cached --check
+          git commit -m "fix(dev20.11): insert geometry V11 marker at real source anchor"
+          git push origin HEAD:main
