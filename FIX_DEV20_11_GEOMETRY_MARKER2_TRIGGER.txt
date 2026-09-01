@@ -1,0 +1,1 @@
+insert GeometryPublicationV11 marker at RangeQuality anchor
