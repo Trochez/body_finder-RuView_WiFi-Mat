@@ -1,0 +1,20 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": true,
+  "properties": {
+    "G10": {},
+    "G11": {},
+    "G12": {},
+    "final_go": {},
+    "release": {}
+  },
+  "required": [
+    "release",
+    "G10",
+    "G11",
+    "G12",
+    "final_go"
+  ],
+  "title": "dev20.12-campaign-schema.json",
+  "type": "object"
+}

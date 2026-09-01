@@ -1,10 +1,11 @@
 {
-  "algorithm": "deterministic-multinode-rssi-fusion-v9",
   "baseline_sha": "3fd11b673647afd1c0aac23907b34cb59ff78acd",
-  "changed": false,
+  "coordinator_only": true,
   "detector": "deterministic-multinode-rssi-fusion-v9",
   "detector_parameter_hash": "f5795d40fbfb1de728b8576e214b249ada67f70d7962e1bf7794eb9c7d251f17",
   "engineering_contract": "DEFINED",
-  "parameter_hash": "f5795d40fbfb1de728b8576e214b249ada67f70d7962e1bf7794eb9c7d251f17",
-  "release": "dev-20.12"
+  "freeze": "RunFreezePrepare/SnapshotReady/CommitV2",
+  "peer_auto_transition": true,
+  "release": "dev-20.12",
+  "start": "RunStartPrepare/Ready/CommitV1"
 }

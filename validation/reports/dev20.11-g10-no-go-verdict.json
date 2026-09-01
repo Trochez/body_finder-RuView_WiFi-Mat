@@ -1,9 +1,12 @@
 {
   "baseline_sha": "3fd11b673647afd1c0aac23907b34cb59ff78acd",
-  "control_before_artifact": true,
+  "decision": "NO_GO_RETEST_REQUIRED_AFTER_FIX",
   "detector": "deterministic-multinode-rssi-fusion-v9",
   "detector_parameter_hash": "f5795d40fbfb1de728b8576e214b249ada67f70d7962e1bf7794eb9c7d251f17",
-  "engineering_contract": "DEFINED",
+  "freeze_expected": 3,
+  "freeze_ready_count": 1,
+  "g10_go": false,
+  "raw_fixture_status": "NOT_VERSIONED_IN_BASELINE",
   "release": "dev-20.12",
-  "required_datagram_max": 1200
+  "source": "implementation_plan_evidence_summary"
 }

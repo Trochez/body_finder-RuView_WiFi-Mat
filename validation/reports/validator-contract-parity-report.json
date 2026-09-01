@@ -1,5 +1,10 @@
 {
-  "schema": "ValidatorContractParityV1",
-  "screenshots_required": false,
-  "status": "ENGINEERING_IMPLEMENTED"
+  "baseline_sha": "3fd11b673647afd1c0aac23907b34cb59ff78acd",
+  "detector": "deterministic-multinode-rssi-fusion-v9",
+  "detector_parameter_hash": "f5795d40fbfb1de728b8576e214b249ada67f70d7962e1bf7794eb9c7d251f17",
+  "engineering_contract": "DEFINED",
+  "nested_top_level_validity_must_match": true,
+  "release": "dev-20.12",
+  "report_version": 32,
+  "snapshot_schema_version": 15
 }

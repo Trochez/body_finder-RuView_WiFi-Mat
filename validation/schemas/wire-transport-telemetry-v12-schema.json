@@ -2,11 +2,13 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "additionalProperties": true,
   "properties": {
+    "critical_control_failure_count": {},
     "schema": {}
   },
   "required": [
-    "schema"
+    "schema",
+    "critical_control_failure_count"
   ],
-  "title": "control-plane-v10-schema.json",
+  "title": "wire-transport-telemetry-v12-schema.json",
   "type": "object"
 }

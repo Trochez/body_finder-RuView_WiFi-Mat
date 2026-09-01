@@ -25,8 +25,8 @@ import {
 import { diagnoseGeometryGraph } from './src/geometryDiagnostics';
 import { applyReciprocalFusion } from './src/rangeFusion';
 import { BUILD, REPORT_VERSION, HUMAN_SCANNING_ENABLED, RELEASE } from './src/version';
-import { beginSessionPresenceCalibration, electStableCoordinator, estimateHumanPresence, getControlPlanePublication, getSessionPresenceCalibration, selectAuthoritativePresence } from './src/humanPresence';
-import { getCampaignControlPublication, getFreezeBarrierStatus, getScenarioCommandStatus, issueScenarioCommand, requestRunFreeze, ScenarioId } from './src/campaignControl';
+import { beginSessionPresenceCalibration, electStableCoordinator, estimateHumanPresence, getControlPlanePublication, getRunAuthorityLedger, getSessionPresenceCalibration, selectAuthoritativePresence } from './src/humanPresence';
+import { getCampaignControlPublication, getFreezeBarrierStatus, getRunStartBarrierStatus, getScenarioCommandStatus, issueScenarioCommand, requestRunFreeze, requestRunStart, ScenarioId } from './src/campaignControl';
 
 const T = {
   en: {
@@ -171,7 +171,9 @@ export default function App() {
   const calibrationStatus = useMemo(() => getSessionPresenceCalibration(nodes), [nodes, presence]);
   const scenarioStatus = useMemo(() => getScenarioCommandStatus(nodes, coordinator, local?.node_id ?? null), [nodes, coordinator, local?.node_id]);
   useEffect(() => { const commanded=scenarioStatus?.command?.scenario; if(commanded&&commanded!==validationScenario)setValidationScenario(commanded); }, [scenarioStatus?.command?.command_digest]);
-  const freezeBarrier = useMemo(() => getFreezeBarrierStatus(nodes, coordinator, local?.node_id ?? null, presence, calibrationStatus), [nodes, coordinator, local?.node_id, presence, calibrationStatus]);
+  const authorityLedger = useMemo(() => getRunAuthorityLedger(nodes, coordinator, local?.node_id ?? null), [nodes, coordinator, local?.node_id, presence, calibrationStatus]);
+  const startBarrier = useMemo(() => getRunStartBarrierStatus(nodes, coordinator, local?.node_id ?? null, calibrationStatus), [nodes, coordinator, local?.node_id, calibrationStatus, scenarioStatus?.command?.command_digest]);
+  const freezeBarrier = useMemo(() => getFreezeBarrierStatus(nodes, coordinator, local?.node_id ?? null, authorityLedger, calibrationStatus), [nodes, coordinator, local?.node_id, authorityLedger, calibrationStatus]);
 
   const validationTruth = useMemo(() => ({
     geometry,
@@ -184,6 +186,9 @@ export default function App() {
     graph_diagnostics: graphDiagnostics,
     reciprocal_fusion: fused.diagnostics,
     scenario_contract: scenarioStatus,
+    distributed_start: startBarrier,
+    campaign_run_token: startBarrier?.commit?.campaign_run_token ?? startBarrier?.prepare?.campaign_run_token ?? null,
+    run_authority_ledger: authorityLedger,
     freeze_barrier: freezeBarrier,
     geometry_publication_contract: { schema: 'GeometryPublicationV11', source: geometrySelection.source, rejection_reason: geometrySelection.publication_rejection_reason ?? null },
     measurement_health: {
@@ -193,15 +198,17 @@ export default function App() {
       holdover_metric_edge_count: graphDiagnostics.holdover_metric_edge_count,
       geometry_temporal_quality: graphDiagnostics.geometry_temporal_quality,
     },
-  }), [geometry, computedGeometry, presence, coordinator, geometryNodes, graphDiagnostics, fused.diagnostics, validationScenario, validationRun?.active, validationRun?.scenario, scenarioStatus, freezeBarrier, geometrySelection.source, geometrySelection.publication_rejection_reason]);
+  }), [geometry, computedGeometry, presence, coordinator, geometryNodes, graphDiagnostics, fused.diagnostics, validationScenario, validationRun?.active, validationRun?.scenario, scenarioStatus, startBarrier, authorityLedger, freezeBarrier, geometrySelection.source, geometrySelection.publication_rejection_reason]);
 
   useEffect(() => {
     try { BodyFinderNative.updateValidationTruthJson(JSON.stringify(validationTruth)); } catch {}
   }, [validationTruth]);
 
-  const campaignControl = useMemo(() => getCampaignControlPublication(nodes, coordinator, local?.node_id ?? null, presence, calibrationStatus), [nodes, coordinator, local?.node_id, presence, calibrationStatus, scenarioStatus?.command?.command_digest, freezeBarrier?.prepare?.generation]);
-  const controlPlane = useMemo(() => ({...getControlPlanePublication(nodes, coordinator, local?.node_id ?? null),...campaignControl,schema:'BodyFinderControlPlaneV9'}), [nodes, coordinator, local?.node_id, presence, campaignControl]);
+  const campaignControl = useMemo(() => getCampaignControlPublication(nodes, coordinator, local?.node_id ?? null, authorityLedger, calibrationStatus), [nodes, coordinator, local?.node_id, authorityLedger, calibrationStatus, scenarioStatus?.command?.command_digest, startBarrier?.prepare?.generation, freezeBarrier?.prepare?.generation]);
+  const controlPlane = useMemo(() => { const hp:any=getControlPlanePublication(nodes, coordinator, local?.node_id ?? null); const cc:any=campaignControl; return {...hp,...cc,schema:'BodyFinderControlPlaneV10',artifact_payloads_v1:[...(hp?.artifact_payloads_v1??[]),...(cc?.artifact_payloads_v1??[])]}; }, [nodes, coordinator, local?.node_id, presence, campaignControl]);
   useEffect(() => { try { BodyFinderNative.updateControlPlaneJson(JSON.stringify(controlPlane)); } catch {} }, [controlPlane]);
+  useEffect(() => { const c:any=startBarrier?.commit;if(!c?.campaign_run_token||validationRun?.active)return;try{const result=BodyFinderNative.startDistributedValidationRun(validationScenario,JSON.stringify({...startBarrier,campaign_run_token:c.campaign_run_token,committed:true}));if(typeof result==='string'&&result.startsWith('VALIDATION_ENVIRONMENT_INVALID:'))setError(result);else setValidationNotice('AUTO_DISTRIBUTED_START 3/3');}catch(e:any){setError(String(e?.message??e));} }, [startBarrier?.commit?.campaign_run_token]);
+  useEffect(() => { const c:any=freezeBarrier?.commit;if(!c?.campaign_run_token||!validationRun?.active)return;try{BodyFinderNative.updateValidationTruthJson(JSON.stringify({...validationTruth,distributed_start:startBarrier,freeze_barrier:freezeBarrier}));const ok=BodyFinderNative.commitDistributedFreezeAndEnd(JSON.stringify({...freezeBarrier,campaign_run_token:c.campaign_run_token,committed:true}));if(ok)setValidationNotice('DISTRIBUTED_SNAPSHOT_COMMITTED_3_OF_3');else setError('Distributed freeze commit rejected by native runtime.');}catch(e:any){setError(String(e?.message??e));} }, [freezeBarrier?.commit?.readiness_digest, validationRun?.active]);
 
   useEffect(() => {
     const elected = Boolean(local?.node_id && coordinator === local.node_id);
@@ -267,46 +274,18 @@ export default function App() {
   }
 
   function toggleValidationRun() {
-    if (validationActionLock.current) return;
-    validationActionLock.current = true;
-    try {
-      if (validationRun?.active) {
-        let fb=getFreezeBarrierStatus(nodes,coordinator,local?.node_id??null,presence,calibrationStatus);if(!fb.prepare){if(coordinator!==local?.node_id){setError(lang==='es'?'End bloqueado: Freeze Prepare debe iniciarse en coordinador.':'End blocked: Freeze Prepare must start on coordinator.');return;}requestRunFreeze(nodes,coordinator,local?.node_id??null);setValidationNotice(lang==='es'?'Freeze Prepare emitido; espera SNAPSHOT_READY 3/3 y pulsa End otra vez.':'Freeze Prepare issued; wait for SNAPSHOT_READY 3/3 and press End again.');return;}fb=getFreezeBarrierStatus(nodes,coordinator,local?.node_id??null,presence,calibrationStatus);if(!fb.committed||fb.ready_count!==3||!fb.ready_parity){setValidationNotice(lang==='es'?`Freeze pendiente: ${fb.ready_count}/3 listos.`:`Freeze pending: ${fb.ready_count}/3 ready.`);return;}const frozenTruth={...validationTruth,scenario_contract:getScenarioCommandStatus(nodes,coordinator,local?.node_id??null),freeze_barrier:fb};
-        try { BodyFinderNative.updateValidationTruthJson(JSON.stringify(frozenTruth)); } catch {}
-        BodyFinderNative.endValidationRun();
-        setValidationNotice(lang === 'es' ? 'Corrida finalizada y congelada con quorum 3/3.' : 'Run completed and frozen with 3/3 quorum.');
-      } else {
-        const retained = Array.isArray(diagnostics?.completed_validation_runs_summary) ? diagnostics.completed_validation_runs_summary.length : 0;
-        if (retained > 0) setValidationNotice(lang === 'es' ? 'La corrida completada anterior se conservará en el historial.' : 'The previous completed run will be preserved in history.');
-        if (!VALIDATION_SCENARIOS.includes(validationScenario as any)) { setError('Select an explicit validation scenario before Start.'); return; }
-        const ss=getScenarioCommandStatus(nodes,coordinator,local?.node_id??null);if(!ss.ready||ss.ack_count!==3||ss.command?.scenario!==validationScenario){setError(lang==='es'?'Start bloqueado: ScenarioCommand exacto requiere ACK 3/3.':'Start blocked: exact ScenarioCommand requires 3/3 ACK.');return;}
-        const result = BodyFinderNative.startValidationRun(validationScenario);
-        if (typeof result === 'string' && result.startsWith('VALIDATION_ENVIRONMENT_INVALID:')) {
-          const reason = result.split(':').slice(1).join(':');
-          setError(lang === 'es' ? `Ambiente de validación inválido: ${reason}. Desactiva Battery Saver, mantén pantalla encendida y Body Finder en primer plano.` : `Invalid validation environment: ${reason}. Turn Battery Saver off, keep the screen on and Body Finder in foreground.`);
-          return;
-        }
-      }
+    if(validationActionLock.current)return;validationActionLock.current=true;try{
+      if(validationRun?.active){if(coordinator!==local?.node_id){setError('End blocked: coordinator only.');return;}requestRunFreeze(nodes,coordinator,local?.node_id??null,authorityLedger,calibrationStatus);setValidationNotice('Freeze Prepare V2 issued; peers will end automatically after READY 3/3.');}
+      else{if(coordinator!==local?.node_id){setError('Start blocked: coordinator only.');return;}const ss=getScenarioCommandStatus(nodes,coordinator,local?.node_id??null);if(!ss.ready||ss.ack_count!==3)throw new Error('Scenario ACK 3/3 required');if(calibrationStatus?.distributed_calibration_ready!==true)throw new Error('Calibration ACK 3/3 required');requestRunStart(nodes,coordinator,local?.node_id??null,calibrationStatus);setValidationNotice('Run Start Prepare V1 issued; peers will auto-start after READY 3/3.');}
       refreshValidationState();
-    } catch (cause: any) { setError(String(cause?.message ?? cause)); }
-    finally { setTimeout(() => { validationActionLock.current = false; }, 600); }
+    }catch(cause:any){setError(String(cause?.message??cause));}finally{setTimeout(()=>{validationActionLock.current=false;},600)}
   }
 
   async function share() {
     let freshDiagnostics = diagnostics;
     let calibrationSnapshot: any = null;
-    let autoFinalizedValidationRun = false;
-    try {
-      freshDiagnostics = JSON.parse(BodyFinderNative.getDiagnosticsJson());
-      if (freshDiagnostics?.validation_run?.active) {
-        try { BodyFinderNative.updateValidationTruthJson(JSON.stringify(validationTruth)); } catch {}
-        BodyFinderNative.endValidationRun();
-        autoFinalizedValidationRun = true;
-        freshDiagnostics = JSON.parse(BodyFinderNative.getDiagnosticsJson());
-        setDiagnostics(freshDiagnostics);
-        setValidationRun(freshDiagnostics?.validation_run ?? null);
-      }
-    } catch {}
+    const autoFinalizedValidationRun = false;
+    try { freshDiagnostics = JSON.parse(BodyFinderNative.getDiagnosticsJson()); if(freshDiagnostics?.validation_run?.active){setError(lang==='es'?'Export bloqueado: finaliza el freeze distribuido 3/3.':'Export blocked: complete distributed freeze 3/3.');return;} const selected=freshDiagnostics?.validation_run;if(selected&&!selected?.distributed_freeze_committed){setError(lang==='es'?'Export de aceptación bloqueado: falta RunFreezeCommitV2.':'Acceptance export blocked: RunFreezeCommitV2 missing.');return;} } catch {}
     try { calibrationSnapshot = JSON.parse(BodyFinderNative.getCalibrationSnapshotJson()); } catch {}
     const selectedRun = freshDiagnostics?.validation_run ?? null;
     const frozenTruth = selectedRun?.validation_truth ?? selectedRun?.truth ?? null;
@@ -447,6 +426,7 @@ export default function App() {
           <View style={s.card}><Text style={s.h2}>Scenario authority</Text><Text style={s.text}>{validationScenario} · ACK {scenarioStatus?.ack_count ?? 0}/3</Text><Text style={s.muted}>digest: {scenarioStatus?.command?.command_digest?.slice?.(0,16) ?? '—'} · immutable while run active</Text>
             <Pressable disabled={Boolean(validationRun?.active)} onPress={() => { try { issueScenarioCommand(nodes,coordinator,local?.node_id??null,'SMOKE_CAL_EMPTY' as ScenarioId); setValidationScenario('SMOKE_CAL_EMPTY'); } catch(c:any){setError(String(c?.message??c));} }}><Text style={s.link}>ISSUE START EMPTY</Text></Pressable>
             <Pressable disabled={Boolean(validationRun?.active)} onPress={() => { try { issueScenarioCommand(nodes,coordinator,local?.node_id??null,'HUMAN_MOVING' as ScenarioId); setValidationScenario('HUMAN_MOVING'); } catch(c:any){setError(String(c?.message??c));} }}><Text style={s.link}>ISSUE START HUMAN_MOVING</Text></Pressable></View>
+          <View style={s.card}><Text style={s.h2}>Distributed readiness</Text><Text style={s.text}>Calibration ACK {calibrationStatus?.peer_ack_count ?? 0}/3 · Scenario ACK {scenarioStatus?.ack_count ?? 0}/3</Text><Text style={s.text}>RunStart READY {startBarrier?.ready_count ?? 0}/3 · Freeze READY {freezeBarrier?.ready_count ?? 0}/3</Text><Text style={s.muted}>coordinator: {coordinator?.slice?.(-10) ?? '—'} · critical failures: {diagnostics?.wire_transport_v12?.critical_control_failure_count ?? diagnostics?.wire_transport?.critical_control_failure_count ?? 0}</Text></View>
           <View style={s.card}><Text style={s.h2}>Validation run</Text><Text style={s.text}>run: {validationRun?.run_id ?? '—'} · active: {String(Boolean(validationRun?.active))}</Text>
             <Text style={s.text}>elapsed: {validationRun?.elapsed_ms ?? 0} ms · acceptance ≥300s: {String(Boolean(validationRun?.acceptance_duration_eligible))} · frozen: {String(Boolean(validationRun?.snapshot_frozen))} · schema: {validationRun?.snapshot_schema_version ?? RELEASE.snapshotSchemaVersion}</Text>
             <Text style={s.text}>ended: {validationRun?.ended_wall_ms ?? '—'} · retained: {diagnostics?.completed_validation_runs_summary?.length ?? 0}/5 · selected: {diagnostics?.selected_validation_run_id?.slice?.(-8) ?? '—'}</Text>

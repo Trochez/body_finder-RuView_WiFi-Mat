@@ -1,10 +1,13 @@
 {
-  "algorithm": "deterministic-multinode-rssi-fusion-v9",
+  "G10": "PENDING",
+  "G11": "BLOCKED",
+  "G12": "PENDING",
   "baseline_sha": "3fd11b673647afd1c0aac23907b34cb59ff78acd",
-  "changed": false,
   "detector": "deterministic-multinode-rssi-fusion-v9",
   "detector_parameter_hash": "f5795d40fbfb1de728b8576e214b249ada67f70d7962e1bf7794eb9c7d251f17",
   "engineering_contract": "DEFINED",
-  "parameter_hash": "f5795d40fbfb1de728b8576e214b249ada67f70d7962e1bf7794eb9c7d251f17",
+  "engineering_only": true,
+  "final_go": false,
+  "physical_g10_go": false,
   "release": "dev-20.12"
 }

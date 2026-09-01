@@ -2,11 +2,15 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "additionalProperties": true,
   "properties": {
+    "campaign_run_token": {},
+    "generation": {},
     "schema": {}
   },
   "required": [
-    "schema"
+    "schema",
+    "campaign_run_token",
+    "generation"
   ],
-  "title": "control-plane-v10-schema.json",
+  "title": "snapshot-freeze-v2-schema.json",
   "type": "object"
 }

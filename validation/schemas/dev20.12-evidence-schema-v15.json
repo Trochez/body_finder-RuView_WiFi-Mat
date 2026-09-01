@@ -1,0 +1,26 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": true,
+  "properties": {
+    "atomic_snapshot_gate_pass": {
+      "type": "boolean"
+    },
+    "evidence_export_valid": {
+      "type": "boolean"
+    },
+    "report_version": {
+      "const": 32
+    },
+    "validation_run": {
+      "type": "object"
+    }
+  },
+  "required": [
+    "report_version",
+    "validation_run",
+    "evidence_export_valid",
+    "atomic_snapshot_gate_pass"
+  ],
+  "title": "dev20.12-evidence-schema-v15.json",
+  "type": "object"
+}

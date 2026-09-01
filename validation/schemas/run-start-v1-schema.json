@@ -2,15 +2,17 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "additionalProperties": true,
   "properties": {
-    "command_digest": {},
-    "scenario": {},
+    "campaign_run_token": {},
+    "generation": {},
+    "scenario_digest": {},
     "schema": {}
   },
   "required": [
     "schema",
-    "scenario",
-    "command_digest"
+    "campaign_run_token",
+    "generation",
+    "scenario_digest"
   ],
-  "title": "scenario-command-v1-schema.json",
+  "title": "run-start-v1-schema.json",
   "type": "object"
 }
