@@ -1,0 +1,34 @@
+name: Fix dev20.11 geometry gate
+
+on:
+  push:
+    branches: [main]
+    paths: [FIX_DEV20_11_GATE_TRIGGER.txt]
+
+permissions:
+  contents: write
+
+jobs:
+  fix:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Correct geometry contract assertion
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          p=Path('.github/workflows/release-dev20.11.yml')
+          s=p.read_text(encoding='utf-8')
+          old='grep -q "GeometryPublicationV11" apps/mobile/src/autogeometry.ts'
+          new='grep -q "COORDINATOR_PUBLICATION_V11" apps/mobile/src/autogeometry.ts'
+          if old not in s: raise SystemExit('geometry gate marker missing')
+          p.write_text(s.replace(old,new),encoding='utf-8')
+          PY
+      - name: Commit fix
+        run: |
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git add .github/workflows/release-dev20.11.yml
+          git diff --cached --check
+          git commit -m "fix(dev20.11): assert geometry V11 source contract"
+          git push origin HEAD:main
