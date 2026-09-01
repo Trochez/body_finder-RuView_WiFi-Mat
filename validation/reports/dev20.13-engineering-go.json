@@ -1,7 +1,10 @@
 {
-  "algorithm": "deterministic-multinode-rssi-fusion-v9",
   "build": "0.2.0-experimental.20.13",
-  "parameter_hash": "f5795d40fbfb1de728b8576e214b249ada67f70d7962e1bf7794eb9c7d251f17",
+  "dev21_blocked": true,
+  "engineering_go": true,
+  "g10": "PHYSICAL_PENDING",
+  "g11": "BLOCKED",
+  "g12": "PENDING",
   "release": "dev-20.13",
   "schema_version": 16,
   "source_sha": "GENERATED_AT_RELEASE",

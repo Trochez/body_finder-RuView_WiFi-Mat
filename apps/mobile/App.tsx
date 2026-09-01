@@ -26,6 +26,7 @@ import { diagnoseGeometryGraph } from './src/geometryDiagnostics';
 import { applyReciprocalFusion } from './src/rangeFusion';
 import { BUILD, REPORT_VERSION, HUMAN_SCANNING_ENABLED, RELEASE } from './src/version';
 import { beginSessionPresenceCalibration, electStableCoordinator, estimateHumanPresence, getControlPlanePublication, getRunAuthorityLedger, getSessionPresenceCalibration, selectAuthoritativePresence } from './src/humanPresence';
+import { getAuthorityStatus } from './src/authority';
 import { getCampaignControlPublication, getFreezeBarrierStatus, getRunStartBarrierStatus, getScenarioCommandStatus, issueScenarioCommand, requestRunFreeze, requestRunStart, ScenarioId } from './src/campaignControl';
 
 const T = {
@@ -156,7 +157,8 @@ export default function App() {
   const nodes = useMemo(() => (local ? [local, ...peers] : peers), [local, peers]);
   const fused = useMemo(() => applyReciprocalFusion(nodes), [nodes]);
   const geometryNodes = fused.nodes;
-  const coordinator = useMemo(() => electStableCoordinator(nodes, local?.node_id ?? null), [nodes, local?.node_id]);
+  const authorityStatus = useMemo(() => getAuthorityStatus(nodes, local?.node_id ?? null), [nodes, local?.node_id]);
+  const coordinator = useMemo(() => electStableCoordinator(nodes, local?.node_id ?? null), [nodes, local?.node_id, authorityStatus?.view?.authority_view_digest]);
   const computedGeometry = useMemo(() => solveGeometry(geometryNodes), [geometryNodes]);
   const localPresenceDiagnostic = useMemo(() => estimateHumanPresence(nodes, coordinator === local?.node_id ? 'coordinator' : 'diagnostic', coordinator, local?.node_id ?? null), [nodes, coordinator, local?.node_id]);
   const presence = useMemo(() => selectAuthoritativePresence(nodes, coordinator, local?.node_id ?? null, localPresenceDiagnostic), [nodes, coordinator, local?.node_id, localPresenceDiagnostic]);
@@ -182,6 +184,7 @@ export default function App() {
     scenario: validationRun?.active ? (validationRun?.scenario ?? validationScenario) : validationScenario,
     human_presence_calibration_status: getSessionPresenceCalibration(nodes),
     coordinator_node_id: coordinator,
+    authority_status: authorityStatus,
     fused_range_observations: geometryNodes.flatMap(node => node.ranges ?? []),
     graph_diagnostics: graphDiagnostics,
     reciprocal_fusion: fused.diagnostics,
@@ -198,14 +201,14 @@ export default function App() {
       holdover_metric_edge_count: graphDiagnostics.holdover_metric_edge_count,
       geometry_temporal_quality: graphDiagnostics.geometry_temporal_quality,
     },
-  }), [geometry, computedGeometry, presence, coordinator, geometryNodes, graphDiagnostics, fused.diagnostics, validationScenario, validationRun?.active, validationRun?.scenario, scenarioStatus, startBarrier, authorityLedger, freezeBarrier, geometrySelection.source, geometrySelection.publication_rejection_reason]);
+  }), [geometry, computedGeometry, presence, coordinator, geometryNodes, graphDiagnostics, fused.diagnostics, validationScenario, validationRun?.active, validationRun?.scenario, authorityStatus, scenarioStatus, startBarrier, authorityLedger, freezeBarrier, geometrySelection.source, geometrySelection.publication_rejection_reason]);
 
   useEffect(() => {
     try { BodyFinderNative.updateValidationTruthJson(JSON.stringify(validationTruth)); } catch {}
   }, [validationTruth]);
 
   const campaignControl = useMemo(() => getCampaignControlPublication(nodes, coordinator, local?.node_id ?? null, authorityLedger, calibrationStatus), [nodes, coordinator, local?.node_id, authorityLedger, calibrationStatus, scenarioStatus?.command?.command_digest, startBarrier?.prepare?.generation, freezeBarrier?.prepare?.generation]);
-  const controlPlane = useMemo(() => { const hp:any=getControlPlanePublication(nodes, coordinator, local?.node_id ?? null); const cc:any=campaignControl; return {...hp,...cc,schema:'BodyFinderControlPlaneV10',artifact_payloads_v1:[...(hp?.artifact_payloads_v1??[]),...(cc?.artifact_payloads_v1??[])]}; }, [nodes, coordinator, local?.node_id, presence, campaignControl]);
+  const controlPlane = useMemo(() => { const hp:any=getControlPlanePublication(nodes, coordinator, local?.node_id ?? null); const cc:any=campaignControl; return {...hp,...cc,schema:'BodyFinderControlPlaneV11',artifact_payloads_v1:[...(hp?.artifact_payloads_v1??[]),...(cc?.artifact_payloads_v1??[])]}; }, [nodes, coordinator, local?.node_id, presence, campaignControl]);
   useEffect(() => { try { BodyFinderNative.updateControlPlaneJson(JSON.stringify(controlPlane)); } catch {} }, [controlPlane]);
   useEffect(() => { const c:any=startBarrier?.commit;if(!c?.campaign_run_token||validationRun?.active)return;try{const result=BodyFinderNative.startDistributedValidationRun(validationScenario,JSON.stringify({...startBarrier,campaign_run_token:c.campaign_run_token,committed:true}));if(typeof result==='string'&&result.startsWith('VALIDATION_ENVIRONMENT_INVALID:'))setError(result);else setValidationNotice('AUTO_DISTRIBUTED_START 3/3');}catch(e:any){setError(String(e?.message??e));} }, [startBarrier?.commit?.campaign_run_token]);
   useEffect(() => { const c:any=freezeBarrier?.commit;if(!c?.campaign_run_token||!validationRun?.active)return;try{BodyFinderNative.updateValidationTruthJson(JSON.stringify({...validationTruth,distributed_start:startBarrier,freeze_barrier:freezeBarrier}));const ok=BodyFinderNative.commitDistributedFreezeAndEnd(JSON.stringify({...freezeBarrier,campaign_run_token:c.campaign_run_token,committed:true}));if(ok)setValidationNotice('DISTRIBUTED_SNAPSHOT_COMMITTED_3_OF_3');else setError('Distributed freeze commit rejected by native runtime.');}catch(e:any){setError(String(e?.message??e));} }, [freezeBarrier?.commit?.readiness_digest, validationRun?.active]);
@@ -276,10 +279,12 @@ export default function App() {
   function toggleValidationRun() {
     if(validationActionLock.current)return;validationActionLock.current=true;try{
       if(validationRun?.active){if(coordinator!==local?.node_id){setError('End blocked: coordinator only.');return;}requestRunFreeze(nodes,coordinator,local?.node_id??null,authorityLedger,calibrationStatus);setValidationNotice('Freeze Prepare V2 issued; peers will end automatically after READY 3/3.');}
-      else{if(coordinator!==local?.node_id){setError('Start blocked: coordinator only.');return;}const ss=getScenarioCommandStatus(nodes,coordinator,local?.node_id??null);if(!ss.ready||ss.ack_count!==3)throw new Error('Scenario ACK 3/3 required');if(calibrationStatus?.distributed_calibration_ready!==true)throw new Error('Calibration ACK 3/3 required');requestRunStart(nodes,coordinator,local?.node_id??null,calibrationStatus);setValidationNotice('Run Start Prepare V1 issued; peers will auto-start after READY 3/3.');}
+      else{if(!authorityStatus?.consensus||authorityStatus?.ack_count!==3){setError('Authority consensus 3/3 required');return;}if(coordinator!==local?.node_id){setError('Start blocked: coordinator only.');return;}const ss=getScenarioCommandStatus(nodes,coordinator,local?.node_id??null);if(!ss.ready||ss.ack_count!==3)throw new Error('Scenario ACK 3/3 required');if(calibrationStatus?.distributed_calibration_ready!==true)throw new Error('Calibration ACK 3/3 required');requestRunStart(nodes,coordinator,local?.node_id??null,calibrationStatus);setValidationNotice('Run Start Prepare V1 issued; peers will auto-start after READY 3/3.');}
       refreshValidationState();
     }catch(cause:any){setError(String(cause?.message??cause));}finally{setTimeout(()=>{validationActionLock.current=false;},600)}
   }
+
+  async function sharePreRunDiagnostic(){try{const fresh=JSON.parse(BodyFinderNative.getDiagnosticsJson());const blocking:string[]=[];if(!authorityStatus?.consensus)blocking.push(...(authorityStatus?.blocking_reasons??['AUTHORITY_NOT_3_OF_3']));if((scenarioStatus?.ack_count??0)!==3)blocking.push(`SCENARIO_ACK_${scenarioStatus?.ack_count??0}_OF_3`);if((calibrationStatus?.peer_ack_count??0)!==3)blocking.push(`CALIBRATION_ACK_${calibrationStatus?.peer_ack_count??0}_OF_3`);if((startBarrier?.ready_count??0)!==3)blocking.push(`RUN_START_READY_${startBarrier?.ready_count??0}_OF_3`);const context={release:'dev-20.13',build:BUILD,evidence_schema:'v16',generated_at:new Date().toISOString(),session_id:local?.session_id??null,node_id:local?.node_id??null,authority_status:authorityStatus,membership:nodes.map(n=>({node_id:n.node_id,instance_epoch:(n as any).instance_epoch??null,membership_lease_age_ms:(n as any).membership_lease_age_ms??null,membership_lease_state:(n as any).membership_lease_state??null,advertised_authority_view:(n.control_plane as any)?.authority_view_v1??null})),scenario_status:scenarioStatus,calibration_status:calibrationStatus,run_start:startBarrier,freeze_barrier:freezeBarrier,artifact_outbound_state:fresh?.wire_transport_v13?.artifact_peer_state_v1??fresh?.wire_transport?.artifact_peer_state_v1??null,artifact_receiver_state:fresh?.wire_transport_v13?.artifact_receiver_state_v1??fresh?.wire_transport?.artifact_receiver_state_v1??null,wire_transport_telemetry_v13:fresh?.wire_transport_v13??fresh?.wire_transport??null,geometry_summary:{state:geometry?.state??null,dimension:geometry?.dimension??null,positions:geometry?.positions?.length??0,measurement_health:graphDiagnostics.measurement_health},blocking_reasons:[...new Set(blocking)]};const serialized=BodyFinderNative.exportPreRunDiagnosticJson(JSON.stringify(context));const fn=`pre-run-diagnostic-dev20.13-${String(local?.node_id??'node').slice(-8)}.json`;if(Platform.OS==='android'){if(!BodyFinderNative.shareJsonFile(serialized,fn))throw new Error('Could not share diagnostic JSON')}else await Share.share({message:serialized,title:fn});}catch(c:any){setError(String(c?.message??c));}}
 
   async function share() {
     let freshDiagnostics = diagnostics;
@@ -337,7 +342,8 @@ export default function App() {
       validation_run: freshDiagnostics?.validation_run ?? null,
       completed_validation_runs_summary: freshDiagnostics?.completed_validation_runs_summary ?? [],
       calibration_snapshot: calibrationSnapshot,
-      local, peers, coordinator_node_id: coordinator, geometry_source: geometrySelection.source, geometry,
+      local, peers, coordinator_node_id: coordinator,
+    authority_status: authorityStatus, geometry_source: geometrySelection.source, geometry,
       locally_computed_geometry: computedGeometry, graph_diagnostics: graphDiagnostics,
       reciprocal_fusion: fused.diagnostics,
       fused_range_observations: geometryNodes.flatMap(node => node.ranges ?? []),
@@ -426,7 +432,7 @@ export default function App() {
           <View style={s.card}><Text style={s.h2}>Scenario authority</Text><Text style={s.text}>{validationScenario} · ACK {scenarioStatus?.ack_count ?? 0}/3</Text><Text style={s.muted}>digest: {scenarioStatus?.command?.command_digest?.slice?.(0,16) ?? '—'} · immutable while run active</Text>
             <Pressable disabled={Boolean(validationRun?.active)} onPress={() => { try { issueScenarioCommand(nodes,coordinator,local?.node_id??null,'SMOKE_CAL_EMPTY' as ScenarioId); setValidationScenario('SMOKE_CAL_EMPTY'); } catch(c:any){setError(String(c?.message??c));} }}><Text style={s.link}>ISSUE START EMPTY</Text></Pressable>
             <Pressable disabled={Boolean(validationRun?.active)} onPress={() => { try { issueScenarioCommand(nodes,coordinator,local?.node_id??null,'HUMAN_MOVING' as ScenarioId); setValidationScenario('HUMAN_MOVING'); } catch(c:any){setError(String(c?.message??c));} }}><Text style={s.link}>ISSUE START HUMAN_MOVING</Text></Pressable></View>
-          <View style={s.card}><Text style={s.h2}>Distributed readiness</Text><Text style={s.text}>Calibration ACK {calibrationStatus?.peer_ack_count ?? 0}/3 · Scenario ACK {scenarioStatus?.ack_count ?? 0}/3</Text><Text style={s.text}>RunStart READY {startBarrier?.ready_count ?? 0}/3 · Freeze READY {freezeBarrier?.ready_count ?? 0}/3</Text><Text style={s.muted}>coordinator: {coordinator?.slice?.(-10) ?? '—'} · critical failures: {diagnostics?.wire_transport_v12?.critical_control_failure_count ?? diagnostics?.wire_transport?.critical_control_failure_count ?? 0}</Text></View>
+          <View style={s.card}><Text style={s.h2}>Distributed readiness</Text><Text style={s.text}>Authority consensus {authorityStatus?.ack_count ?? 0}/3 · gen {authorityStatus?.view?.coordinator_generation ?? '—'}</Text><Text style={s.text}>authority coordinator: {authorityStatus?.view?.elected_coordinator?.slice?.(-10) ?? '—'} · missing: {authorityStatus?.ack_matrix?.filter((x:any)=>!x.acknowledged).map((x:any)=>x.node_id.slice(-8)).join(', ') || 'none'}</Text><Text style={s.text}>Calibration ACK {calibrationStatus?.peer_ack_count ?? 0}/3 · Scenario ACK {scenarioStatus?.ack_count ?? 0}/3</Text><Text style={s.text}>RunStart READY {startBarrier?.ready_count ?? 0}/3 · Freeze READY {freezeBarrier?.ready_count ?? 0}/3</Text><Text style={s.muted}>coordinator: {coordinator?.slice?.(-10) ?? '—'} · critical failures: {diagnostics?.wire_transport_v13?.critical_control_failure_count ?? diagnostics?.wire_transport?.critical_control_failure_count ?? 0}</Text></View>
           <View style={s.card}><Text style={s.h2}>Validation run</Text><Text style={s.text}>run: {validationRun?.run_id ?? '—'} · active: {String(Boolean(validationRun?.active))}</Text>
             <Text style={s.text}>elapsed: {validationRun?.elapsed_ms ?? 0} ms · acceptance ≥300s: {String(Boolean(validationRun?.acceptance_duration_eligible))} · frozen: {String(Boolean(validationRun?.snapshot_frozen))} · schema: {validationRun?.snapshot_schema_version ?? RELEASE.snapshotSchemaVersion}</Text>
             <Text style={s.text}>ended: {validationRun?.ended_wall_ms ?? '—'} · retained: {diagnostics?.completed_validation_runs_summary?.length ?? 0}/5 · selected: {diagnostics?.selected_validation_run_id?.slice?.(-8) ?? '—'}</Text>
@@ -438,9 +444,10 @@ export default function App() {
           </View>
           <Pressable style={s.btnTest} onPress={toggleValidationRun}><Text style={s.btnText}>{validationRun?.active ? tx.endRun : tx.startRun}</Text></Pressable>
           <Text style={s.muted}>{tx.empty}</Text>
-          <Pressable disabled={calibrating} style={s.btn} onPress={calibrate}><Text style={s.btnText}>{calibrating ? 'CALIBRATING…' : tx.calibrate}</Text></Pressable>
+          <Pressable disabled={calibrating || !authorityStatus?.consensus} style={[s.btn,(calibrating || !authorityStatus?.consensus)&&s.disabled]} onPress={calibrate}><Text style={s.btnText}>{calibrating ? 'CALIBRATING…' : tx.calibrate}</Text></Pressable>
           <Pressable disabled={!HUMAN_SCANNING_ENABLED || baseline == null || physicalConfidence === 'NONE'} style={[s.btn, (!HUMAN_SCANNING_ENABLED || baseline == null || physicalConfidence === 'NONE') && s.disabled]} onPress={() => setScanning(value => !value)}><Text style={s.btnText}>{scanning ? tx.stop : tx.scanning}</Text></Pressable>
-          <Pressable style={s.btnAlt} onPress={share}><Text style={s.btnText}>{tx.share}</Text></Pressable>{error && <Text style={s.err}>{error}</Text>}
+          {!validationRun?.active && <Pressable style={s.btnAlt} onPress={sharePreRunDiagnostic}><Text style={s.btnText}>Exportar diagnóstico</Text></Pressable>}
+          <Pressable disabled={Boolean(validationRun?.active)||!validationRun?.distributed_freeze_committed} style={[s.btnAlt,(Boolean(validationRun?.active)||!validationRun?.distributed_freeze_committed)&&s.disabled]} onPress={share}><Text style={s.btnText}>{tx.share}</Text></Pressable>{error && <Text style={s.err}>{error}</Text>}
         </ScrollView>
       ) : (
         <ScrollView contentContainerStyle={s.body}>

@@ -1,6 +1,7 @@
 import { Advertisement } from './autogeometry';
 import BodyFinderNative from '../modules/body-finder-native';
 import { DETECTOR_ALGORITHM, DETECTOR_PARAMETER_HASH, DETECTOR_V8 } from './detectorParameters';
+import { deterministicCoordinator, getAuthorityControlPublication, getAuthorityStatus } from './authority';
 
 export type PresencePrediction = 'HUMAN_EVIDENCE' | 'NO_HUMAN_EVIDENCE' | 'INDETERMINATE';
 export type CalibrationState = 'UNCALIBRATED'|'CALIBRATING'|'READY'|'INVALID'|'WAIT_COORDINATOR'|'STALE_AUTHORITY';
@@ -20,7 +21,7 @@ type Membership={
 };
 type CalState={
   state:CalibrationState; generation:number; coordinator:string|null; topology:string|null; started:number; artifact:any|null;
-  reason:string; expectedCohort:string[]; publicationSequence:number; lastAuthorityWallMs:number; coordinatorGeneration:number;
+  reason:string; expectedCohort:string[]; publicationSequence:number; lastAuthorityWallMs:number; coordinatorGeneration:number; authorityDigest:string;
 };
 type CachedDecision={decision:PresenceEstimate;receivedWallMs:number;sequence:number};
 
@@ -35,9 +36,9 @@ const decisionSequenceBySession=new Map<string,number>();
 let lastLocalNodeId:string|null=null;
 const calibrationByScope=new Map<string,CalState>();
 let activeCalibrationScope='__bootstrap__';
-function blankCalibration():CalState{return{state:'UNCALIBRATED',generation:0,coordinator:null,topology:'',started:0,artifact:null,reason:'NOT_CALIBRATED',expectedCohort:[],publicationSequence:0,lastAuthorityWallMs:0,coordinatorGeneration:0}}
+function blankCalibration():CalState{return{state:'UNCALIBRATED',generation:0,coordinator:null,topology:'',started:0,artifact:null,reason:'NOT_CALIBRATED',expectedCohort:[],publicationSequence:0,lastAuthorityWallMs:0,coordinatorGeneration:0,authorityDigest:''}}
 function activateCalibrationScope(nodes:Advertisement[],localNodeId:string|null){const sid=currentSession(nodes),key=`${sid}::${localNodeId??lastLocalNodeId??'unknown'}`;if(key===activeCalibrationScope)return;calibrationByScope.set(activeCalibrationScope,cal);cal=calibrationByScope.get(key)??blankCalibration();activeCalibrationScope=key;lastLocalNodeId=localNodeId??lastLocalNodeId}
-let cal:CalState={state:'UNCALIBRATED',generation:0,coordinator:null,topology:null,started:0,artifact:null,reason:'EMPTY_CAL_REQUIRED',expectedCohort:[],publicationSequence:0,lastAuthorityWallMs:0,coordinatorGeneration:0};
+let cal:CalState={state:'UNCALIBRATED',generation:0,coordinator:null,topology:null,started:0,artifact:null,reason:'EMPTY_CAL_REQUIRED',expectedCohort:[],publicationSequence:0,lastAuthorityWallMs:0,coordinatorGeneration:0,authorityDigest:''};
 
 function pair(a:string,b:string){return a<b?`${a}::${b}`:`${b}::${a}`}
 function sessionId(nodes:Advertisement[]){const counts=new Map<string,number>();for(const n of nodes){if(n.protocol_version!==2||!n.session_id)continue;counts.set(n.session_id,(counts.get(n.session_id)??0)+1)}return [...counts.entries()].sort((a,b)=>b[1]-a[1]||a[0].localeCompare(b[0]))[0]?.[0]??null}
@@ -52,20 +53,7 @@ function updateMembership(nodes:Advertisement[]):Membership|null{
   if(!m.nodeIds.length)m.nodeIds=[...m.observed].sort();
   const active=new Set(freshNodes(nodes,sid).map(n=>String(n.node_id)));
   for(const id of m.observed){if(!m.nodeIds.includes(id)){if(active.has(id)&&!m.unexpectedSince[id])m.unexpectedSince[id]=now;if(!active.has(id))delete m.unexpectedSince[id]}}
-  if(!m.coordinator){
-    const candidates=(m.nodeIds.length?m.nodeIds:[...active]).filter(id=>active.has(id));
-    m.coordinator=candidates.sort((a,b)=>(m!.scores[b]??0)-(m!.scores[a]??0)||a.localeCompare(b))[0]??null;
-  }
-  if(m.coordinator&&!active.has(m.coordinator)){
-    if(m.coordinatorMissingSince==null)m.coordinatorMissingSince=now;
-    const absentFor=now-m.coordinatorMissingSince;
-    const quorum=m.nodeIds.filter(id=>active.has(id));
-    if(absentFor>=DETECTOR_V8.coordinatorFailoverGraceMs&&quorum.length>=2){
-      const next=quorum.sort((a,b)=>(m!.scores[b]??0)-(m!.scores[a]??0)||a.localeCompare(b))[0]??null;
-      if(next&&next!==m.coordinator){m.coordinator=next;m.coordinatorGeneration+=1}
-      m.coordinatorMissingSince=null;
-    }
-  }else if(m.coordinator){m.coordinatorMissingSince=null}
+  const av=getAuthorityStatus(nodes,lastLocalNodeId).view;m.coordinator=av?.elected_coordinator??null;m.coordinatorGeneration=av?.coordinator_generation??Math.max(1,m.coordinatorGeneration);m.coordinatorMissingSince=null;
   return m;
 }
 function stableCohort(nodes:Advertisement[]){return updateMembership(nodes)?.nodeIds.slice().sort()??[]}
@@ -78,7 +66,7 @@ function confirmedMembershipChanges(nodes:Advertisement[]){
   const m=updateMembership(nodes);if(!m||m.nodeIds.length!==3)return[] as string[];const now=Date.now();
   return Object.entries(m.unexpectedSince).filter(([,since])=>now-since>=DETECTOR_V8.membershipChangeGraceMs).map(([id])=>id).sort();
 }
-export function electStableCoordinator(nodes:Advertisement[],localNodeId:string|null){activateCalibrationScope(nodes,localNodeId);lastLocalNodeId=localNodeId;return updateMembership(nodes)?.coordinator??null}
+export function electStableCoordinator(nodes:Advertisement[],localNodeId:string|null){activateCalibrationScope(nodes,localNodeId);lastLocalNodeId=localNodeId;updateMembership(nodes);return deterministicCoordinator(nodes,localNodeId)}
 
 function ingest(nodes:Advertisement[]):Link[]{const now=Date.now();for(const n of nodes){for(const r of n.ranges??[]){const v=Number(r.rssi_dbm);if(!Number.isFinite(v)||v>0||v<-126)continue;const observer=String(r.observer_node_id||n.node_id||'');const peer=String(r.peer_node_id||'');if(!observer||!peer)continue;const id=`${observer}::${peer}`;const source=Number((r as any).source_observation_monotonic_ns??r.monotonic_ns??0);if(source>0&&lastSource.get(id)===source)continue;if(source>0)lastSource.set(id,source);const q=history.get(id)??[];q.push({receive_wall_ms:now,source_monotonic_ns:source>0?source:null,rssi_dbm:v});history.set(id,q.filter(s=>now-s.receive_wall_ms<=HISTORY_MS).slice(-240));}}return [...history.entries()].map(([id,samples])=>{const [observer,peer]=id.split('::');return{link_id:id,observer_node_id:observer,peer_node_id:peer,samples}}).sort((a,b)=>a.link_id.localeCompare(b.link_id))}
 function expectedLinks(links:Link[],cohort:string[]){const ids=new Set<string>();for(const a of cohort)for(const b of cohort)if(a!==b)ids.add(`${a}::${b}`);return links.filter(l=>ids.has(l.link_id))}
@@ -91,23 +79,22 @@ function decisionFreshness(receivedWallMs:number){const age=Math.max(0,Date.now(
 function fallback(reason:string,state:CalibrationState=cal.state,extra:Record<string,unknown>={}):PresenceEstimate{return{prediction:'INDETERMINATE',human_confidence:0.5,evidence_quality:'LOW',fused_score:0,contributing_nodes:0,contributing_links:0,physical_baselines:0,reason,calibration_state:state,calibration_id:cal.artifact?.calibration_id??null,calibration_hash:cal.artifact?.calibration_hash??null,algorithm_version:DETECTOR_ALGORITHM,parameter_hash:DETECTOR_PARAMETER_HASH,window_id:String(Math.floor(Date.now()/2000)*2000),authoritative:false,source:'diagnostic_fail_closed',logical_membership_state:{expected_cohort:cal.expectedCohort},transport_liveness_state:extra.transport_liveness_state??[],...extra}}
 
 function syncAuthoritativeCalibration(nodes:Advertisement[],coordinatorNodeId:string|null,localNodeId:string|null){
-  lastLocalNodeId=localNodeId;if(!coordinatorNodeId||coordinatorNodeId===localNodeId)return;const coordinator=nodes.find(n=>n.node_id===coordinatorNodeId),p=publicationFrom(nodes,coordinatorNodeId),now=Date.now();
+  lastLocalNodeId=localNodeId;if(!coordinatorNodeId||coordinatorNodeId===localNodeId)return;const authority=getAuthorityStatus(nodes,localNodeId),coordinator=nodes.find(n=>n.node_id===coordinatorNodeId),p=publicationFrom(nodes,coordinatorNodeId),now=Date.now();
   const artifact=p?.artifact_id?artifactFrom(coordinator,p.artifact_id):null;
-  if(p?.schema==='CalibrationMetaV10'&&artifact?.calibration_hash===p?.hash){
+  if(p?.schema==='CalibrationMetaV10'&&artifact?.calibration_hash===p?.hash&&authority.view&&p?.authority_digest===authority.view.authority_view_digest){
     const incomingCg=Number(p.cg??0),incomingCal=Number(p.g??0),incomingSeq=Number(p.seq??0);
     const sameOrNewer=incomingCg>cal.coordinatorGeneration||(incomingCg===cal.coordinatorGeneration&&incomingCal>=cal.generation);const ordered=incomingCg>cal.coordinatorGeneration||incomingSeq>=cal.publicationSequence;
-    if(sameOrNewer&&ordered){cal={...cal,state:'READY',generation:incomingCal,coordinator:coordinatorNodeId,topology:String(p.topology_hash??''),artifact,reason:'AUTHORITATIVE_CALIBRATION_FINAL_V10_COMPLETE',expectedCohort:Array.isArray(p.cohort)?p.cohort.map(String).sort():cal.expectedCohort,publicationSequence:incomingSeq,lastAuthorityWallMs:now,coordinatorGeneration:incomingCg}}
+    if(sameOrNewer&&ordered){cal={...cal,state:'READY',generation:incomingCal,coordinator:coordinatorNodeId,topology:String(p.topology_hash??''),artifact,reason:'AUTHORITATIVE_CALIBRATION_FINAL_V10_COMPLETE',expectedCohort:Array.isArray(p.cohort)?p.cohort.map(String).sort():cal.expectedCohort,publicationSequence:incomingSeq,lastAuthorityWallMs:now,coordinatorGeneration:incomingCg,authorityDigest:String(p.authority_digest)}}
   }else if(p?.schema==='CalibrationMetaV10'&&!artifact&&!cal.artifact){cal={...cal,state:'WAIT_COORDINATOR',coordinator:coordinatorNodeId,reason:'CALIBRATION_FINAL_V10_PENDING'}}
   else if(cal.artifact&&cal.lastAuthorityWallMs&&now-cal.lastAuthorityWallMs>DETECTOR_V8.authorityPublicationLeaseMs){cal={...cal,state:'STALE_AUTHORITY',reason:'AUTHORITY_PUBLICATION_LEASE_EXPIRED_CALIBRATION_PRESERVED'}}
 }
 function adoptCoordinatorIfNeeded(nodes:Advertisement[],coordinatorNodeId:string|null,localNodeId:string|null){
-  if(!coordinatorNodeId||coordinatorNodeId!==localNodeId||!cal.artifact)return;const m=updateMembership(nodes);if(!m)return;
-  if(cal.coordinator!==coordinatorNodeId||cal.coordinatorGeneration<m.coordinatorGeneration){cal={...cal,state:'READY',coordinator:coordinatorNodeId,coordinatorGeneration:m.coordinatorGeneration,publicationSequence:0,lastAuthorityWallMs:Date.now(),reason:'AUTHORITY_FAILOVER_ADOPTED_EXISTING_FROZEN_CALIBRATION'}}
+  if(!coordinatorNodeId||coordinatorNodeId!==localNodeId||!cal.artifact)return;const m=updateMembership(nodes),authority=getAuthorityStatus(nodes,localNodeId);if(!m||!authority.view)return;if(cal.authorityDigest&&cal.authorityDigest!==authority.view.authority_view_digest){cal={...cal,state:'INVALID',artifact:null,reason:'AUTHORITY_GENERATION_CHANGED_RECALIBRATION_REQUIRED',authorityDigest:authority.view.authority_view_digest,coordinator:coordinatorNodeId,coordinatorGeneration:authority.view.coordinator_generation};return}if(cal.coordinator!==coordinatorNodeId||cal.coordinatorGeneration<authority.view.coordinator_generation){cal={...cal,state:'INVALID',artifact:null,reason:'AUTHORITY_FAILOVER_RECALIBRATION_REQUIRED',authorityDigest:authority.view.authority_view_digest,coordinator:coordinatorNodeId,coordinatorGeneration:authority.view.coordinator_generation}}
 }
 function exactAck(node:Advertisement,id:string){
   if(!cal.artifact)return false;if(id===cal.coordinator)return true;if(id===lastLocalNodeId&&cal.expectedCohort.includes(id))return true;
   const a=(node.control_plane as any)?.calibration_ack_v10;
-  return Boolean(a&&a.schema==='CalibrationAckV10'&&a.node_id===id&&a.id===cal.artifact.calibration_id&&a.hash===cal.artifact.calibration_hash&&Number(a.g)===cal.generation&&Number(a.cg)===cal.coordinatorGeneration);
+  return Boolean(a&&a.schema==='CalibrationAckV10'&&a.node_id===id&&a.id===cal.artifact.calibration_id&&a.hash===cal.artifact.calibration_hash&&Number(a.g)===cal.generation&&Number(a.cg)===cal.coordinatorGeneration&&String(a.authority_digest??'')===cal.authorityDigest);
 }
 function peerAckMatrix(nodes:Advertisement[]){
   return cal.expectedCohort.map(id=>{const n=nodes.find(x=>x.node_id===id);return{node_id:id,acknowledged:Boolean(n&&exactAck(n,id))||id===cal.coordinator||id===lastLocalNodeId,calibration_id:cal.artifact?.calibration_id??null,calibration_hash:cal.artifact?.calibration_hash??null,calibration_generation:cal.generation,coordinator_generation:cal.coordinatorGeneration}})
@@ -115,30 +102,31 @@ function peerAckMatrix(nodes:Advertisement[]){
 
 export function beginSessionPresenceCalibration(nodes:Advertisement[],coordinatorNodeId:string|null,localNodeId:string|null){
   activateCalibrationScope(nodes,localNodeId);lastLocalNodeId=localNodeId;const links=ingest(nodes),cohort=stableCohort(nodes),t=topology(links,cohort);
+  const authority=getAuthorityStatus(nodes,localNodeId);if(!authority.consensus||authority.ack_count!==3||!authority.view){cal={...cal,state:'WAIT_COORDINATOR',reason:'AUTHORITY_CONSENSUS_REQUIRED_3_OF_3'};return cal}
   if(!coordinatorNodeId||coordinatorNodeId!==localNodeId){syncAuthoritativeCalibration(nodes,coordinatorNodeId,localNodeId);if(cal.artifact)return cal;cal={...cal,state:'WAIT_COORDINATOR',coordinator:coordinatorNodeId,reason:'CALIBRATION_MUST_BE_STARTED_ON_ELECTED_COORDINATOR'};return cal}
   if(cohort.length!==3||!t.ok){cal={...cal,state:'INVALID',coordinator:coordinatorNodeId,reason:'CALIBRATION_REQUIRES_3_NODES_6_LINKS_3_BASELINES'};return cal}
   const m=updateMembership(nodes);
-  cal={state:'CALIBRATING',generation:cal.generation+1,coordinator:coordinatorNodeId,topology:t.fingerprint,started:Date.now(),artifact:null,reason:'COLLECTING_SYNCHRONIZED_EMPTY_BASELINE',expectedCohort:cohort,publicationSequence:0,lastAuthorityWallMs:Date.now(),coordinatorGeneration:m?.coordinatorGeneration??Math.max(1,cal.coordinatorGeneration)};
+  cal={state:'CALIBRATING',generation:cal.generation+1,coordinator:coordinatorNodeId,topology:t.fingerprint,started:Date.now(),artifact:null,reason:'COLLECTING_SYNCHRONIZED_EMPTY_BASELINE',expectedCohort:cohort,publicationSequence:0,lastAuthorityWallMs:Date.now(),coordinatorGeneration:authority.view.coordinator_generation,authorityDigest:authority.view.authority_view_digest};
   return cal
 }
 export function getSessionPresenceCalibration(nodes:Advertisement[]=[]){
   activateCalibrationScope(nodes,lastLocalNodeId);const matrix=peerAckMatrix(nodes),expected=cal.expectedCohort.length||3,ackCount=matrix.filter(x=>x.acknowledged).length;
-  return{state:cal.state,generation:cal.generation,calibration_generation:cal.generation,coordinator_generation:cal.coordinatorGeneration,coordinator_node_id:cal.coordinator,topology_fingerprint:cal.topology,expected_cohort:cal.expectedCohort,started_wall_ms:cal.started,calibration_id:cal.artifact?.calibration_id??null,calibration_hash:cal.artifact?.calibration_hash??null,reason:cal.reason,publication_sequence:cal.publicationSequence,authority_lease_age_ms:cal.lastAuthorityWallMs?Date.now()-cal.lastAuthorityWallMs:null,peer_ack_matrix:matrix,peer_ack_count:ackCount,distributed_calibration_ready:cal.state==='READY'&&expected===3&&ackCount===3,logical_membership_state:{cohort:cal.expectedCohort,current_instances:cal.expectedCohort.map(id=>({node_id:id,instance_epoch:updateMembership(nodes)?.instanceByNode[id]??null})),confirmed_change:confirmedMembershipChanges(nodes),transitions:updateMembership(nodes)?.transitions??[]},transport_liveness_state:transportStates(nodes)}
+  const authority=getAuthorityStatus(nodes,lastLocalNodeId);return{state:cal.state,generation:cal.generation,calibration_generation:cal.generation,coordinator_generation:cal.coordinatorGeneration,authority_digest:cal.authorityDigest,authority_consensus:authority.consensus,authority_ack_count:authority.ack_count,coordinator_node_id:cal.coordinator,topology_fingerprint:cal.topology,expected_cohort:cal.expectedCohort,started_wall_ms:cal.started,calibration_id:cal.artifact?.calibration_id??null,calibration_hash:cal.artifact?.calibration_hash??null,reason:cal.reason,publication_sequence:cal.publicationSequence,authority_lease_age_ms:cal.lastAuthorityWallMs?Date.now()-cal.lastAuthorityWallMs:null,peer_ack_matrix:matrix,peer_ack_count:ackCount,distributed_calibration_ready:cal.state==='READY'&&expected===3&&ackCount===3,logical_membership_state:{cohort:cal.expectedCohort,current_instances:cal.expectedCohort.map(id=>({node_id:id,instance_epoch:updateMembership(nodes)?.instanceByNode[id]??null})),confirmed_change:confirmedMembershipChanges(nodes),transitions:updateMembership(nodes)?.transitions??[]},transport_liveness_state:transportStates(nodes)}
 }
 export function getCalibrationPublication(localNodeId:string|null){
   if(!cal.artifact||cal.coordinator!==localNodeId||!(cal.state==='READY'||cal.state==='STALE_AUTHORITY'))return null;cal.publicationSequence+=1;cal.lastAuthorityWallMs=Date.now();
   const topology_hash=BodyFinderNative.sha256Text(cal.topology||'');
-  return{schema:'CalibrationMetaV10',session_id:cal.artifact.session_id,coordinator_id:cal.coordinator,cg:cal.coordinatorGeneration,g:cal.generation,id:cal.artifact.calibration_id,hash:cal.artifact.calibration_hash,artifact_id:`calibration:${cal.artifact.calibration_id}`,artifact_hash:cal.artifact.calibration_hash,topology_hash,cohort:cal.expectedCohort,seq:cal.publicationSequence,lease_ms:DETECTOR_V8.authorityPublicationLeaseMs,state:'READY'}
+  return{schema:'CalibrationMetaV10',session_id:cal.artifact.session_id,coordinator_id:cal.coordinator,cg:cal.coordinatorGeneration,g:cal.generation,id:cal.artifact.calibration_id,hash:cal.artifact.calibration_hash,artifact_id:`calibration:${cal.artifact.calibration_id}`,artifact_hash:cal.artifact.calibration_hash,topology_hash,cohort:cal.expectedCohort,seq:cal.publicationSequence,lease_ms:DETECTOR_V8.authorityPublicationLeaseMs,state:'READY',authority_digest:cal.authorityDigest}
 }
 export function getControlPlanePublication(nodes:Advertisement[],coordinatorNodeId:string|null,localNodeId:string|null){
   activateCalibrationScope(nodes,localNodeId);lastLocalNodeId=localNodeId;syncAuthoritativeCalibration(nodes,coordinatorNodeId,localNodeId);adoptCoordinatorIfNeeded(nodes,coordinatorNodeId,localNodeId);const sid=currentSession(nodes),cm=getCalibrationPublication(localNodeId),cached=latestDecisionBySession.get(sid),topology_hash=BodyFinderNative.sha256Text(cal.topology||'');
-  const ack=cal.artifact&&localNodeId&&cal.expectedCohort.includes(localNodeId)?{schema:'CalibrationAckV10',sid,node_id:localNodeId,cg:cal.coordinatorGeneration,g:cal.generation,id:cal.artifact.calibration_id,hash:cal.artifact.calibration_hash,artifact_id:`calibration:${cal.artifact.calibration_id}`,topology_hash}:null;
+  const ack=cal.artifact&&localNodeId&&cal.expectedCohort.includes(localNodeId)?{schema:'CalibrationAckV10',sid,node_id:localNodeId,cg:cal.coordinatorGeneration,g:cal.generation,id:cal.artifact.calibration_id,hash:cal.artifact.calibration_hash,artifact_id:`calibration:${cal.artifact.calibration_id}`,topology_hash,authority_digest:cal.authorityDigest}:null;
   const dm=cached&&coordinatorNodeId===localNodeId&&cached.decision.authoritative&&cached.decision.canonical_digest?{schema:'DecisionMetaV10',sid,coordinator_id:coordinatorNodeId,cg:cal.coordinatorGeneration,g:cached.decision.calibration_generation??cal.generation,cal_id:cached.decision.calibration_id??cal.artifact?.calibration_id??null,cal_hash:cached.decision.calibration_hash??cal.artifact?.calibration_hash??null,topology_hash,seq:cached.sequence,id:cached.decision.decision_id,digest:cached.decision.canonical_digest,prediction:cached.decision.prediction,n:Number(cached.decision.contributing_nodes??0),l:Number(cached.decision.contributing_links??0),b:Number(cached.decision.physical_baselines??0)}:null;
   const da=cached&&localNodeId?{schema:'DecisionAckV10',sid,node_id:localNodeId,seq:cached.sequence,id:cached.decision.decision_id??null,digest:cached.decision.canonical_digest??null}:null;
-  const artifacts:any[]=[];if(coordinatorNodeId===localNodeId&&cm&&cal.artifact)artifacts.push({artifact_id:cm.artifact_id,artifact_type:'CALIBRATION_FINAL_V10',generation:cal.generation,priority:'CALIBRATION_FINAL',supersedes_artifact_id:null,payload:cal.artifact});
-  return{schema:'BodyFinderControlPlaneV10',session_id:sid,node_id:localNodeId,logical_membership_state:{expected_cohort:stableCohort(nodes),transport_liveness_state:transportStates(nodes)},calibration_meta_v10:cm,calibration_ack_v10:ack,decision_meta_v10:dm,decision_ack_v10:da,artifact_payloads_v1:artifacts}
+  const artifacts:any[]=[];if(coordinatorNodeId===localNodeId&&cm&&cal.artifact)artifacts.push({artifact_id:cm.artifact_id,artifact_type:'CALIBRATION_FINAL_V10',generation:cal.generation,priority:'CALIBRATION_FINAL',supersedes_artifact_id:null,payload:cal.artifact});const authority=getAuthorityControlPublication(nodes,localNodeId);
+  return{schema:'BodyFinderControlPlaneV11',session_id:sid,node_id:localNodeId,authority_view_v1:authority.authority_view_v1,authority_ack_v1:authority.authority_ack_v1,logical_membership_state:{expected_cohort:stableCohort(nodes),transport_liveness_state:transportStates(nodes)},calibration_meta_v10:cm,calibration_ack_v10:ack,decision_meta_v10:dm,decision_ack_v10:da,artifact_payloads_v1:artifacts}
 }
-export function getRunAuthorityLedger(nodes:Advertisement[],coordinatorNodeId:string|null,localNodeId:string|null){activateCalibrationScope(nodes,localNodeId);syncAuthoritativeCalibration(nodes,coordinatorNodeId,localNodeId);const sid=currentSession(nodes),cached=latestDecisionBySession.get(sid),d=cached?.decision??null;return{schema:'RunAuthorityLedgerV1',session_id:sid,node_id:localNodeId,authority_ledger_reason:cal.artifact?'PINNED_CALIBRATION':'CALIBRATION_MISSING',authority_ledger_age_ms:cached?Math.max(0,Date.now()-cached.receivedWallMs):null,calibration_id:cal.artifact?.calibration_id??null,calibration_hash:cal.artifact?.calibration_hash??null,calibration_generation:cal.generation,topology_hash:BodyFinderNative.sha256Text(cal.topology||''),cohort:cal.expectedCohort,decision:d?{...d,decision_freshness_state:decisionFreshness(cached!.receivedWallMs)}:null}}
+export function getRunAuthorityLedger(nodes:Advertisement[],coordinatorNodeId:string|null,localNodeId:string|null){activateCalibrationScope(nodes,localNodeId);syncAuthoritativeCalibration(nodes,coordinatorNodeId,localNodeId);const sid=currentSession(nodes),cached=latestDecisionBySession.get(sid),d=cached?.decision??null;const authority=getAuthorityStatus(nodes,localNodeId);return{schema:'RunAuthorityLedgerV1',session_id:sid,node_id:localNodeId,authority_view:authority.view,authority_consensus:authority.consensus,authority_ack_count:authority.ack_count,authority_ledger_reason:cal.artifact?'PINNED_CALIBRATION':'CALIBRATION_MISSING',authority_ledger_age_ms:cached?Math.max(0,Date.now()-cached.receivedWallMs):null,calibration_id:cal.artifact?.calibration_id??null,calibration_hash:cal.artifact?.calibration_hash??null,calibration_generation:cal.generation,topology_hash:BodyFinderNative.sha256Text(cal.topology||''),cohort:cal.expectedCohort,decision:d?{...d,decision_freshness_state:decisionFreshness(cached!.receivedWallMs)}:null}}
 
 function maybeFreeze(nodes:Advertisement[],coordinatorNodeId:string|null,localNodeId:string|null,links:Link[]){
   if(cal.state!=='CALIBRATING'||coordinatorNodeId!==localNodeId)return;

@@ -132,7 +132,7 @@ wr(p,s)
 # Native Android transport V13: critical authority controls, per-peer transfer telemetry, progress-aware retry,
 # request repair before assembly eviction, provenance in cache, and read-only diagnostic export.
 p='apps/mobile/modules/body-finder-native/android/src/main/java/com/trochez/bodyfindernative/BodyFinderNativeModule.kt';s=rd(p)
-s=s.replace('snapshot_schema_version\", 15','snapshot_schema_version\", 16').replace('WireTransportTelemetryV12','WireTransportTelemetryV13')
+s=s.replace('snapshot_schema_version\", 15','snapshot_schema_version\", 16').replace('.put(\"snapshot_schema_version\", 15)','.put(\"snapshot_schema_version\", 16)').replace('WireTransportTelemetryV12','WireTransportTelemetryV13')
 s=s.replace('val sha:String,val payload:JSONObject,val completedWallMs:Long)', 'val sha:String,val payload:JSONObject,val completedWallMs:Long,val sourceNode:String="",val generation:Long=0L,val artifactType:String="UNKNOWN")')
 s=s.replace('val ackPeers:MutableSet<String> = java.util.concurrent.ConcurrentHashMap.newKeySet()','val ackPeers:MutableSet<String> = java.util.concurrent.ConcurrentHashMap.newKeySet(),val lastProgressWallMsByPeer:java.util.concurrent.ConcurrentHashMap<String,Long> = java.util.concurrent.ConcurrentHashMap(),val lastNackSignatureByPeer:java.util.concurrent.ConcurrentHashMap<String,String> = java.util.concurrent.ConcurrentHashMap(),val nackCountByPeer:java.util.concurrent.ConcurrentHashMap<String,java.util.concurrent.atomic.AtomicLong> = java.util.concurrent.ConcurrentHashMap()')
 s=s.replace('private val criticalControlKeys=setOf("calibration_meta_v10"','private val criticalControlKeys=setOf("authority_view_v1","authority_ack_v1","calibration_meta_v10"')
@@ -165,7 +165,7 @@ marker='    Function("getDiagnosticsJson") {\n      val ctx = appContext.reactCo
 if 'Function("exportPreRunDiagnosticJson")' not in s:
  block=marker+'''\n    Function("exportPreRunDiagnosticJson") { contextJson: String ->
       val ctx=appContext.reactContext?:return@Function "{}";val supplied=try{JSONObject(contextJson)}catch(_:Throwable){JSONObject()};val beforeRun=ValidationRuntime.runId;val beforeEnded=ValidationRuntime.endedWallMs
-      supplied.put("evidence_class","PRE_RUN_DIAGNOSTIC_V1").put("acceptance_eligible",false).put("run_started",beforeRun!=null&&beforeEnded==null).put("report_version",33).put("snapshot_schema_version",16).put("wire_transport_telemetry",WireTransport.telemetry()).put("native_diagnostics",diagnostics(ctx))
+      supplied.put("evidence_class","PRE_RUN_DIAGNOSTIC_V1").put("acceptance_eligible",false).put("run_started",beforeRun!=null&&beforeEnded==null).put("report_version",33).put("snapshot_schema_version",16).put("wire_transport_telemetry",WireTransportV10.telemetry()).put("native_diagnostics",diagnostics(ctx))
       supplied.put("diagnostic_read_only",beforeRun==ValidationRuntime.runId&&beforeEnded==ValidationRuntime.endedWallMs).toString(2)
     }'''
  s=s.replace(marker,block,1)
