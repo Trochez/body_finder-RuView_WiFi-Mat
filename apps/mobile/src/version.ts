@@ -2,7 +2,7 @@ export const RELEASE = Object.freeze({
   build: '0.2.0-experimental.20.13',
   reportVersion: 33,
   versionCode: 33,
-  releaseIteration: 'experimental.20.12',
+  releaseIteration: 'experimental.20.13',
   protocolVersion: 2,
   snapshotSchemaVersion: 16,
   acceptanceMinimumMs: 330000,
