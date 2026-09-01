@@ -6,7 +6,7 @@ on:
     paths: [MATERIALIZE_DEV20_13_RELEASE.txt]
 
 permissions:
-  contents: read
+  contents: write
 
 jobs:
   materialize:
@@ -15,13 +15,15 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with: {python-version: '3.12'}
-      - name: Generate release workflow from committed dev20.13 generator
+      - name: Generate exact release workflow as normal text artifact
         run: |
           set -euxo pipefail
           python3 scripts/implement_dev20_13.py
           python3 scripts/dev20_13_post_patch.py
           test -s .github/workflows/release-dev20.13.yml
-          echo 'BEGIN_RELEASE_B64'
-          base64 -w0 .github/workflows/release-dev20.13.yml
-          echo
-          echo 'END_RELEASE_B64'
+          cp .github/workflows/release-dev20.13.yml GENERATED_RELEASE_DEV20_13.yml.txt
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git add GENERATED_RELEASE_DEV20_13.yml.txt
+          git commit -m "ci(dev20.13): materialize exact release workflow text"
+          git push origin HEAD:main
