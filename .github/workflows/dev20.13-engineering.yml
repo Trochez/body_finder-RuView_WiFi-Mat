@@ -1,11 +1,14 @@
 name: dev20.13 engineering
 
 on:
+  push:
+    branches: [main]
+    paths: [DEV20_13_ENGINEERING_TRIGGER.txt]
   workflow_dispatch:
     inputs:
       target_ref:
         description: Ref to validate
-        required: true
+        required: false
         default: implementation/dev20.13
 
 permissions:
@@ -21,7 +24,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          ref: ${{ inputs.target_ref }}
+          ref: implementation/dev20.13
           fetch-depth: 0
       - uses: actions/setup-python@v5
         with: {python-version: '3.12'}
@@ -77,5 +80,5 @@ jobs:
           git add -A
           if ! git diff --cached --quiet; then
             git commit -m "feat(dev20.13): deterministic distributed authority diagnostics"
-            git push origin HEAD:${{ inputs.target_ref }}
+            git push origin HEAD:implementation/dev20.13
           fi
