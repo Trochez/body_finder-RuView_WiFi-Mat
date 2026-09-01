@@ -39,11 +39,13 @@ jobs:
       - uses: gradle/actions/setup-gradle@v4
         with: {gradle-version: '8.10.2'}
       - name: Apply implementation
-        run: python3 scripts/implement_dev20_13.py
+        run: |
+          python3 scripts/implement_dev20_13.py
+          python3 scripts/dev20_13_post_patch.py
       - name: Contract and distributed simulations
         run: |
           set -euxo pipefail
-          python3 -m py_compile scripts/implement_dev20_13.py validation/analysis/test_dev20_13_contract.py validation/analysis/test_dev20_13_multi_runtime.py validation/analysis/test_dev20_13_artifact_transport.py validation/analysis/validate_dev20_13_pre_run_diagnostic.py validation/analysis/validate_dev20_13_g10.py
+          python3 -m py_compile scripts/implement_dev20_13.py scripts/dev20_13_post_patch.py validation/analysis/test_dev20_13_contract.py validation/analysis/test_dev20_13_multi_runtime.py validation/analysis/test_dev20_13_artifact_transport.py validation/analysis/validate_dev20_13_pre_run_diagnostic.py validation/analysis/validate_dev20_13_g10.py
           python3 validation/analysis/test_dev20_13_contract.py
           python3 validation/analysis/test_dev20_13_multi_runtime.py
           python3 validation/analysis/test_dev20_13_artifact_transport.py
