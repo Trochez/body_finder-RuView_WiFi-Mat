@@ -1,0 +1,36 @@
+name: Fix dev20.11 implementation script
+
+on:
+  push:
+    branches: [main]
+    paths: [FIX_DEV20_11_SCRIPT_TRIGGER.txt]
+
+permissions:
+  contents: write
+
+jobs:
+  fix:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: {python-version: '3.12'}
+      - name: Normalize Python one-line conditional patches
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          p=Path('scripts/implement_dev20_11.py')
+          s=p.read_text()
+          s=s.replace(';s=s.replace','\ns=s.replace')
+          s=s.replace(';wr(p,s)','\nwr(p,s)')
+          p.write_text(s)
+          compile(s,str(p),'exec')
+          PY
+      - name: Commit fix
+        run: |
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git add scripts/implement_dev20_11.py
+          git diff --cached --check
+          git commit -m "fix(dev20.11): execute conditional source transformations"
+          git push origin HEAD:main
