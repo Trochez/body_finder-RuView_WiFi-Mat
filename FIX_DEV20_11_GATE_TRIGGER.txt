@@ -1,0 +1,1 @@
+assert COORDINATOR_PUBLICATION_V11 in autogeometry
