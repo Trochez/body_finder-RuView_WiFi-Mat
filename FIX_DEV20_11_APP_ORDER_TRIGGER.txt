@@ -1,0 +1,3 @@
+apply dev20.11 App ordering hotfix
+root_cause=campaign state declared after validationTruth
+expected_next=typecheck pass then release retrigger
