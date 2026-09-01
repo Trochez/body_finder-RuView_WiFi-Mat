@@ -1,8 +1,10 @@
 {
-  "algorithm": "deterministic-multinode-rssi-fusion-v9",
+  "authority_required": 3,
   "build": "0.2.0-experimental.20.13",
-  "parameter_hash": "f5795d40fbfb1de728b8576e214b249ada67f70d7962e1bf7794eb9c7d251f17",
+  "calibration_required": 3,
   "release": "dev-20.13",
+  "run_start_ready_required": 3,
+  "scenario_required": 3,
   "schema_version": 16,
   "source_sha": "GENERATED_AT_RELEASE",
   "status": "PASS"

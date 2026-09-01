@@ -1,0 +1,24 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "acceptance_eligible": {
+      "const": false
+    },
+    "blocking_reasons": {
+      "items": {
+        "type": "string"
+      },
+      "type": "array"
+    },
+    "evidence_class": {
+      "const": "PRE_RUN_DIAGNOSTIC_V1"
+    }
+  },
+  "required": [
+    "evidence_class",
+    "acceptance_eligible",
+    "blocking_reasons"
+  ],
+  "title": "PRE_RUN_DIAGNOSTIC_V1",
+  "type": "object"
+}
