@@ -1,0 +1,27 @@
+name: Materialize dev20.13 release workflow
+
+on:
+  push:
+    branches: [main]
+    paths: [MATERIALIZE_DEV20_13_RELEASE.txt]
+
+permissions:
+  contents: read
+
+jobs:
+  materialize:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: {python-version: '3.12'}
+      - name: Generate release workflow from committed dev20.13 generator
+        run: |
+          set -euxo pipefail
+          python3 scripts/implement_dev20_13.py
+          python3 scripts/dev20_13_post_patch.py
+          test -s .github/workflows/release-dev20.13.yml
+          echo 'BEGIN_RELEASE_B64'
+          base64 -w0 .github/workflows/release-dev20.13.yml
+          echo
+          echo 'END_RELEASE_B64'
