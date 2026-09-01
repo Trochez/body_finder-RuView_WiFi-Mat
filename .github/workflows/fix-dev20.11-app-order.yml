@@ -1,0 +1,36 @@
+name: Fix dev20.11 App ordering
+
+on:
+  push:
+    branches: [main]
+    paths: [FIX_DEV20_11_APP_ORDER_TRIGGER.txt]
+
+permissions:
+  contents: write
+
+jobs:
+  fix:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Move scenario/freeze state before validation truth
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          p=Path('scripts/implement_dev20_11.py')
+          s=p.read_text(encoding='utf-8')
+          old='''a="  const controlPlane = useMemo(() => getControlPlanePublication(nodes, coordinator, local?.node_id ?? null), [nodes, coordinator, local?.node_id, presence]);\\n  useEffect(() => { try { BodyFinderNative.updateControlPlaneJson(JSON.stringify(controlPlane)); } catch {} }, [controlPlane]);"\nb="  const calibrationStatus = useMemo(() => getSessionPresenceCalibration(nodes), [nodes, presence]);\\n  const scenarioStatus = useMemo(() => getScenarioCommandStatus(nodes, coordinator, local?.node_id ?? null), [nodes, coordinator, local?.node_id]);\\n  useEffect(() => { const commanded=scenarioStatus?.command?.scenario; if(commanded&&commanded!==validationScenario)setValidationScenario(commanded); }, [scenarioStatus?.command?.command_digest]);\\n  const freezeBarrier = useMemo(() => getFreezeBarrierStatus(nodes, coordinator, local?.node_id ?? null, presence, calibrationStatus), [nodes, coordinator, local?.node_id, presence, calibrationStatus]);\\n  const campaignControl = useMemo(() => getCampaignControlPublication(nodes, coordinator, local?.node_id ?? null, presence, calibrationStatus), [nodes, coordinator, local?.node_id, presence, calibrationStatus, scenarioStatus?.command?.command_digest, freezeBarrier?.prepare?.generation]);\\n  const controlPlane = useMemo(() => ({...getControlPlanePublication(nodes, coordinator, local?.node_id ?? null),...campaignControl,schema:'BodyFinderControlPlaneV9'}), [nodes, coordinator, local?.node_id, presence, campaignControl]);\\n  useEffect(() => { try { BodyFinderNative.updateControlPlaneJson(JSON.stringify(controlPlane)); } catch {} }, [controlPlane]);"'''
+          new='''anchor="  useEffect(() => { try { BodyFinderNative.updateGeometryState(geometryState); } catch {} }, [geometryState]);\\n\\n  const validationTruth = useMemo(() => ({"\nprefix="  useEffect(() => { try { BodyFinderNative.updateGeometryState(geometryState); } catch {} }, [geometryState]);\\n\\n  const calibrationStatus = useMemo(() => getSessionPresenceCalibration(nodes), [nodes, presence]);\\n  const scenarioStatus = useMemo(() => getScenarioCommandStatus(nodes, coordinator, local?.node_id ?? null), [nodes, coordinator, local?.node_id]);\\n  useEffect(() => { const commanded=scenarioStatus?.command?.scenario; if(commanded&&commanded!==validationScenario)setValidationScenario(commanded); }, [scenarioStatus?.command?.command_digest]);\\n  const freezeBarrier = useMemo(() => getFreezeBarrierStatus(nodes, coordinator, local?.node_id ?? null, presence, calibrationStatus), [nodes, coordinator, local?.node_id, presence, calibrationStatus]);\\n\\n  const validationTruth = useMemo(() => ({"\nif anchor not in s:raise SystemExit('App ordering anchor missing')\ns=s.replace(anchor,prefix,1)\na="  const controlPlane = useMemo(() => getControlPlanePublication(nodes, coordinator, local?.node_id ?? null), [nodes, coordinator, local?.node_id, presence]);\\n  useEffect(() => { try { BodyFinderNative.updateControlPlaneJson(JSON.stringify(controlPlane)); } catch {} }, [controlPlane]);"\nb="  const campaignControl = useMemo(() => getCampaignControlPublication(nodes, coordinator, local?.node_id ?? null, presence, calibrationStatus), [nodes, coordinator, local?.node_id, presence, calibrationStatus, scenarioStatus?.command?.command_digest, freezeBarrier?.prepare?.generation]);\\n  const controlPlane = useMemo(() => ({...getControlPlanePublication(nodes, coordinator, local?.node_id ?? null),...campaignControl,schema:'BodyFinderControlPlaneV9'}), [nodes, coordinator, local?.node_id, presence, campaignControl]);\\n  useEffect(() => { try { BodyFinderNative.updateControlPlaneJson(JSON.stringify(controlPlane)); } catch {} }, [controlPlane]);"'''
+          if old not in s:raise SystemExit('old App control transformation missing')
+          s=s.replace(old,new,1)
+          p.write_text(s,encoding='utf-8')
+          compile(s,str(p),'exec')
+          PY
+      - name: Commit fix
+        run: |
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git add scripts/implement_dev20_11.py
+          git diff --cached --check
+          git commit -m "fix(dev20.11): initialize campaign state before validation truth"
+          git push origin HEAD:main
