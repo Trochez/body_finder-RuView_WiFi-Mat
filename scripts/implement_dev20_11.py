@@ -2,9 +2,9 @@
 from __future__ import annotations
 import json,pathlib
 R=pathlib.Path('.')
-def rd(p):return (R/p).read_text()
+def rd(p):return (R/p).read_text(encoding='utf-8')
 def wr(p,s):
- q=R/p;q.parent.mkdir(parents=True,exist_ok=True);q.write_text(s)
+ q=R/p;q.parent.mkdir(parents=True,exist_ok=True);q.write_text(s,encoding='utf-8')
 def rp(p,a,b,n=None):
  s=rd(p);c=s.count(a)
  if c==0:raise SystemExit(f'PATCH_MISSING {p}: {a[:100]}')
