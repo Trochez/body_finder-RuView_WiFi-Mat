@@ -2,15 +2,17 @@ name: dev20.13 engineering
 
 on:
   push:
-    branches: [implementation/dev20.13]
+    branches: [main]
+    paths: [DEV20_13_ENGINEERING_TRIGGER.txt]
   workflow_dispatch:
+    inputs:
+      target_ref:
+        description: Ref to validate
+        required: false
+        default: implementation/dev20.13
 
 permissions:
   contents: write
-
-concurrency:
-  group: dev20-13-engineering
-  cancel-in-progress: true
 
 env:
   DETECTOR_ALGORITHM: deterministic-multinode-rssi-fusion-v9
@@ -21,7 +23,9 @@ jobs:
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
-        with: {fetch-depth: 0}
+        with:
+          ref: implementation/dev20.13
+          fetch-depth: 0
       - uses: actions/setup-python@v5
         with: {python-version: '3.12'}
       - uses: actions/setup-node@v4
@@ -34,14 +38,14 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
       - uses: gradle/actions/setup-gradle@v4
         with: {gradle-version: '8.10.2'}
-
       - name: Apply implementation
-        run: python3 scripts/implement_dev20_13.py
-
+        run: |
+          python3 scripts/implement_dev20_13.py
+          python3 scripts/dev20_13_post_patch.py
       - name: Contract and distributed simulations
         run: |
           set -euxo pipefail
-          python3 -m py_compile scripts/implement_dev20_13.py validation/analysis/test_dev20_13_contract.py validation/analysis/test_dev20_13_multi_runtime.py validation/analysis/test_dev20_13_artifact_transport.py validation/analysis/validate_dev20_13_pre_run_diagnostic.py validation/analysis/validate_dev20_13_g10.py
+          python3 -m py_compile scripts/implement_dev20_13.py scripts/dev20_13_post_patch.py validation/analysis/test_dev20_13_contract.py validation/analysis/test_dev20_13_multi_runtime.py validation/analysis/test_dev20_13_artifact_transport.py validation/analysis/validate_dev20_13_pre_run_diagnostic.py validation/analysis/validate_dev20_13_g10.py
           python3 validation/analysis/test_dev20_13_contract.py
           python3 validation/analysis/test_dev20_13_multi_runtime.py
           python3 validation/analysis/test_dev20_13_artifact_transport.py
@@ -51,35 +55,33 @@ jobs:
           grep -q "BodyFinderControlPlaneV11" apps/mobile/src/humanPresence.ts
           grep -q "WireTransportTelemetryV13" apps/mobile/modules/body-finder-native/android/src/main/java/com/trochez/bodyfindernative/BodyFinderNativeModule.kt
           grep -q "AuthorityViewV1" apps/mobile/src/authority.ts
-          grep -q "PRE_RUN_DIAGNOSTIC_V1" apps/mobile/App.tsx
+          grep -q "exportPreRunDiagnosticJson" apps/mobile/App.tsx
+          grep -q "PRE_RUN_DIAGNOSTIC_V1" apps/mobile/modules/body-finder-native/android/src/main/java/com/trochez/bodyfindernative/BodyFinderNativeModule.kt
           grep -q "GeometryPublicationV11" apps/mobile/src/autogeometry.ts
           grep -q "RangeFrameV9" apps/mobile/modules/body-finder-native/android/src/main/java/com/trochez/bodyfindernative/BodyFinderNativeModule.kt
           git diff --check
-
       - name: Rust regression
         run: |
           cargo fmt --all -- --check
           cargo test --workspace --all-targets
-
       - name: TypeScript gate
         working-directory: apps/mobile
         run: |
           npm ci --no-audit --no-fund
           npm run typecheck
-
       - name: Android native compile and unit gate
         working-directory: apps/mobile
         run: |
           CI=1 npx expo prebuild --platform android --clean
           chmod +x android/gradlew
           ./android/gradlew -p android testReleaseUnitTest --stacktrace
-
       - name: Commit verified implementation to branch
         run: |
           set -euxo pipefail
           git config user.name github-actions[bot]
           git config user.email 41898282+github-actions[bot]@users.noreply.github.com
           git add -A
+          git reset -- .github/workflows
           if ! git diff --cached --quiet; then
             git commit -m "feat(dev20.13): deterministic distributed authority diagnostics"
             git push origin HEAD:implementation/dev20.13
