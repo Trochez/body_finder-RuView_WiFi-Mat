@@ -1,0 +1,18 @@
+{
+  "engineering_target_le_500": true,
+  "exact_bindings": [
+    "session",
+    "coordinator",
+    "coordinator_generation",
+    "calibration_generation",
+    "calibration_hash",
+    "topology_hash",
+    "decision_digest"
+  ],
+  "pass": true,
+  "payload_bytes_worst_supported": 491,
+  "peer_decoder": "DecisionMetaV10 semantic normalization",
+  "release": "dev-20.15",
+  "schema": "DecisionWireCompatibilityReportV2",
+  "wire": "DecisionMetaWireV2"
+}

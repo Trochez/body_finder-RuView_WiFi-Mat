@@ -6,18 +6,20 @@
       "datagram_bytes": 571,
       "datagram_lt_1200": true,
       "engineering_headroom_bytes": 155,
+      "engineering_target_le_500": true,
       "frame_bytes": 571,
       "frame_lt_900": true,
       "payload_bytes": 445,
       "payload_lt_600": true
     },
     "calibration_meta_v10": {
-      "datagram_bytes": 659,
+      "datagram_bytes": 598,
       "datagram_lt_1200": true,
-      "engineering_headroom_bytes": 67,
-      "frame_bytes": 659,
+      "engineering_headroom_bytes": 128,
+      "engineering_target_le_500": true,
+      "frame_bytes": 598,
       "frame_lt_900": true,
-      "payload_bytes": 533,
+      "payload_bytes": 472,
       "payload_lt_600": true
     }
   },

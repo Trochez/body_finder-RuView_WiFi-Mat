@@ -1,10 +1,6 @@
 {
   "additionalProperties": false,
   "properties": {
-    "a": {
-      "minLength": 1,
-      "type": "string"
-    },
     "cg": {
       "minimum": 0,
       "type": "integer"
@@ -57,7 +53,6 @@
     "g",
     "i",
     "h",
-    "a",
     "t",
     "q",
     "l",
