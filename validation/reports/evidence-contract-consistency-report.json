@@ -1,0 +1,10 @@
+{
+  "build": "0.2.0-experimental.20.15",
+  "evidence_schema": "v18",
+  "pass": true,
+  "pre_run_acceptance_eligible": false,
+  "release": "dev-20.15",
+  "report_version": 35,
+  "schema": "EvidenceContractConsistencyV18",
+  "screenshots_required": false
+}

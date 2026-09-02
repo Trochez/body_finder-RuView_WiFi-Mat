@@ -1,0 +1,14 @@
+{
+  "authority_ack": "3/3",
+  "calibration_ack_expected": "3/3",
+  "isolated_runtimes": 3,
+  "pass": true,
+  "reorder_safe_cases": [
+    "artifact_before_metadata",
+    "metadata_before_artifact",
+    "duplicate_metadata",
+    "stale_replay"
+  ],
+  "schema": "CalibrationDistributedConvergenceV2",
+  "wire_schema": "CalibrationMetaWireV2"
+}

@@ -1,0 +1,27 @@
+{
+  "engineering_target": 500,
+  "hard_payload_limit": 600,
+  "measurements": {
+    "calibration_ack_v10": {
+      "datagram_bytes": 571,
+      "datagram_lt_1200": true,
+      "engineering_headroom_bytes": 155,
+      "frame_bytes": 571,
+      "frame_lt_900": true,
+      "payload_bytes": 445,
+      "payload_lt_600": true
+    },
+    "calibration_meta_v10": {
+      "datagram_bytes": 659,
+      "datagram_lt_1200": true,
+      "engineering_headroom_bytes": 67,
+      "frame_bytes": 659,
+      "frame_lt_900": true,
+      "payload_bytes": 533,
+      "payload_lt_600": true
+    }
+  },
+  "pass": true,
+  "release": "dev-20.15",
+  "schema": "CalibrationWireBudgetReportV2"
+}

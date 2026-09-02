@@ -1,0 +1,17 @@
+{
+  "address_rebind": true,
+  "api36_ble_yield": true,
+  "duplicates": true,
+  "expected": "bounded convergence or fail-closed",
+  "loss_percent_tested": [
+    0,
+    5,
+    10
+  ],
+  "pass": true,
+  "peer_rejoin": true,
+  "randomized_staggers": 100,
+  "reorder": true,
+  "schema": "DistributedFaultInjectionReportV215",
+  "startup_orders": 6
+}

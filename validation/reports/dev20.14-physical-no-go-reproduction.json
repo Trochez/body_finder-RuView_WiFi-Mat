@@ -1,0 +1,14 @@
+{
+  "artifact_remote_peers_complete": 2,
+  "attempts": 27,
+  "authority_ack": "3/3",
+  "baseline_sha": "e129936fb721acbd25789010896e11950c97c15c",
+  "calibration_meta_payload_bytes": 799,
+  "error": "CRITICAL_CONTROL_PAYLOAD_OVER_600",
+  "failures": 27,
+  "geometry": "GEOMETRY_2D",
+  "pass": true,
+  "remote_state": "UNCALIBRATED",
+  "schema": "Dev2014PhysicalNoGoReproductionV1",
+  "successes": 0
+}

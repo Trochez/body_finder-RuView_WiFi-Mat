@@ -1,0 +1,11 @@
+{
+  "dev21": "BLOCKED",
+  "engineering_go": true,
+  "g10": "PHYSICAL_PENDING",
+  "g10_go": false,
+  "g11": "BLOCKED",
+  "physical_validator_required": true,
+  "required_acceptance_files": 6,
+  "required_duration_ms": 330000,
+  "schema": "G10Dev2015V1"
+}

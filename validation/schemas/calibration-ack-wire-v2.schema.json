@@ -1,0 +1,52 @@
+{
+  "additionalProperties": false,
+  "properties": {
+    "cg": {
+      "minimum": 0,
+      "type": "integer"
+    },
+    "d": {
+      "pattern": "^[0-9a-f]{64}$",
+      "type": "string"
+    },
+    "g": {
+      "minimum": 0,
+      "type": "integer"
+    },
+    "h": {
+      "pattern": "^[0-9a-f]{64}$",
+      "type": "string"
+    },
+    "i": {
+      "minLength": 1,
+      "type": "string"
+    },
+    "n": {
+      "minLength": 1,
+      "type": "string"
+    },
+    "s": {
+      "minLength": 1,
+      "type": "string"
+    },
+    "schema": {
+      "const": "CalibrationAckWireV2"
+    },
+    "t": {
+      "pattern": "^[0-9a-f]{64}$",
+      "type": "string"
+    }
+  },
+  "required": [
+    "schema",
+    "s",
+    "n",
+    "cg",
+    "g",
+    "i",
+    "h",
+    "t",
+    "d"
+  ],
+  "type": "object"
+}

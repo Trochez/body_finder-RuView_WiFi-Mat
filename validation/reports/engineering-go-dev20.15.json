@@ -1,0 +1,17 @@
+{
+  "dev21": "BLOCKED",
+  "engineering_go": true,
+  "g10": "PHYSICAL_PENDING",
+  "g11": "BLOCKED",
+  "r0": true,
+  "r1": true,
+  "r2": true,
+  "r3": true,
+  "r4": true,
+  "r5": true,
+  "r6": true,
+  "r7": true,
+  "release": "dev-20.15",
+  "schema": "EngineeringGoDev2015V1",
+  "screenshots_required": false
+}

@@ -1,0 +1,9 @@
+{
+  "baseline_sha": "e129936fb721acbd25789010896e11950c97c15c",
+  "baseline_tag": "dev-20.14",
+  "detector_rf_geometry_untouched": true,
+  "limits_unchanged": true,
+  "mixed_wire_fail_closed": true,
+  "ready": true,
+  "schema": "RollbackReadinessV215"
+}
