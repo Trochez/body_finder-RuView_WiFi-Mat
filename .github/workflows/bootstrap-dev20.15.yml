@@ -1,0 +1,46 @@
+name: bootstrap dev20.15
+on:
+  push:
+    branches: [main]
+    paths: [DEV20_15_BOOTSTRAP_TRIGGER.txt]
+permissions:
+  contents: write
+jobs:
+  implement:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: implementation/dev20.15
+          fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with: {python-version: '3.12'}
+      - uses: actions/setup-node@v4
+        with: {node-version: '22'}
+      - uses: actions/setup-java@v5
+        with: {distribution: temurin, java-version: '17'}
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: gradle/actions/setup-gradle@v4
+        with: {gradle-version: '8.10.2'}
+      - name: Apply remediation
+        run: python3 scripts/implement_dev20_15.py
+      - name: Protocol/evidence gates
+        run: |
+          python3 -m py_compile scripts/implement_dev20_15.py validation/analysis/test_dev20_15_remediation.py validation/analysis/validate_dev20_15_g10.py
+          python3 validation/analysis/test_dev20_15_remediation.py
+          git diff --check
+      - name: Rust regression
+        run: cargo test --workspace --all-targets
+      - name: Mobile typecheck
+        working-directory: apps/mobile
+        run: npm ci --no-audit --no-fund && npm run typecheck
+      - name: Android native compile/unit
+        working-directory: apps/mobile
+        run: CI=1 npx expo prebuild --platform android --clean && chmod +x android/gradlew && ./android/gradlew -p android testReleaseUnitTest --stacktrace
+      - name: Commit verified implementation
+        run: |
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git add -A
+          git diff --cached --quiet || git commit -m "feat(dev20.15): compact calibration control and harden lifecycle"
+          git push origin HEAD:implementation/dev20.15
