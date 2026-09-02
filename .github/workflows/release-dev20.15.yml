@@ -1,0 +1,205 @@
+name: Release dev20.15
+
+on:
+  push:
+    branches: [main]
+    paths: [RELEASE_DEV20_15_TRIGGER.txt]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release-dev20-15
+  cancel-in-progress: true
+
+env:
+  BUILD_VERSION: 0.2.0-experimental.20.15
+
+jobs:
+  windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Build Windows/WSL binaries
+        run: cargo build --release -p body-finder-node -p body-finder-science --bins
+      - shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force dist\win | Out-Null
+          Copy-Item target\release\body-finder-node.exe dist\win\
+          Copy-Item target\release\body-finder-detector.exe dist\win\
+          if (Test-Path target\release\body-finder-replay.exe) { Copy-Item target\release\body-finder-replay.exe dist\win\ }
+          if (Test-Path target\release\body-finder-validate-session.exe) { Copy-Item target\release\body-finder-validate-session.exe dist\win\ }
+          if (Test-Path target\release\body-finder-rf-recorder.exe) { Copy-Item target\release\body-finder-rf-recorder.exe dist\win\ }
+          Copy-Item target\release\body-finder-detector.exe dist\body-finder-detector-windows-x86_64.exe
+          Compress-Archive dist\win\* dist\body-finder-windows-wsl-x86_64.zip
+      - uses: actions/upload-artifact@v4
+        with:
+          name: dev20-15-windows
+          path: |
+            dist/body-finder-windows-wsl-x86_64.zip
+            dist/body-finder-detector-windows-x86_64.exe
+
+  build-release:
+    needs: windows
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+        with: {fetch-depth: 0}
+      - uses: actions/setup-python@v5
+        with: {python-version: '3.12'}
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: apps/mobile/package-lock.json
+      - uses: actions/setup-java@v5
+        with: {distribution: temurin, java-version: '17'}
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: gradle/actions/setup-gradle@v4
+        with: {gradle-version: '8.10.2'}
+      - uses: actions/download-artifact@v4
+        with:
+          name: dev20-15-windows
+          path: dist
+
+      - name: R0-R8 engineering gates
+        run: |
+          set -euxo pipefail
+          grep -q '0.2.0-experimental.20.15' apps/mobile/src/version.ts
+          grep -q 'reportVersion: 35' apps/mobile/src/version.ts
+          grep -q 'versionCode: 35' apps/mobile/src/version.ts
+          grep -q 'CalibrationMetaWireV2' apps/mobile/src/humanPresence.ts
+          grep -q 'CalibrationAckWireV2' apps/mobile/src/humanPresence.ts
+          grep -q 'DecisionMetaWireV2' apps/mobile/src/humanPresence.ts
+          grep -q 'DUPLICATE_CALIBRATION_START_IDEMPOTENT' apps/mobile/src/humanPresence.ts
+          grep -q 'AuthorityWireV2' apps/mobile/src/authority.ts
+          python3 -m py_compile validation/analysis/test_dev20_15_remediation.py validation/analysis/validate_dev20_15_g10.py
+          python3 validation/analysis/test_dev20_15_remediation.py
+          python3 - <<'PY'
+          import json,pathlib
+          w=json.loads(pathlib.Path('validation/reports/critical-control-wire-budget-report.json').read_text())
+          assert w['pass']
+          assert all(r['payload_bytes']<600 and r['frame_bytes']<900 and r['datagram_bytes']<1200 for r in w['measurements'].values())
+          g=json.loads(pathlib.Path('validation/reports/g10-dev20.15.json').read_text())
+          assert g['engineering_go'] and g['g10']=='PHYSICAL_PENDING' and not g['g10_go'] and g['g11']=='BLOCKED' and g['dev21']=='BLOCKED'
+          for p in pathlib.Path('validation/schemas').glob('*.json'): json.loads(p.read_text())
+          PY
+          cargo fmt --all -- --check
+          cargo test --workspace --all-targets
+          cargo build --release -p body-finder-node -p body-finder-science --bins
+          cd apps/mobile
+          npm ci --no-audit --no-fund
+          npm run typecheck
+          CI=1 npx expo prebuild --platform android --clean
+          chmod +x android/gradlew
+          ./android/gradlew -p android testReleaseUnitTest --stacktrace
+          cd ../..
+          echo "SOURCE_SHA=$(git rev-parse HEAD)" >> "$GITHUB_ENV"
+
+      - name: Package Linux
+        run: |
+          set -euxo pipefail
+          mkdir -p dist work/deb/DEBIAN work/deb/usr/bin
+          tar -C target/release -czf dist/body-finder-node-linux-x86_64.tar.gz body-finder-node
+          cp target/release/body-finder-node work/deb/usr/bin/
+          printf 'Package: body-finder-node\nVersion: 0.2.0~experimental20.15\nSection: science\nPriority: optional\nArchitecture: amd64\nMaintainer: Trochez\nDescription: Body Finder RuView field node\n' > work/deb/DEBIAN/control
+          dpkg-deb --build work/deb dist/body-finder-node-linux-x86_64.deb
+          cp target/release/body-finder-detector dist/body-finder-detector-linux-x86_64
+          chmod +x dist/body-finder-detector-linux-x86_64
+
+      - name: Build Android universal APK and AAB
+        run: |
+          set -euxo pipefail
+          rustup target add aarch64-linux-android armv7-linux-androideabi x86_64-linux-android
+          cargo install cargo-ndk --locked
+          rm -rf apps/mobile/modules/body-finder-native/android/src/main/jniLibs
+          mkdir -p apps/mobile/modules/body-finder-native/android/src/main/jniLibs
+          cargo ndk -t arm64-v8a -t armeabi-v7a -t x86_64 -o apps/mobile/modules/body-finder-native/android/src/main/jniLibs build --release -p body-finder-science --lib
+          cd apps/mobile
+          ./android/gradlew -p android assembleRelease bundleRelease --stacktrace
+          cd ../..
+          cp apps/mobile/android/app/build/outputs/apk/release/*.apk dist/body-finder-ruview-universal.apk
+          cp dist/body-finder-ruview-universal.apk dist/BodyFinder-dev20.15-universal.apk
+          cp apps/mobile/android/app/build/outputs/bundle/release/*.aab dist/body-finder-ruview.aab
+
+      - name: Build Android legacy minSdk21 APK
+        run: |
+          set -euxo pipefail
+          mkdir -p "$HOME/.android"
+          if [ ! -f "$HOME/.android/debug.keystore" ]; then keytool -genkeypair -keystore "$HOME/.android/debug.keystore" -storepass android -alias androiddebugkey -keypass android -dname 'CN=Android Debug,O=Android,C=US' -keyalg RSA -keysize 2048 -validity 10000; fi
+          cd apps/android-legacy
+          gradle :app:testReleaseUnitTest :app:assembleRelease --stacktrace
+          cd ../..
+          cp apps/android-legacy/app/build/outputs/apk/release/*.apk dist/body-finder-ruview-legacy-minsdk21.apk
+
+      - name: Package evidence, validators, schemas and fixtures
+        run: |
+          set -euxo pipefail
+          cp TESTING_DEV20_15.md dist/
+          cp validation/analysis/validate_dev20_15_g10.py dist/
+          for f in validation/reports/dev20.14-physical-no-go-reproduction.json validation/reports/critical-control-wire-budget-report.json validation/reports/calibration-wire-budget-report.json validation/reports/calibration-distributed-convergence-report.json validation/reports/calibration-generation-idempotency-report.json validation/reports/artifact-control-reorder-report.json validation/reports/authority-non-regression-report.json validation/reports/distributed-fault-injection-report-dev20.15.json validation/reports/evidence-contract-consistency-report.json validation/reports/engineering-go-dev20.15.json validation/reports/rollback-readiness-dev20.15.json validation/reports/g10-dev20.15.json; do cp "$f" dist/; done
+          cp validation/reports/distributed-fault-injection-report-dev20.15.json dist/distributed-fault-injection-report.json
+          mkdir -p kit/validation/analysis kit/validation/schemas kit/validation/reports
+          cp validation/analysis/test_dev20_15_remediation.py validation/analysis/validate_dev20_15_g10.py kit/validation/analysis/
+          cp validation/schemas/*wire*v2*.json kit/validation/schemas/ 2>/dev/null || true
+          cp validation/reports/*.json kit/validation/reports/
+          cp TESTING_DEV20_15.md kit/
+          (cd kit && zip -qr ../dist/validators-dev20.15.zip .)
+
+      - uses: anchore/sbom-action@v0
+        with:
+          path: '.'
+          format: spdx-json
+          output-file: dist/SBOM.spdx.json
+
+      - name: Manifest, checksums and prerelease verification seed
+        run: |
+          python3 - <<'PY'
+          import hashlib,json,os,pathlib
+          d=pathlib.Path('dist')
+          required=['BodyFinder-dev20.15-universal.apk','body-finder-ruview-universal.apk','body-finder-ruview-legacy-minsdk21.apk','body-finder-ruview.aab','body-finder-node-linux-x86_64.tar.gz','body-finder-node-linux-x86_64.deb','body-finder-windows-wsl-x86_64.zip','body-finder-detector-linux-x86_64','body-finder-detector-windows-x86_64.exe','validators-dev20.15.zip','dev20.14-physical-no-go-reproduction.json','critical-control-wire-budget-report.json','calibration-wire-budget-report.json','calibration-distributed-convergence-report.json','calibration-generation-idempotency-report.json','artifact-control-reorder-report.json','authority-non-regression-report.json','distributed-fault-injection-report.json','evidence-contract-consistency-report.json','engineering-go-dev20.15.json','rollback-readiness-dev20.15.json','g10-dev20.15.json','SBOM.spdx.json','TESTING_DEV20_15.md','validate_dev20_15_g10.py']
+          missing=[x for x in required if not (d/x).is_file() or (d/x).stat().st_size==0]
+          if missing: raise SystemExit('missing/empty release assets: '+str(missing))
+          manifest={'schema':'release-manifest-dev20.15-v1','release':'dev-20.15','source_sha':os.environ['SOURCE_SHA'],'required_assets':required,'assets':sorted(p.name for p in d.iterdir() if p.is_file())}
+          (d/'release-manifest.json').write_text(json.dumps(manifest,indent=2,sort_keys=True)+'\n')
+          verification={'schema':'release-verification-dev20.15-v1','release':'dev-20.15','build':os.environ['BUILD_VERSION'],'source_sha':os.environ['SOURCE_SHA'],'engineering_go':True,'g10':'PHYSICAL_PENDING','g11':'BLOCKED','dev21':'BLOCKED','screenshots_required':False,'release_redownload_sha_verified':False}
+          (d/'release-verification.json').write_text(json.dumps(verification,indent=2,sort_keys=True)+'\n')
+          files=sorted(p for p in d.iterdir() if p.is_file())
+          (d/'SHA256SUMS.txt').write_text(''.join(f'{hashlib.sha256(p.read_bytes()).hexdigest()}  {p.name}\n' for p in files))
+          PY
+
+      - name: Publish prerelease, redownload and verify
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euxo pipefail
+          trap 'gh release delete dev-20.15 -y || true; git push origin :refs/tags/dev-20.15 || true' ERR
+          git tag -f dev-20.15 "$SOURCE_SHA"
+          git push origin refs/tags/dev-20.15 --force
+          gh release delete dev-20.15 -y || true
+          gh release create dev-20.15 dist/* --prerelease --target "$SOURCE_SHA" --title 'dev-20.15 — Calibration metadata NO-GO remediation' --notes 'Engineering R0-R9 GO. Physical G10 remains PHYSICAL_PENDING until exactly six >=330 s Android acceptance JSONs pass validate_dev20_15_g10.py. G11/dev21 remain BLOCKED. Screenshots are not required.'
+          rm -rf verify && mkdir verify
+          (cd verify && gh release download dev-20.15)
+          (cd verify && sha256sum -c SHA256SUMS.txt)
+          python3 - <<'PY'
+          import json,pathlib
+          p=pathlib.Path('dist/release-verification.json');v=json.loads(p.read_text());v['release_redownload_sha_verified']=True;v['release_integrity']=True;v['redownload_asset_count']=len(list(pathlib.Path('verify').iterdir()));p.write_text(json.dumps(v,indent=2,sort_keys=True)+'\n')
+          PY
+          python3 - <<'PY'
+          import hashlib,pathlib
+          d=pathlib.Path('dist');files=sorted(p for p in d.iterdir() if p.is_file() and p.name!='SHA256SUMS.txt');(d/'SHA256SUMS.txt').write_text(''.join(f'{hashlib.sha256(p.read_bytes()).hexdigest()}  {p.name}\n' for p in files))
+          PY
+          gh release upload dev-20.15 dist/release-verification.json dist/SHA256SUMS.txt --clobber
+          rm -rf verify-final && mkdir verify-final
+          (cd verify-final && gh release download dev-20.15)
+          (cd verify-final && sha256sum -c SHA256SUMS.txt)
+          python3 - <<'PY'
+          import json,pathlib
+          v=json.loads(pathlib.Path('verify-final/release-verification.json').read_text())
+          g=json.loads(pathlib.Path('verify-final/g10-dev20.15.json').read_text())
+          assert v['release_redownload_sha_verified'] and v['release_integrity']
+          assert g['g10']=='PHYSICAL_PENDING' and not g['g10_go'] and g['g11']=='BLOCKED' and g['dev21']=='BLOCKED'
+          print('R9_RELEASE_INTEGRITY_GO')
+          PY
