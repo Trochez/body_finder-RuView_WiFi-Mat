@@ -1,0 +1,106 @@
+name: dev20.14 engineering
+
+on:
+  push:
+    branches: [main]
+    paths: [DEV20_14_ENGINEERING_TRIGGER.txt]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: dev20-14-engineering
+  cancel-in-progress: true
+
+jobs:
+  implement-and-gate:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: implementation/dev20.14
+          fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with: {python-version: '3.12'}
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: apps/mobile/package-lock.json
+      - uses: actions/setup-java@v5
+        with: {distribution: temurin, java-version: '17'}
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: gradle/actions/setup-gradle@v4
+        with: {gradle-version: '8.10.2'}
+
+      - name: Apply dev20.14 remediation
+        run: python3 scripts/implement_dev20_14.py
+
+      - name: Contract replay and distributed fault gates
+        run: |
+          set -euxo pipefail
+          python3 -m py_compile scripts/implement_dev20_14.py validation/analysis/test_dev20_14_remediation.py validation/analysis/validate_dev20_14_g10.py
+          python3 validation/analysis/test_dev20_14_remediation.py
+          grep -q "AuthorityWireV2" apps/mobile/src/authority.ts
+          grep -q "AuthorityAckWireV2" apps/mobile/src/authority.ts
+          ! grep -Fq "instance_epoch??'legacy'" apps/mobile/src/authority.ts
+          grep -q 'put("instance_epoch", FabricRuntime.instanceEpoch)' apps/mobile/modules/body-finder-native/android/src/main/java/com/trochez/bodyfindernative/BodyFinderNativeModule.kt
+          grep -q 'critical_control_payload_target_bytes' apps/mobile/modules/body-finder-native/android/src/main/java/com/trochez/bodyfindernative/BodyFinderNativeModule.kt
+          grep -q "0.2.0-experimental.20.14" apps/mobile/src/version.ts
+          grep -q "versionCode 34" apps/android-legacy/app/build.gradle
+          python3 - <<'PY'
+          import json,pathlib
+          for p in pathlib.Path('validation/schemas').glob('*.json'): json.loads(p.read_text())
+          for n in ['authority-convergence-report.json','authority-wire-budget-report.json','instance-epoch-canonicalization-report.json','distributed-fault-injection-report.json','geometry-network-raging-fallback-report.json','rollback-readiness.json','g10-dev20.14.json']:
+              d=json.loads((pathlib.Path('validation/reports')/n).read_text()); assert d
+          w=json.loads(pathlib.Path('validation/reports/authority-wire-budget-report.json').read_text())
+          assert w['pass'] and w['authority_wire_v2_payload_bytes'] <= 600 and w['authority_ack_wire_v2_payload_bytes'] <= 600
+          g=json.loads(pathlib.Path('validation/reports/g10-dev20.14.json').read_text())
+          assert g['g10']=='PHYSICAL_PENDING' and g['g10_go'] is False and g['g11']=='BLOCKED' and g['dev21']=='BLOCKED'
+          PY
+          git diff --check
+
+      - name: Rust regression
+        run: |
+          cargo fmt --all -- --check
+          cargo test --workspace --all-targets
+
+      - name: TypeScript gate
+        working-directory: apps/mobile
+        run: |
+          npm ci --no-audit --no-fund
+          npm run typecheck
+
+      - name: Android native compile and unit gate
+        working-directory: apps/mobile
+        run: |
+          CI=1 npx expo prebuild --platform android --clean
+          chmod +x android/gradlew
+          ./android/gradlew -p android testReleaseUnitTest --stacktrace
+
+      - name: Emit engineering evidence
+        run: |
+          python3 - <<'PY'
+          import json,pathlib,subprocess
+          out={
+            'schema':'engineering-go-dev20.14-v1','release':'dev-20.14','source_branch':'implementation/dev20.14',
+            'source_sha_before_evidence':subprocess.check_output(['git','rev-parse','HEAD'],text=True).strip(),
+            'r0_reproduction':True,'r1_identity_canonicalization':True,'r2_wire_budget':True,
+            'r3_distributed_authority':True,'r4_secondary_runtime_hardening':True,'r5_engineering_go':True,
+            'r6_release_integrity':'PENDING_RELEASE_WORKFLOW','engineering_go':True,
+            'g10':'PHYSICAL_PENDING','g11':'BLOCKED','dev21':'BLOCKED','screenshots_required':False
+          }
+          pathlib.Path('validation/reports/engineering-go.json').write_text(json.dumps(out,indent=2,sort_keys=True)+'\n')
+          PY
+
+      - name: Commit verified implementation to branch
+        run: |
+          set -euxo pipefail
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git add -A
+          if ! git diff --cached --quiet; then
+            git commit -m "feat(dev20.14): canonical authority convergence and wire remediation"
+            git push origin HEAD:implementation/dev20.14
+          fi
