@@ -1,15 +1,21 @@
 {
+  "budgets_must_not_change": {
+    "datagram": 1200,
+    "frame": 900,
+    "payload": 600
+  },
   "ready": true,
-  "release": "dev-20.16",
-  "rollback_target_sha": "d730dcf030a19e8e4185abe4cbe98840d7eda0ae",
-  "schema": "RollbackReadinessDev2016V1",
-  "triggers": [
-    "ACK_FALSE_POSITIVE",
-    "AUTHORITY_DIVERGENCE",
-    "CRITICAL_CONTROL_OVERSIZE",
-    "ACQUISITION_RESTART_LOOP",
-    "STALE_PEER_UNLOCK",
-    "VALIDATOR_FALSE_ACCEPT"
-  ],
-  "validator_must_not_be_weakened": true
+  "release": "dev-20.17",
+  "rollback_sha": "8adebe0d8e26117ebd8b71f0ba8b4c10a96e8d3a",
+  "schema": "RollbackReadinessDev2017V2",
+  "stop_on": [
+    "oversize",
+    "barrier_not_3_of_3",
+    "unilateral_commit",
+    "stale_or_foreign_unlock",
+    "calibration_regression",
+    "acquisition_restart_storm",
+    "validator_false_go",
+    "release_integrity_failure"
+  ]
 }

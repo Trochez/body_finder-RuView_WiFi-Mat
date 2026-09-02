@@ -1,0 +1,41 @@
+{
+  "authority_commit_pin_explicit": true,
+  "binding_strategy": "canonical SHA256 binding reconstructed against local authoritative scenario/calibration/topology/cohort/authority context",
+  "domain_wire_separation": true,
+  "foreign_rejected": true,
+  "measurements": {
+    "run_start_commit_v1": {
+      "control_frame_bytes": 605,
+      "datagram_bytes": 605,
+      "datagram_lte_1200": true,
+      "fixture_sha256": "47a543a8e4089ee9de48ee504fc4069b9cdfebe8fcadc5e1f66b85fe47d2b388",
+      "frame_lte_900": true,
+      "payload_bytes": 425,
+      "payload_lte_600": true
+    },
+    "run_start_prepare_v1": {
+      "control_frame_bytes": 464,
+      "datagram_bytes": 464,
+      "datagram_lte_1200": true,
+      "fixture_sha256": "5025a4342086b2e35d223642f81d9bce8152ee876b97c0fd2eef4fea96174556",
+      "frame_lte_900": true,
+      "payload_bytes": 284,
+      "payload_lte_600": true
+    },
+    "run_start_ready_v1": {
+      "control_frame_bytes": 444,
+      "datagram_bytes": 444,
+      "datagram_lte_1200": true,
+      "fixture_sha256": "91f530c91deb0c1dbeb523d1af6409aedd199a57bb50b705c15444ad28e74499",
+      "frame_lte_900": true,
+      "payload_bytes": 264,
+      "payload_lte_600": true
+    }
+  },
+  "pass": true,
+  "release": "dev-20.17",
+  "schema": "RunStartWireV2ReportV2",
+  "stale_rejected": true,
+  "unknown_schema_fail_closed": true,
+  "wire_version": "RunStartWireV2"
+}

@@ -1,0 +1,18 @@
+{
+  "authority_ack_expected": "3/3",
+  "calibration_ack_expected": "3/3 symmetric",
+  "checks": {
+    "calibration_ack_symmetric": true,
+    "calibration_ack_v3": true,
+    "calibration_meta_v3": true,
+    "epoch_rearm": true,
+    "filtered_primary": true,
+    "recovery_epoch_telemetry": true,
+    "topology_double_hash_absent": true
+  },
+  "healthy_campaign_failed_safe_expected": false,
+  "pass": true,
+  "release": "dev-20.17",
+  "scenario_ack_expected": "3/3",
+  "schema": "Dev2016CalibrationAcquisitionNoRegressionV2"
+}

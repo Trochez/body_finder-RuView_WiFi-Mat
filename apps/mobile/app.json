@@ -2,7 +2,7 @@
   "expo": {
     "name": "Body Finder – RuView",
     "slug": "body-finder-ruview",
-    "version": "0.2.0-experimental.20.16",
+    "version": "0.2.0-experimental.20.17",
     "orientation": "portrait",
     "userInterfaceStyle": "dark",
     "newArchEnabled": false,
@@ -41,10 +41,10 @@
     "extra": {
       "truthMode": "experimental-auto-geometry",
       "protocolVersion": 2,
-      "releaseIteration": "experimental.20.16"
+      "releaseIteration": "experimental.20.17"
     }
   },
-  "version": "0.2.0-experimental.20.16",
+  "version": "0.2.0-experimental.20.17",
   "android": {
     "versionCode": 36
   }

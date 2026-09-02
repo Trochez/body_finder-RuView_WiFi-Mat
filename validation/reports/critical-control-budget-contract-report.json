@@ -1,0 +1,232 @@
+{
+  "classification": {
+    "authority_ack_v1": {
+      "fail_closed": true,
+      "required": true
+    },
+    "authority_view_v1": {
+      "fail_closed": true,
+      "required": true
+    },
+    "calibration_ack_v10": {
+      "fail_closed": true,
+      "required": true
+    },
+    "calibration_meta_v10": {
+      "fail_closed": true,
+      "required": true
+    },
+    "decision_ack_v10": {
+      "fail_closed": true,
+      "required": true
+    },
+    "decision_meta_v10": {
+      "fail_closed": true,
+      "required": true
+    },
+    "run_freeze_commit_v2": {
+      "fail_closed": true,
+      "required": true
+    },
+    "run_freeze_prepare_v2": {
+      "fail_closed": true,
+      "required": true
+    },
+    "run_freeze_ready_v2": {
+      "fail_closed": true,
+      "required": true
+    },
+    "run_start_commit_v1": {
+      "fail_closed": true,
+      "required": true
+    },
+    "run_start_prepare_v1": {
+      "fail_closed": true,
+      "required": true
+    },
+    "run_start_ready_v1": {
+      "fail_closed": true,
+      "required": true
+    },
+    "scenario_ack_v1": {
+      "fail_closed": true,
+      "required": true
+    },
+    "scenario_command_v1": {
+      "fail_closed": true,
+      "required": true
+    }
+  },
+  "coverage_complete": true,
+  "coverage_percent": 100.0,
+  "covered_keys": [
+    "authority_view_v1",
+    "authority_ack_v1",
+    "calibration_meta_v10",
+    "calibration_ack_v10",
+    "decision_meta_v10",
+    "decision_ack_v10",
+    "scenario_command_v1",
+    "scenario_ack_v1",
+    "run_start_prepare_v1",
+    "run_start_ready_v1",
+    "run_start_commit_v1",
+    "run_freeze_prepare_v2",
+    "run_freeze_ready_v2",
+    "run_freeze_commit_v2"
+  ],
+  "limits_bytes": {
+    "critical_payload": 600,
+    "required_control_frame": 900,
+    "required_datagram": 1200
+  },
+  "measurements": {
+    "authority_ack_v1": {
+      "control_frame_bytes": 527,
+      "datagram_bytes": 527,
+      "datagram_lte_1200": true,
+      "fixture_sha256": "d9eeb14cfcbc95d9fb45580359b9da470df4ed8ff65408dcdef8fbade4bf9fe7",
+      "frame_lte_900": true,
+      "payload_bytes": 347,
+      "payload_lte_600": true
+    },
+    "authority_view_v1": {
+      "control_frame_bytes": 482,
+      "datagram_bytes": 482,
+      "datagram_lte_1200": true,
+      "fixture_sha256": "8d3c645b8093af9601d0cba64cbe73c413efed3b1a1ac64df1153204c91967c4",
+      "frame_lte_900": true,
+      "payload_bytes": 302,
+      "payload_lte_600": true
+    },
+    "calibration_ack_v10": {
+      "control_frame_bytes": 668,
+      "datagram_bytes": 668,
+      "datagram_lte_1200": true,
+      "fixture_sha256": "c4fca92ecdbb6049574c22ec9025798c373288ba18c72f3021aabcde47a65ede",
+      "frame_lte_900": true,
+      "payload_bytes": 488,
+      "payload_lte_600": true
+    },
+    "calibration_meta_v10": {
+      "control_frame_bytes": 652,
+      "datagram_bytes": 652,
+      "datagram_lte_1200": true,
+      "fixture_sha256": "363403d50a02f8a8b5736efe26c4ea5e5fad63b011deac8a520dea134ac53708",
+      "frame_lte_900": true,
+      "payload_bytes": 472,
+      "payload_lte_600": true
+    },
+    "decision_ack_v10": {
+      "control_frame_bytes": 455,
+      "datagram_bytes": 455,
+      "datagram_lte_1200": true,
+      "fixture_sha256": "2ebca4e7080dd67e0dbb226968e81f3912280e2ab54d0da72b267f31127858af",
+      "frame_lte_900": true,
+      "payload_bytes": 275,
+      "payload_lte_600": true
+    },
+    "decision_meta_v10": {
+      "control_frame_bytes": 700,
+      "datagram_bytes": 700,
+      "datagram_lte_1200": true,
+      "fixture_sha256": "f44bc4b3f4355dce0225e469a164e739ce4001872f427d663811cce2d5f9a037",
+      "frame_lte_900": true,
+      "payload_bytes": 520,
+      "payload_lte_600": true
+    },
+    "run_freeze_commit_v2": {
+      "control_frame_bytes": 535,
+      "datagram_bytes": 535,
+      "datagram_lte_1200": true,
+      "fixture_sha256": "50ad7e88d97b7aeb7949c14d7fa5c9d078371ef95e41369adc04fc668547124f",
+      "frame_lte_900": true,
+      "payload_bytes": 355,
+      "payload_lte_600": true
+    },
+    "run_freeze_prepare_v2": {
+      "control_frame_bytes": 465,
+      "datagram_bytes": 465,
+      "datagram_lte_1200": true,
+      "fixture_sha256": "c73465cfa7d9f9313f36a20bc7776b04a8996fa3f2e9b02fb383d2185544126b",
+      "frame_lte_900": true,
+      "payload_bytes": 285,
+      "payload_lte_600": true
+    },
+    "run_freeze_ready_v2": {
+      "control_frame_bytes": 445,
+      "datagram_bytes": 445,
+      "datagram_lte_1200": true,
+      "fixture_sha256": "a9184b9729b7b5b9a8f5cef6653b83555b61277706756046da775cb9db521cf6",
+      "frame_lte_900": true,
+      "payload_bytes": 265,
+      "payload_lte_600": true
+    },
+    "run_start_commit_v1": {
+      "control_frame_bytes": 605,
+      "datagram_bytes": 605,
+      "datagram_lte_1200": true,
+      "fixture_sha256": "47a543a8e4089ee9de48ee504fc4069b9cdfebe8fcadc5e1f66b85fe47d2b388",
+      "frame_lte_900": true,
+      "payload_bytes": 425,
+      "payload_lte_600": true
+    },
+    "run_start_prepare_v1": {
+      "control_frame_bytes": 464,
+      "datagram_bytes": 464,
+      "datagram_lte_1200": true,
+      "fixture_sha256": "5025a4342086b2e35d223642f81d9bce8152ee876b97c0fd2eef4fea96174556",
+      "frame_lte_900": true,
+      "payload_bytes": 284,
+      "payload_lte_600": true
+    },
+    "run_start_ready_v1": {
+      "control_frame_bytes": 444,
+      "datagram_bytes": 444,
+      "datagram_lte_1200": true,
+      "fixture_sha256": "91f530c91deb0c1dbeb523d1af6409aedd199a57bb50b705c15444ad28e74499",
+      "frame_lte_900": true,
+      "payload_bytes": 264,
+      "payload_lte_600": true
+    },
+    "scenario_ack_v1": {
+      "control_frame_bytes": 513,
+      "datagram_bytes": 513,
+      "datagram_lte_1200": true,
+      "fixture_sha256": "4c93180c948260083f888bfeb791431817df8927a2955994b5dff4087fd211eb",
+      "frame_lte_900": true,
+      "payload_bytes": 333,
+      "payload_lte_600": true
+    },
+    "scenario_command_v1": {
+      "control_frame_bytes": 684,
+      "datagram_bytes": 684,
+      "datagram_lte_1200": true,
+      "fixture_sha256": "ec6ec8db2d6ccc9da72bafcd0a39c43cfc1710d95d1a7699b2a650425c0f175f",
+      "frame_lte_900": true,
+      "payload_bytes": 504,
+      "payload_lte_600": true
+    }
+  },
+  "pass": true,
+  "registry_keys": [
+    "authority_view_v1",
+    "authority_ack_v1",
+    "calibration_meta_v10",
+    "calibration_ack_v10",
+    "decision_meta_v10",
+    "decision_ack_v10",
+    "scenario_command_v1",
+    "scenario_ack_v1",
+    "run_start_prepare_v1",
+    "run_start_ready_v1",
+    "run_start_commit_v1",
+    "run_freeze_prepare_v2",
+    "run_freeze_ready_v2",
+    "run_freeze_commit_v2"
+  ],
+  "registry_source": "apps/mobile/src/criticalControlRegistry.ts + native criticalControlKeys exact parity",
+  "release": "dev-20.17",
+  "schema": "CriticalControlBudgetContractDev2017V2",
+  "uncovered_keys": []
+}

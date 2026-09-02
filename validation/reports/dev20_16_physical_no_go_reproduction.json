@@ -1,0 +1,53 @@
+{
+  "causal_chain": [
+    "RUN_START_PREPARE_READY_VERBOSE",
+    "857_787_GT_600",
+    "POLICY_REJECT_PRE_SOCKET",
+    "PEERS_NO_PREPARE",
+    "READY_1_OF_3",
+    "NO_COMMIT",
+    "G10_BLOCKED"
+  ],
+  "cause": "CRITICAL_CONTROL_PAYLOAD_OVER_600",
+  "derived_fixture_sha256": [
+    "47e68b93ba59d84d0f400d1d63897e3ccf21f77f701f797662ff603b13e0a5f4",
+    "25ec67e363d583a787ea88a9a4c8d6fa543411a8bcd9115d336282838f898709",
+    "25ec67e363d583a787ea88a9a4c8d6fa543411a8bcd9115d336282838f898709"
+  ],
+  "evidence_source": "supplied implementation plan authoritative summary of the three PRE_RUN JSONs",
+  "observations": [
+    {
+      "commit": null,
+      "critical_control_failure_count": 166,
+      "prepare_attempts": 83,
+      "prepare_failures": 83,
+      "prepare_payload_bytes": 857,
+      "ready_attempts": 83,
+      "ready_count": 1,
+      "ready_failures": 83,
+      "ready_payload_bytes": 787,
+      "role": "coordinator",
+      "run_started": false,
+      "wire_send_error_count": 0
+    },
+    {
+      "commit": null,
+      "local_ready": null,
+      "prepare": null,
+      "ready_count": 0,
+      "role": "peer",
+      "run_started": false
+    },
+    {
+      "commit": null,
+      "local_ready": null,
+      "prepare": null,
+      "ready_count": 0,
+      "role": "peer",
+      "run_started": false
+    }
+  ],
+  "pass": true,
+  "release_under_test": "dev-20.16",
+  "schema": "Dev2016PhysicalNoGoReproductionV1"
+}

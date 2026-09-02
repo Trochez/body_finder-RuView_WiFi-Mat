@@ -1,0 +1,37 @@
+{
+  "domain_wire_separation": true,
+  "measurements": {
+    "run_freeze_commit_v2": {
+      "control_frame_bytes": 535,
+      "datagram_bytes": 535,
+      "datagram_lte_1200": true,
+      "fixture_sha256": "50ad7e88d97b7aeb7949c14d7fa5c9d078371ef95e41369adc04fc668547124f",
+      "frame_lte_900": true,
+      "payload_bytes": 355,
+      "payload_lte_600": true
+    },
+    "run_freeze_prepare_v2": {
+      "control_frame_bytes": 465,
+      "datagram_bytes": 465,
+      "datagram_lte_1200": true,
+      "fixture_sha256": "c73465cfa7d9f9313f36a20bc7776b04a8996fa3f2e9b02fb383d2185544126b",
+      "frame_lte_900": true,
+      "payload_bytes": 285,
+      "payload_lte_600": true
+    },
+    "run_freeze_ready_v2": {
+      "control_frame_bytes": 445,
+      "datagram_bytes": 445,
+      "datagram_lte_1200": true,
+      "fixture_sha256": "a9184b9729b7b5b9a8f5cef6653b83555b61277706756046da775cb9db521cf6",
+      "frame_lte_900": true,
+      "payload_bytes": 265,
+      "payload_lte_600": true
+    }
+  },
+  "pass": true,
+  "release": "dev-20.17",
+  "schema": "RunFreezeWireV3BudgetReportV2",
+  "snapshot_export_before_commit": "IMPOSSIBLE_BY_RUNTIME_AND_VALIDATOR_CONTRACT",
+  "wire_version": "RunFreezeWireV3"
+}

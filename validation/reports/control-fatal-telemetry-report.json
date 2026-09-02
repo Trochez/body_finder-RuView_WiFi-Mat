@@ -1,0 +1,22 @@
+{
+  "checks": {
+    "control_fatal_known_decoder": true,
+    "control_fatal_rx_counter": true,
+    "critical_failure_counter_present": true,
+    "deterministic_oversize_dedupe": true,
+    "failure_by_generation": true,
+    "first_failure_fields": true,
+    "policy_vs_socket_separable": true,
+    "unknown_frame_counter_present": true,
+    "wire_socket_error_counter_present": true
+  },
+  "finding": "CONTROL_FATAL was previously sent but fell through to unknown-frame accounting; dev20.17 now decodes it explicitly",
+  "pass": true,
+  "release": "dev-20.17",
+  "runstart_transport_causality": {
+    "policy_budget_rejection": "critical_control_failure_count",
+    "serialization_or_frame_failure": "last_critical_control_failure_error",
+    "socket_failure": "wire_send_error_count"
+  },
+  "schema": "ControlFatalTelemetryDev2017V2"
+}

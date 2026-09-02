@@ -3,16 +3,11 @@
   "dev21": "BLOCKED",
   "engineering_go": true,
   "g10": "PHYSICAL_PENDING",
+  "g10_go": false,
   "g11": "BLOCKED",
-  "gates": {
-    "A": "PASS",
-    "B": "PASS",
-    "C": "PASS",
-    "D": "PASS",
-    "E": "PASS",
-    "F": "PASS"
-  },
   "physical_test_ready": true,
   "release": "dev-20.17",
-  "schema": "EngineeringGoDev2017V2"
+  "required_physical_json_count": 6,
+  "schema": "G10Dev2017V2",
+  "screenshots_required": false
 }

@@ -1,10 +1,21 @@
 {
-  "baseline_sha": "3fd11b673647afd1c0aac23907b34cb59ff78acd",
-  "detector": "deterministic-multinode-rssi-fusion-v9",
-  "detector_parameter_hash": "f5795d40fbfb1de728b8576e214b249ada67f70d7962e1bf7794eb9c7d251f17",
-  "engineering_contract": "DEFINED",
-  "nested_top_level_validity_must_match": true,
-  "release": "dev-20.12",
-  "report_version": 32,
-  "snapshot_schema_version": 15
+  "g10_expected_json_count": 6,
+  "hard_requirements": [
+    "critical_control_failure_count=0",
+    "oversize_control_key_counts empty",
+    "RunStart READY=3/3",
+    "RunStart COMMIT=true",
+    "same campaign_run_token=3/3",
+    "Freeze READY=3/3",
+    "Freeze COMMIT=true",
+    "Authority ACK=3/3",
+    "Scenario ACK=3/3",
+    "Calibration ACK=3/3 symmetric",
+    "duration>=330000ms"
+  ],
+  "mutation_missing_critical_field_fails": true,
+  "pass": true,
+  "pre_run_expected_json_count": 3,
+  "release": "dev-20.17",
+  "schema": "ValidatorContractParityDev2017V2"
 }

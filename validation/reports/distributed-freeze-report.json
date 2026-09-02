@@ -1,4 +1,5 @@
 {
+  "acceptance_export_requires_commit": true,
   "cases": [
     {
       "attempts": 3,
@@ -145,11 +146,16 @@
       "same_campaign_run_token": true
     }
   ],
-  "delayed_control_fail_closed_until_3_of_3": true,
-  "generation_change_fail_closed": true,
-  "no_unilateral_end": true,
-  "no_unilateral_start": true,
+  "foreign_ready_rejected": true,
+  "nodes": [
+    "12345678-1234-1234-1234-123456789abc",
+    "22345678-1234-1234-1234-123456789abc",
+    "32345678-1234-1234-1234-123456789abc"
+  ],
+  "normal_commit": true,
+  "normal_ready": "3/3",
   "pass": true,
   "release": "dev-20.17",
-  "schema": "DistributedFaultInjectionDev2017V2"
+  "schema": "DistributedFreezeReportDev2017V2",
+  "stale_ready_rejected": true
 }
