@@ -1025,7 +1025,7 @@ class BodyFinderNativeModule : Module() {
     }
     Function("exportPreRunDiagnosticJson") { contextJson: String ->
       val ctx=appContext.reactContext?:return@Function "{}";val supplied=try{JSONObject(contextJson)}catch(_:Throwable){JSONObject()};val beforeRun=ValidationRuntime.runId;val beforeEnded=ValidationRuntime.endedWallMs
-      supplied.put("evidence_class","PRE_RUN_DIAGNOSTIC_V1").put("acceptance_eligible",false).put("run_started",beforeRun!=null&&beforeEnded==null).put("report_version",35).put("snapshot_schema_version",16).put("wire_transport_telemetry",WireTransportV10.telemetry()).put("native_diagnostics",diagnostics(ctx))
+      supplied.put("evidence_class","PRE_RUN_DIAGNOSTIC_V1").put("acceptance_eligible",false).put("run_started",beforeRun!=null&&beforeEnded==null).put("report_version",36).put("snapshot_schema_version",16).put("wire_transport_telemetry",WireTransportV10.telemetry()).put("native_diagnostics",diagnostics(ctx))
       supplied.put("diagnostic_read_only",beforeRun==ValidationRuntime.runId&&beforeEnded==ValidationRuntime.endedWallMs).toString(2)
     }
     Function("getWifiRssi") {
@@ -1079,6 +1079,10 @@ class BodyFinderNativeModule : Module() {
       val preflight = validationPreflight(ctx, now)
         .put("session_boundary_reset", sessionBoundaryReset)
         .put("session_boundary_previous_strategy", previousStrategy.name)
+        .put("acquisition_recovery_epoch_id", BleAcquisitionPolicy.recoveryEpochId())
+        .put("acquisition_recovery_epoch_started_wall_ms", BleAcquisitionPolicy.recoveryEpochStartedWallMs())
+        .put("acquisition_recovery_epoch_attempt_count", BleAcquisitionPolicy.recoveryEpochAttemptCount())
+        .put("acquisition_recovery_budget_remaining", BleAcquisitionPolicy.recoveryBudgetRemaining(now))
         .put("recovery_budget_preserved_across_boundary", true)
       val blocking = preflight.optJSONArray("blocking_reasons") ?: JSONArray()
       if (blocking.length() > 0) {

@@ -1,0 +1,12 @@
+{
+  "dev21": "BLOCKED",
+  "engineering_go": true,
+  "g10": "PHYSICAL_PENDING",
+  "g10_go": false,
+  "g11": "BLOCKED",
+  "minimum_duration_ms": 330000,
+  "physical_test_ready": true,
+  "release": "dev-20.16",
+  "required_physical_json": 6,
+  "schema": "G10Dev2016V1"
+}

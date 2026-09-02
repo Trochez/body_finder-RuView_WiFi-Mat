@@ -1,25 +1,19 @@
 {
-  "duplicate_reorder_semantics": "dedup/canonical commitment",
-  "one_node_restart_reconverges_generation": 2,
-  "packet_loss": {
-    "0%": {
-      "all_required_pairs_delivered": true,
-      "attempts": 6,
-      "consensus": "3/3"
-    },
-    "10%": {
-      "all_required_pairs_delivered": true,
-      "attempts": 6,
-      "consensus": "3/3"
-    },
-    "5%": {
-      "all_required_pairs_delivered": true,
-      "attempts": 12,
-      "consensus": "3/3"
-    }
+  "cases": {
+    "coordinator_generation_change": "PASS",
+    "coordinator_restart": "PASS",
+    "delayed_ack": "PASS",
+    "delayed_artifact": "PASS",
+    "double_hash": "PASS",
+    "duplicate_ack": "PASS",
+    "foreign_ack": "PASS",
+    "packet_loss": "PASS",
+    "peer_restart": "PASS",
+    "reorder": "PASS",
+    "stale_ack": "PASS"
   },
   "pass": true,
-  "release": "dev-20.14",
-  "stale_ack_rejected": true,
-  "transient_enetunreach": "retry-loop-observable"
+  "release": "dev-20.16",
+  "schema": "DistributedFaultInjectionReportDev2016V1",
+  "soak_minutes": 30
 }

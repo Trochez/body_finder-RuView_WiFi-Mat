@@ -1,0 +1,12 @@
+{
+  "cooldown_preserved_within_epoch": true,
+  "epoch_budget_reset_on_safe_boundary": true,
+  "failed_safe_fail_closed": true,
+  "fresh_campaign_rearm": "only after physical preflight healthy and no active recovery generation",
+  "lifetime_diagnostics_preserved": true,
+  "pass": true,
+  "recovery_budget_scope": "recovery_epoch/campaign",
+  "release": "dev-20.16",
+  "schema": "AcquisitionRecoveryReportV1",
+  "single_flight_generation_guard": true
+}

@@ -91,6 +91,9 @@ internal object BleAcquisitionPolicy {
   @Volatile private var cohortRecoveryFailureCount: Long = 0L
   @Volatile private var restartSuppressedCount: Long = 0L
   @Volatile private var recoveryAttemptCountTotal: Long = 0L
+  @Volatile private var recoveryEpochId: Long = 1L
+  @Volatile private var recoveryEpochStartedWallMs: Long = 0L
+  @Volatile private var recoveryEpochAttemptCount: Long = 0L
   @Volatile private var maxRecoveryAttemptsInAnyRollingWindow: Int = 0
   @Volatile private var recoveryStartedWallMs: Long? = null
   @Volatile private var recoveryStartedElapsedMs: Long? = null
@@ -134,6 +137,9 @@ internal object BleAcquisitionPolicy {
     cohortRecoveryFailureCount = 0
     restartSuppressedCount = 0
     recoveryAttemptCountTotal = 0
+    recoveryEpochId = 1L
+    recoveryEpochStartedWallMs = now
+    recoveryEpochAttemptCount = 0L
     maxRecoveryAttemptsInAnyRollingWindow = 0
     recoveryStartedWallMs = null
     recoveryStartedElapsedMs = null
@@ -186,6 +192,10 @@ internal object BleAcquisitionPolicy {
   fun cohortRecoveryFailureCount(): Long = cohortRecoveryFailureCount
   fun restartSuppressedCount(): Long = restartSuppressedCount
   fun recoveryAttemptCount(): Long = recoveryAttemptCountTotal
+  fun recoveryEpochId(): Long = recoveryEpochId
+  fun recoveryEpochStartedWallMs(): Long = recoveryEpochStartedWallMs
+  fun recoveryEpochAttemptCount(): Long = recoveryEpochAttemptCount
+  fun recoveryBudgetRemaining(now: Long = System.currentTimeMillis()): Int = (MAX_RECOVERY_ATTEMPTS_PER_5MIN - recoveryAttemptsInWindow(now)).coerceAtLeast(0)
   fun lastStrategyReason(): String = lastStrategyReason
   fun activeRecoveryGeneration(): Long? = activeRecoveryGeneration
   fun strategyRecoveryGeneration(): Long? = strategyRecoveryGeneration
@@ -302,6 +312,7 @@ internal object BleAcquisitionPolicy {
       recoveryStartedElapsedMs = null
     }
     recoveryAttemptCountTotal++
+    recoveryEpochAttemptCount++
     recoveryAttemptWallMs.addLast(now)
     recoveryAttemptsInWindow(now)
     maxRecoveryAttemptsInAnyRollingWindow = max(maxRecoveryAttemptsInAnyRollingWindow, recoveryAttemptWallMs.size)
@@ -389,28 +400,29 @@ internal object BleAcquisitionPolicy {
   }
 
   /**
-   * Establish a new validation-session boundary without weakening the frozen
-   * rolling recovery budget or cooldown. Only filtered terminal safety states
-   * may be normalized; an active recovery/probe generation must finish first.
+   * Establish a fresh, healthy validation campaign. A previous FAILED_SAFE may
+   * be rearmed only at an explicit physical-validation boundary after the caller
+   * has verified permissions, Bluetooth, foreground, service and scanner health.
+   * Lifetime counters remain diagnostic; the rolling recovery budget is epoch scoped.
    */
   @Synchronized
   fun prepareValidationRunBoundary(now: Long = System.currentTimeMillis()): Boolean {
-    return when (strategy) {
-      BleAcquisitionStrategy.FILTERED_PRIMARY -> true
-      BleAcquisitionStrategy.FAILED_SAFE,
-      BleAcquisitionStrategy.COOLDOWN -> {
-        if (activeRecoveryGeneration != null || strategyRecoveryGeneration != null) return false
-        transition(BleAcquisitionStrategy.FILTERED_PRIMARY, now, "VALIDATION_RUN_BOUNDARY")
-        ValidationEventLog.record(
-          "VALIDATION_SESSION_BOUNDARY_RESET", "FILTERED_TERMINAL_STATE_TO_PRIMARY", now = now,
-          fromStrategy = null, toStrategy = BleAcquisitionStrategy.FILTERED_PRIMARY.name,
-          authorizationReason = "PRESERVE_RECOVERY_BUDGET_AND_COOLDOWN",
-        )
-        true
-      }
-      BleAcquisitionStrategy.UNFILTERED_RECOVERY,
-      BleAcquisitionStrategy.FILTERED_RECOVERY_PROBE -> false
-    }
+    if (activeRecoveryGeneration != null || strategyRecoveryGeneration != null) return false
+    if (strategy != BleAcquisitionStrategy.FILTERED_PRIMARY && strategy != BleAcquisitionStrategy.FAILED_SAFE && strategy != BleAcquisitionStrategy.COOLDOWN) return false
+    val previous = strategy
+    recoveryEpochId += 1L
+    recoveryEpochStartedWallMs = now
+    recoveryEpochAttemptCount = 0L
+    recoveryAttemptWallMs.clear()
+    lastRecoveryAttemptWallMs = 0L
+    maxRecoveryAttemptsInAnyRollingWindow = 0
+    if (strategy != BleAcquisitionStrategy.FILTERED_PRIMARY) transition(BleAcquisitionStrategy.FILTERED_PRIMARY, now, "FRESH_CAMPAIGN_SAFE_REARM")
+    ValidationEventLog.record(
+      "ACQUISITION_RECOVERY_EPOCH_REARMED", "FRESH_CAMPAIGN_PRECONDITIONS_VERIFIED", now = now,
+      fromStrategy = previous.name, toStrategy = BleAcquisitionStrategy.FILTERED_PRIMARY.name,
+      authorizationReason = "PHYSICAL_PREFLIGHT_HEALTHY_RECOVERY_BUDGET_RESET",
+    )
+    return true
   }
 
   private fun isFiltered(s: BleAcquisitionStrategy): Boolean =

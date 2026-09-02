@@ -1,0 +1,28 @@
+{
+  "limits_bytes": {
+    "datagram": 1200,
+    "frame": 900,
+    "payload": 600
+  },
+  "measurements": {
+    "calibration_ack_v10": {
+      "datagram_bytes": 614,
+      "datagram_lt_1200": true,
+      "frame_bytes": 614,
+      "frame_lt_900": true,
+      "payload_bytes": 488,
+      "payload_lt_600": true
+    },
+    "calibration_meta_v10": {
+      "datagram_bytes": 598,
+      "datagram_lt_1200": true,
+      "frame_bytes": 598,
+      "frame_lt_900": true,
+      "payload_bytes": 472,
+      "payload_lt_600": true
+    }
+  },
+  "pass": true,
+  "release": "dev-20.16",
+  "schema": "PayloadBudgetReportDev2016V2"
+}

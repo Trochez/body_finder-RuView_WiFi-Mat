@@ -1,0 +1,22 @@
+{
+  "bindings": [
+    "session_id",
+    "coordinator_id",
+    "coordinator_generation",
+    "calibration_generation",
+    "calibration_id",
+    "calibration_hash",
+    "topology_hash",
+    "authority_digest",
+    "ack_node_id"
+  ],
+  "duplicates_idempotent": true,
+  "engineering_simulation": "PASS",
+  "expected_ack": "3/3 on every node",
+  "foreign_rejected": true,
+  "mixed_v2_v3_rejected": true,
+  "nodes": 3,
+  "release": "dev-20.16",
+  "schema": "CalibrationAckSymmetryReportV1",
+  "stale_rejected": true
+}

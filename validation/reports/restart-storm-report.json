@@ -1,0 +1,11 @@
+{
+  "max_recovery_attempts_per_5min": 3,
+  "min_restart_cooldown_ms": 30000,
+  "pass": true,
+  "release": "dev-20.16",
+  "rolling_window_epoch_scoped": true,
+  "schema": "RestartStormReportV1",
+  "single_flight": true,
+  "synthetic_10min_restart_storm": "REJECTED",
+  "unbounded_restart_path": false
+}

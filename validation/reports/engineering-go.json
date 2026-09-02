@@ -1,18 +1,20 @@
 {
+  "baseline_sha": "d730dcf030a19e8e4185abe4cbe98840d7eda0ae",
   "dev21": "BLOCKED",
   "engineering_go": true,
   "g10": "PHYSICAL_PENDING",
   "g11": "BLOCKED",
-  "r0_reproduction": true,
-  "r1_identity_canonicalization": true,
-  "r2_wire_budget": true,
-  "r3_distributed_authority": true,
-  "r4_secondary_runtime_hardening": true,
-  "r5_engineering_go": true,
-  "r6_release_integrity": "PENDING_RELEASE_WORKFLOW",
-  "release": "dev-20.14",
-  "schema": "engineering-go-dev20.14-v1",
-  "screenshots_required": false,
-  "source_branch": "implementation/dev20.14",
-  "source_sha_before_evidence": "24abf73d29a8df671a8a59692ae63b454848384d"
+  "gates": {
+    "A": "PASS",
+    "B": "PASS",
+    "C": "PASS",
+    "D": "PASS",
+    "E": "PASS",
+    "F": "PASS"
+  },
+  "physical_ready": false,
+  "physical_test_ready": true,
+  "release": "dev-20.16",
+  "schema": "EngineeringGoDev2016V1",
+  "screenshots_required": false
 }

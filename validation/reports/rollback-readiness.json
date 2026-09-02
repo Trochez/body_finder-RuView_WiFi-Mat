@@ -1,15 +1,15 @@
 {
-  "clean_uninstall_reinstall": true,
-  "mixed_authority_wire_versions": "FAIL_CLOSED_FOR_3_OF_3_CONSENSUS",
-  "previous_release": "dev-20.13",
   "ready": true,
-  "release": "dev-20.14",
-  "rollback_triggers": [
-    "split_authority",
-    "digest_divergence",
-    "generation_divergence",
-    "required_control_oversize",
-    "invalid_acceptance_export"
+  "release": "dev-20.16",
+  "rollback_target_sha": "d730dcf030a19e8e4185abe4cbe98840d7eda0ae",
+  "schema": "RollbackReadinessDev2016V1",
+  "triggers": [
+    "ACK_FALSE_POSITIVE",
+    "AUTHORITY_DIVERGENCE",
+    "CRITICAL_CONTROL_OVERSIZE",
+    "ACQUISITION_RESTART_LOOP",
+    "STALE_PEER_UNLOCK",
+    "VALIDATOR_FALSE_ACCEPT"
   ],
-  "schema_destructive_migration": false
+  "validator_must_not_be_weakened": true
 }

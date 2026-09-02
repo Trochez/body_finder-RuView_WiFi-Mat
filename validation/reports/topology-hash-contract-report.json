@@ -1,0 +1,11 @@
+{
+  "ack": "echo topologyHash literal",
+  "coordinator": "fingerprint -> computeTopologyHash exactly once -> topologyHash",
+  "direct_cal_topology_hash_calls_remaining": 0,
+  "hash_algorithm": "SHA-256",
+  "pass": true,
+  "peer": "received topology_hash -> topologyHash literal; no rehash",
+  "release": "dev-20.16",
+  "schema": "TopologyHashContractReportV1",
+  "wire": "CalibrationMetaWireV3/CalibrationAckWireV3"
+}
