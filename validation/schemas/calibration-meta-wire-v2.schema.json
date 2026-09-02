@@ -1,0 +1,67 @@
+{
+  "additionalProperties": false,
+  "properties": {
+    "a": {
+      "minLength": 1,
+      "type": "string"
+    },
+    "cg": {
+      "minimum": 0,
+      "type": "integer"
+    },
+    "d": {
+      "pattern": "^[0-9a-f]{64}$",
+      "type": "string"
+    },
+    "g": {
+      "minimum": 0,
+      "type": "integer"
+    },
+    "h": {
+      "pattern": "^[0-9a-f]{64}$",
+      "type": "string"
+    },
+    "i": {
+      "minLength": 1,
+      "type": "string"
+    },
+    "l": {
+      "minimum": 0,
+      "type": "integer"
+    },
+    "n": {
+      "minLength": 1,
+      "type": "string"
+    },
+    "q": {
+      "minimum": 0,
+      "type": "integer"
+    },
+    "s": {
+      "minLength": 1,
+      "type": "string"
+    },
+    "schema": {
+      "const": "CalibrationMetaWireV2"
+    },
+    "t": {
+      "pattern": "^[0-9a-f]{64}$",
+      "type": "string"
+    }
+  },
+  "required": [
+    "schema",
+    "s",
+    "n",
+    "cg",
+    "g",
+    "i",
+    "h",
+    "a",
+    "t",
+    "q",
+    "l",
+    "d"
+  ],
+  "type": "object"
+}

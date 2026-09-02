@@ -2,13 +2,13 @@
   "expo": {
     "name": "Body Finder – RuView",
     "slug": "body-finder-ruview",
-    "version": "0.2.0-experimental.20.14",
+    "version": "0.2.0-experimental.20.15",
     "orientation": "portrait",
     "userInterfaceStyle": "dark",
     "newArchEnabled": false,
     "android": {
       "package": "com.trochez.bodyfinderruview",
-      "versionCode": 34,
+      "versionCode": 35,
       "permissions": [
         "android.permission.INTERNET",
         "android.permission.ACCESS_NETWORK_STATE",
@@ -44,8 +44,8 @@
       "releaseIteration": "experimental.20.14"
     }
   },
-  "version": "0.2.0-experimental.20.14",
+  "version": "0.2.0-experimental.20.15",
   "android": {
-    "versionCode": 34
+    "versionCode": 35
   }
 }

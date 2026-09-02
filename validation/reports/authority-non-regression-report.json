@@ -1,0 +1,9 @@
+{
+  "ack": "3/3",
+  "authority_ack_payload_bytes": 338,
+  "authority_view_payload_bytes": 293,
+  "baseline": "dev-20.14",
+  "hard_limit_unchanged": 600,
+  "pass": true,
+  "schema": "AuthorityNonRegressionReportV1"
+}

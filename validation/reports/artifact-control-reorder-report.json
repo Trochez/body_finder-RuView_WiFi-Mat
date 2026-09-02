@@ -1,0 +1,11 @@
+{
+  "cases": {
+    "artifact_before_metadata": "PASS",
+    "duplicate": "PASS",
+    "hash_mismatch": "REJECT",
+    "metadata_before_artifact": "PASS",
+    "stale_replay": "PASS"
+  },
+  "pass": true,
+  "schema": "ArtifactControlReorderReportV1"
+}

@@ -1,0 +1,82 @@
+{
+  "additionalProperties": false,
+  "properties": {
+    "bb": {
+      "minimum": 0,
+      "type": "integer"
+    },
+    "cg": {
+      "minimum": 0,
+      "type": "integer"
+    },
+    "ch": {
+      "pattern": "^[0-9a-f]{64}$",
+      "type": "string"
+    },
+    "ci": {
+      "minLength": 1,
+      "type": "string"
+    },
+    "d": {
+      "pattern": "^[0-9a-f]{64}$",
+      "type": "string"
+    },
+    "g": {
+      "minimum": 0,
+      "type": "integer"
+    },
+    "i": {
+      "minLength": 1,
+      "type": "string"
+    },
+    "ll": {
+      "minimum": 0,
+      "type": "integer"
+    },
+    "n": {
+      "minLength": 1,
+      "type": "string"
+    },
+    "nn": {
+      "minimum": 0,
+      "type": "integer"
+    },
+    "p": {
+      "minLength": 1,
+      "type": "string"
+    },
+    "q": {
+      "minimum": 0,
+      "type": "integer"
+    },
+    "s": {
+      "minLength": 1,
+      "type": "string"
+    },
+    "schema": {
+      "const": "DecisionMetaWireV2"
+    },
+    "t": {
+      "pattern": "^[0-9a-f]{64}$",
+      "type": "string"
+    }
+  },
+  "required": [
+    "schema",
+    "s",
+    "n",
+    "cg",
+    "g",
+    "ci",
+    "ch",
+    "t",
+    "q",
+    "i",
+    "d",
+    "p",
+    "nn",
+    "ll",
+    "bb"
+  ],
+  "type": "object"
+}

@@ -1,0 +1,52 @@
+{
+  "authority_regression_reference": {
+    "authority_ack_v1_payload_bytes": 338,
+    "authority_view_v1_payload_bytes": 293
+  },
+  "hard_limits": {
+    "datagram": 1200,
+    "frame": 900,
+    "payload": 600
+  },
+  "measurements": {
+    "calibration_ack_v10": {
+      "datagram_bytes": 571,
+      "datagram_lt_1200": true,
+      "engineering_headroom_bytes": 155,
+      "frame_bytes": 571,
+      "frame_lt_900": true,
+      "payload_bytes": 445,
+      "payload_lt_600": true
+    },
+    "calibration_meta_v10": {
+      "datagram_bytes": 659,
+      "datagram_lt_1200": true,
+      "engineering_headroom_bytes": 67,
+      "frame_bytes": 659,
+      "frame_lt_900": true,
+      "payload_bytes": 533,
+      "payload_lt_600": true
+    },
+    "decision_ack_v10": {
+      "datagram_bytes": 396,
+      "datagram_lt_1200": true,
+      "engineering_headroom_bytes": 330,
+      "frame_bytes": 396,
+      "frame_lt_900": true,
+      "payload_bytes": 270,
+      "payload_lt_600": true
+    },
+    "decision_meta_v10": {
+      "datagram_bytes": 667,
+      "datagram_lt_1200": true,
+      "engineering_headroom_bytes": 59,
+      "frame_bytes": 667,
+      "frame_lt_900": true,
+      "payload_bytes": 541,
+      "payload_lt_600": true
+    }
+  },
+  "pass": true,
+  "release": "dev-20.15",
+  "schema": "CriticalControlWireBudgetReportV2"
+}

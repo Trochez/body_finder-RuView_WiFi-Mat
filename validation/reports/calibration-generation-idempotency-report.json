@@ -1,0 +1,7 @@
+{
+  "duplicate_same_attempt": "NO_INCREMENT",
+  "explicit_new_ready_action": "NEW_GENERATION",
+  "pass": true,
+  "schema": "CalibrationGenerationIdempotencyV1",
+  "stale_generation_ack": "REJECT"
+}
