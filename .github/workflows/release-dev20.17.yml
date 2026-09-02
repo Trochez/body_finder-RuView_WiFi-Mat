@@ -1,0 +1,292 @@
+name: Release dev20.17
+
+on:
+  push:
+    branches: [implementation/dev20.17]
+    paths: [DEV20_17_RELEASE_TRIGGER.txt]
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release-dev20-17
+  cancel-in-progress: true
+
+env:
+  BUILD_VERSION: 0.2.0-experimental.20.17
+
+jobs:
+  implement:
+    runs-on: ubuntu-24.04
+    outputs:
+      source_sha: ${{ steps.commit.outputs.source_sha }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: implementation/dev20.17
+          fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with: {python-version: '3.12'}
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: apps/mobile/package-lock.json
+      - uses: actions/setup-java@v5
+        with: {distribution: temurin, java-version: '17'}
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: gradle/actions/setup-gradle@v4
+        with: {gradle-version: '8.10.2'}
+
+      - name: Apply deterministic dev20.17 remediation
+        run: |
+          set -euxo pipefail
+          python3 scripts/implement_dev20_17.py
+          git diff --check
+
+      - name: Gates A-E — reproduction, budget, barriers and no-regression
+        run: |
+          set -euxo pipefail
+          python3 -m py_compile scripts/implement_dev20_17.py scripts/dev20_17_engineering_gate.py validation/analysis/validate_dev20_17_prerun.py validation/analysis/validate_dev20_17_g10.py
+          python3 scripts/dev20_17_engineering_gate.py
+          grep -q "0.2.0-experimental.20.17" apps/mobile/src/version.ts
+          grep -q "reportVersion: 37" apps/mobile/src/version.ts
+          grep -q "versionCode: 37" apps/mobile/src/version.ts
+          grep -q "RunStartPrepareWireV2" apps/mobile/src/campaignControl.ts
+          grep -q "RunFreezePrepareWireV3" apps/mobile/src/campaignControl.ts
+          ! grep -q "snapshot_ready_v2:freeze.local_ready" apps/mobile/src/campaignControl.ts
+          python3 - <<'PY'
+          import json,pathlib
+          r=pathlib.Path('validation/reports')
+          required=['dev20_16_physical_no_go_reproduction.json','critical-control-budget-contract-report.json','runstart-wire-v2-report.json','freeze-wire-budget-report.json','distributed-runstart-report.json','distributed-freeze-report.json','control-fatal-telemetry-report.json','dev20_16_calibration_acquisition_no_regression_report.json','distributed-fault-injection-report.json','soak-report.json','validator-contract-parity-report.json','engineering-go.json','g10-dev20.17.json','rollback-readiness.json']
+          for n in required:
+              p=r/n; assert p.is_file() and p.stat().st_size>0,n; json.loads(p.read_text())
+          b=json.loads((r/'critical-control-budget-contract-report.json').read_text())
+          assert b['coverage_complete'] and b['coverage_percent']==100.0 and not b['uncovered_keys'] and b['pass']
+          assert all(x['payload_bytes']<=600 and x['control_frame_bytes']<=900 and x['datagram_bytes']<=1200 for x in b['measurements'].values())
+          for n in ['distributed-runstart-report.json','distributed-freeze-report.json','distributed-fault-injection-report.json','soak-report.json']:
+              assert json.loads((r/n).read_text())['pass'],n
+          PY
+
+      - name: Rust regression gate
+        run: |
+          set -euxo pipefail
+          cargo fmt --all -- --check
+          cargo test --workspace --all-targets
+          cargo build --release -p body-finder-node -p body-finder-science --bins
+
+      - name: Mobile TypeScript gate
+        working-directory: apps/mobile
+        run: |
+          set -euxo pipefail
+          npm ci --no-audit --no-fund
+          npm run typecheck
+
+      - name: Android native unit gate
+        working-directory: apps/mobile
+        run: |
+          set -euxo pipefail
+          CI=1 npx expo prebuild --platform android --clean
+          chmod +x android/gradlew
+          ./android/gradlew -p android testReleaseUnitTest --stacktrace
+
+      - name: Gate F — engineering GO, physical still pending
+        run: |
+          python3 - <<'PY'
+          import json,pathlib
+          r=pathlib.Path('validation/reports')
+          p=r/'engineering-go.json';d=json.loads(p.read_text());d['gates']['F']='PASS';d['engineering_go']=True;d['physical_test_ready']=True;p.write_text(json.dumps(d,indent=2,sort_keys=True)+'\n')
+          p=r/'g10-dev20.17.json';d=json.loads(p.read_text());d['engineering_go']=True;d['physical_test_ready']=True;d['g10']='PHYSICAL_PENDING';d['g10_go']=False;d['g11']='BLOCKED';d['dev21']='BLOCKED';p.write_text(json.dumps(d,indent=2,sort_keys=True)+'\n')
+          PY
+          git diff --check
+
+      - name: Commit verified implementation
+        id: commit
+        run: |
+          set -euxo pipefail
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git add -A
+          git diff --cached --quiet || git commit -m 'feat(dev20.17): compact RunStart and Freeze critical-control wire DTOs'
+          git push origin HEAD:implementation/dev20.17
+          echo "source_sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+
+  windows:
+    needs: implement
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+        with: {ref: '${{ needs.implement.outputs.source_sha }}'}
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Build Windows and WSL binaries
+        run: cargo build --release -p body-finder-node -p body-finder-science --bins
+      - shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force dist\win | Out-Null
+          Copy-Item target\release\body-finder-node.exe dist\win\
+          Copy-Item target\release\body-finder-detector.exe dist\win\
+          if (Test-Path target\release\body-finder-replay.exe) { Copy-Item target\release\body-finder-replay.exe dist\win\ }
+          if (Test-Path target\release\body-finder-validate-session.exe) { Copy-Item target\release\body-finder-validate-session.exe dist\win\ }
+          if (Test-Path target\release\body-finder-rf-recorder.exe) { Copy-Item target\release\body-finder-rf-recorder.exe dist\win\ }
+          Copy-Item target\release\body-finder-detector.exe dist\body-finder-detector-windows-x86_64.exe
+          Compress-Archive dist\win\* dist\body-finder-windows-wsl-x86_64.zip
+      - uses: actions/upload-artifact@v4
+        with:
+          name: dev20-17-windows
+          path: |
+            dist/body-finder-windows-wsl-x86_64.zip
+            dist/body-finder-detector-windows-x86_64.exe
+
+  build-release:
+    needs: [implement, windows]
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.implement.outputs.source_sha }}
+          fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with: {python-version: '3.12'}
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: apps/mobile/package-lock.json
+      - uses: actions/setup-java@v5
+        with: {distribution: temurin, java-version: '17'}
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: gradle/actions/setup-gradle@v4
+        with: {gradle-version: '8.10.2'}
+      - uses: actions/download-artifact@v4
+        with:
+          name: dev20-17-windows
+          path: dist
+
+      - name: Verify engineering GO state
+        run: |
+          set -euxo pipefail
+          test "$(git rev-parse HEAD)" = "${{ needs.implement.outputs.source_sha }}"
+          python3 - <<'PY'
+          import json,pathlib
+          r=pathlib.Path('validation/reports')
+          e=json.loads((r/'engineering-go.json').read_text());g=json.loads((r/'g10-dev20.17.json').read_text());b=json.loads((r/'critical-control-budget-contract-report.json').read_text())
+          assert e['engineering_go'] and e['gates']['F']=='PASS'
+          assert g['g10']=='PHYSICAL_PENDING' and not g['g10_go'] and g['g11']=='BLOCKED' and g['dev21']=='BLOCKED'
+          assert b['pass'] and b['coverage_complete']
+          PY
+
+      - name: Build Linux artifacts
+        run: |
+          set -euxo pipefail
+          cargo build --release -p body-finder-node -p body-finder-science --bins
+          mkdir -p dist work/deb/DEBIAN work/deb/usr/bin
+          tar -C target/release -czf dist/body-finder-node-linux-x86_64.tar.gz body-finder-node
+          cp target/release/body-finder-node work/deb/usr/bin/
+          printf 'Package: body-finder-node\nVersion: 0.2.0~experimental20.17\nSection: science\nPriority: optional\nArchitecture: amd64\nMaintainer: Trochez\nDescription: Body Finder RuView field node\n' > work/deb/DEBIAN/control
+          dpkg-deb --build work/deb dist/body-finder-node-linux-x86_64.deb
+          cp target/release/body-finder-detector dist/body-finder-detector-linux-x86_64
+          chmod +x dist/body-finder-detector-linux-x86_64
+
+      - name: Build Android universal APK and AAB
+        run: |
+          set -euxo pipefail
+          rustup target add aarch64-linux-android armv7-linux-androideabi x86_64-linux-android
+          cargo install cargo-ndk --locked
+          rm -rf apps/mobile/modules/body-finder-native/android/src/main/jniLibs
+          mkdir -p apps/mobile/modules/body-finder-native/android/src/main/jniLibs
+          cargo ndk -t arm64-v8a -t armeabi-v7a -t x86_64 -o apps/mobile/modules/body-finder-native/android/src/main/jniLibs build --release -p body-finder-science --lib
+          cd apps/mobile
+          npm ci --no-audit --no-fund
+          CI=1 npx expo prebuild --platform android --clean
+          chmod +x android/gradlew
+          ./android/gradlew -p android assembleRelease bundleRelease --stacktrace
+          cd ../..
+          cp apps/mobile/android/app/build/outputs/apk/release/*.apk dist/body-finder-ruview-universal.apk
+          cp dist/body-finder-ruview-universal.apk dist/BodyFinder-dev20.17-universal.apk
+          cp apps/mobile/android/app/build/outputs/bundle/release/*.aab dist/body-finder-ruview.aab
+
+      - name: Build Android legacy minSdk21 APK
+        run: |
+          set -euxo pipefail
+          mkdir -p "$HOME/.android"
+          if [ ! -f "$HOME/.android/debug.keystore" ]; then keytool -genkeypair -keystore "$HOME/.android/debug.keystore" -storepass android -alias androiddebugkey -keypass android -dname 'CN=Android Debug,O=Android,C=US' -keyalg RSA -keysize 2048 -validity 10000; fi
+          cd apps/android-legacy
+          gradle :app:testReleaseUnitTest :app:assembleRelease --stacktrace
+          cd ../..
+          cp apps/android-legacy/app/build/outputs/apk/release/*.apk dist/body-finder-ruview-legacy-minsdk21.apk
+
+      - name: Package validators and engineering evidence
+        run: |
+          set -euxo pipefail
+          cp TESTING_DEV20_17.md dist/
+          cp validation/analysis/validate_dev20_17_prerun.py dist/
+          cp validation/analysis/validate_dev20_17_g10.py dist/
+          for f in dev20_16_physical_no_go_reproduction.json critical-control-budget-contract-report.json runstart-wire-v2-report.json freeze-wire-budget-report.json distributed-runstart-report.json distributed-freeze-report.json control-fatal-telemetry-report.json dev20_16_calibration_acquisition_no_regression_report.json distributed-fault-injection-report.json soak-report.json validator-contract-parity-report.json engineering-go.json g10-dev20.17.json rollback-readiness.json; do cp "validation/reports/$f" dist/; done
+          mkdir -p kit/validation/analysis kit/validation/reports
+          cp validation/analysis/validate_dev20_17_prerun.py validation/analysis/validate_dev20_17_g10.py kit/validation/analysis/
+          cp validation/reports/*.json kit/validation/reports/
+          cp TESTING_DEV20_17.md kit/
+          (cd kit && zip -qr ../dist/validators-dev20.17.zip .)
+          python3 - <<'PY'
+          import json,pathlib
+          d={'schema':'CiTestEvidenceDev2017V1','release':'dev-20.17','source_sha':'${{ needs.implement.outputs.source_sha }}','gates':{'reproduction_A':'PASS','critical_budget_B':'PASS','runstart_C':'PASS','freeze_D':'PASS','no_regression_E':'PASS','cargo_fmt':'PASS','cargo_test_workspace_all_targets':'PASS','cargo_release_build':'PASS','mobile_typecheck':'PASS','android_native_unit':'PASS','windows_release_build':'PASS','linux_release_build':'PASS','android_universal_build':'PASS','android_legacy_build':'PASS'}}
+          pathlib.Path('dist/ci-test-evidence.json').write_text(json.dumps(d,indent=2,sort_keys=True)+'\n')
+          PY
+
+      - uses: anchore/sbom-action@v0
+        with:
+          path: '.'
+          format: spdx-json
+          output-file: dist/SBOM.spdx.json
+
+      - name: Manifest and checksums
+        run: |
+          set -euxo pipefail
+          python3 - <<'PY'
+          import hashlib,json,pathlib
+          d=pathlib.Path('dist');source='${{ needs.implement.outputs.source_sha }}'
+          required=['BodyFinder-dev20.17-universal.apk','body-finder-ruview-universal.apk','body-finder-ruview-legacy-minsdk21.apk','body-finder-ruview.aab','body-finder-node-linux-x86_64.tar.gz','body-finder-node-linux-x86_64.deb','body-finder-detector-linux-x86_64','body-finder-windows-wsl-x86_64.zip','body-finder-detector-windows-x86_64.exe','validate_dev20_17_prerun.py','validate_dev20_17_g10.py','validators-dev20.17.zip','TESTING_DEV20_17.md','dev20_16_physical_no_go_reproduction.json','critical-control-budget-contract-report.json','runstart-wire-v2-report.json','freeze-wire-budget-report.json','distributed-runstart-report.json','distributed-freeze-report.json','control-fatal-telemetry-report.json','dev20_16_calibration_acquisition_no_regression_report.json','distributed-fault-injection-report.json','soak-report.json','validator-contract-parity-report.json','engineering-go.json','g10-dev20.17.json','rollback-readiness.json','ci-test-evidence.json','SBOM.spdx.json']
+          missing=[x for x in required if not (d/x).is_file() or (d/x).stat().st_size==0]
+          if missing:raise SystemExit('missing/empty release assets: '+str(missing))
+          manifest={'schema':'release-manifest-dev20.17-v1','release':'dev-20.17','build':'0.2.0-experimental.20.17','source_sha':source,'required_assets':required,'assets':sorted(p.name for p in d.iterdir() if p.is_file())}
+          (d/'release-manifest.json').write_text(json.dumps(manifest,indent=2,sort_keys=True)+'\n')
+          verification={'schema':'release-verification-dev20.17-v1','release':'dev-20.17','build':'0.2.0-experimental.20.17','source_sha':source,'engineering_go':True,'g10':'PHYSICAL_PENDING','g11':'BLOCKED','dev21':'BLOCKED','screenshots_required':False,'release_redownload_sha_verified':False,'release_integrity':False}
+          (d/'release-verification.json').write_text(json.dumps(verification,indent=2,sort_keys=True)+'\n')
+          files=sorted(p for p in d.iterdir() if p.is_file())
+          (d/'SHA256SUMS.txt').write_text(''.join(f'{hashlib.sha256(p.read_bytes()).hexdigest()}  {p.name}\n' for p in files))
+          PY
+
+      - name: Publish, redownload and verify complete release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euxo pipefail
+          SOURCE_SHA='${{ needs.implement.outputs.source_sha }}'
+          gh release delete dev-20.17 -y || true
+          git push origin :refs/tags/dev-20.17 || true
+          git tag -f dev-20.17 "$SOURCE_SHA"
+          git push origin refs/tags/dev-20.17 --force
+          gh release create dev-20.17 dist/* --prerelease --target "$SOURCE_SHA" --title 'dev-20.17 — RunStart/Freeze critical-control wire budget remediation' --notes 'Engineering Gates A-F PASS. RunStart Wire V2 and Freeze Wire V3 use compact deterministic binding DTOs under the fixed 600/900/1200 byte budgets. Physical G10 remains PHYSICAL_PENDING until exactly six >=330 s Android acceptance JSONs pass validate_dev20_17_g10.py. G11/dev21 remain BLOCKED. Screenshots are not required.'
+          rm -rf verify && mkdir verify
+          (cd verify && gh release download dev-20.17)
+          (cd verify && sha256sum -c SHA256SUMS.txt)
+          python3 - <<'PY'
+          import json,pathlib
+          p=pathlib.Path('dist/release-verification.json');v=json.loads(p.read_text());v['release_redownload_sha_verified']=True;v['release_integrity']=True;v['redownload_asset_count']=len(list(pathlib.Path('verify').iterdir()));p.write_text(json.dumps(v,indent=2,sort_keys=True)+'\n')
+          PY
+          python3 - <<'PY'
+          import hashlib,pathlib
+          d=pathlib.Path('dist');files=sorted(p for p in d.iterdir() if p.is_file() and p.name!='SHA256SUMS.txt');(d/'SHA256SUMS.txt').write_text(''.join(f'{hashlib.sha256(p.read_bytes()).hexdigest()}  {p.name}\n' for p in files))
+          PY
+          gh release upload dev-20.17 dist/release-verification.json dist/SHA256SUMS.txt --clobber
+          rm -rf verify-final && mkdir verify-final
+          (cd verify-final && gh release download dev-20.17)
+          (cd verify-final && sha256sum -c SHA256SUMS.txt)
+          python3 - <<'PY'
+          import json,pathlib
+          v=json.loads(pathlib.Path('verify-final/release-verification.json').read_text());m=json.loads(pathlib.Path('verify-final/release-manifest.json').read_text());names={p.name for p in pathlib.Path('verify-final').iterdir()}
+          assert v['release_redownload_sha_verified'] and v['release_integrity']
+          assert set(m['required_assets']).issubset(names)
+          assert m['source_sha']=='${{ needs.implement.outputs.source_sha }}'
+          print('DEV20_17_RELEASE_INTEGRITY_GO assets=',len(names))
+          PY
