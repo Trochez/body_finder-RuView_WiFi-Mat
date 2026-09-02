@@ -35,23 +35,32 @@ jobs:
         with: {gradle-version: '8.10.2'}
 
       - name: Apply dev20.14 remediation
-        run: python3 scripts/implement_dev20_14.py
+        run: |
+          python3 scripts/implement_dev20_14.py
+          python3 scripts/dev20_14_post_patch.py
 
       - name: Contract replay and distributed fault gates
         run: |
           set -euxo pipefail
-          python3 -m py_compile scripts/implement_dev20_14.py validation/analysis/test_dev20_14_remediation.py validation/analysis/validate_dev20_14_g10.py
+          python3 -m py_compile scripts/implement_dev20_14.py scripts/dev20_14_post_patch.py validation/analysis/test_dev20_14_remediation.py validation/analysis/validate_dev20_14_g10.py
           python3 validation/analysis/test_dev20_14_remediation.py
           grep -q "AuthorityWireV2" apps/mobile/src/authority.ts
           grep -q "AuthorityAckWireV2" apps/mobile/src/authority.ts
+          grep -q "convergence_timeline" apps/mobile/src/authority.ts
           ! grep -Fq "instance_epoch??'legacy'" apps/mobile/src/authority.ts
           grep -q 'put("instance_epoch", FabricRuntime.instanceEpoch)' apps/mobile/modules/body-finder-native/android/src/main/java/com/trochez/bodyfindernative/BodyFinderNativeModule.kt
-          grep -q 'critical_control_payload_target_bytes' apps/mobile/modules/body-finder-native/android/src/main/java/com/trochez/bodyfindernative/BodyFinderNativeModule.kt
+          grep -q 'max_control_payload_bytes_by_key' apps/mobile/modules/body-finder-native/android/src/main/java/com/trochez/bodyfindernative/BodyFinderNativeModule.kt
+          grep -q 'network_recovery_attempt_count' apps/mobile/modules/body-finder-native/android/src/main/java/com/trochez/bodyfindernative/BodyFinderNativeModule.kt
           grep -q "0.2.0-experimental.20.14" apps/mobile/src/version.ts
           grep -q "versionCode 34" apps/android-legacy/app/build.gradle
           python3 - <<'PY'
           import json,pathlib
           for p in pathlib.Path('validation/schemas').glob('*.json'): json.loads(p.read_text())
+          fixtures=list(pathlib.Path('validation/fixtures/dev20_14').glob('dev20_13_physical_node_*.json'))
+          assert len(fixtures)==3
+          rows=[json.loads(p.read_text()) for p in fixtures]
+          assert {x['authority_view_send_failures'] for x in rows}=={384,775,868}
+          assert all(x['authority_ack_count']==1 and x['authority_view_payload_bytes']==673 and x['critical_control_payload_target_bytes']==600 for x in rows)
           for n in ['authority-convergence-report.json','authority-wire-budget-report.json','instance-epoch-canonicalization-report.json','distributed-fault-injection-report.json','geometry-network-raging-fallback-report.json','rollback-readiness.json','g10-dev20.14.json']:
               d=json.loads((pathlib.Path('validation/reports')/n).read_text()); assert d
           w=json.loads(pathlib.Path('validation/reports/authority-wire-budget-report.json').read_text())
