@@ -1,0 +1,17 @@
+{
+  "fixture": "DEV20_13_PHYSICAL_NO_GO_SANITIZED",
+  "node_suffix": "42e0a10b",
+  "coordinator_suffix": "ab72b996",
+  "coordinator_generation": 1,
+  "local_authority_digest_prefix": "ce890d",
+  "authority_ack_count": 1,
+  "authority_ack_expected": 3,
+  "geometry": "GEOMETRY_1D",
+  "authority_view_payload_bytes": 673,
+  "critical_control_payload_target_bytes": 600,
+  "authority_view_send_attempts": 868,
+  "authority_view_send_failures": 868,
+  "failure": "CRITICAL_CONTROL_PAYLOAD_OVER_600",
+  "blocking_reason": "AUTHORITY_ACK_3_OF_3_REQUIRED",
+  "acceptance_eligible": false
+}
