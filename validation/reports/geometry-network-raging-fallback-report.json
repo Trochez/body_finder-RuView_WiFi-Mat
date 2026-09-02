@@ -1,0 +1,14 @@
+{
+  "address_rebind_affects_authority_digest": false,
+  "api36_no_result_ble_fallback": true,
+  "calibrated_domain_m": [
+    0.5,
+    5.0
+  ],
+  "dev20_13_low_range_reproduction_m": 0.277,
+  "gate": "R4",
+  "low_range_state": "OUT_OF_DOMAIN_LOW",
+  "pass": true,
+  "release": "dev-20.14",
+  "transient_network_error": "observable-and-retried"
+}

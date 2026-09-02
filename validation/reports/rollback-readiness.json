@@ -1,8 +1,15 @@
 {
-  "build": "0.2.0-experimental.20.13",
-  "release": "dev-20.13",
-  "rollback_ref": "f59395e8409a0e92d217844416653a1564e4631f",
-  "schema_version": 16,
-  "source_sha": "GENERATED_AT_RELEASE",
-  "status": "PASS"
+  "clean_uninstall_reinstall": true,
+  "mixed_authority_wire_versions": "FAIL_CLOSED_FOR_3_OF_3_CONSENSUS",
+  "previous_release": "dev-20.13",
+  "ready": true,
+  "release": "dev-20.14",
+  "rollback_triggers": [
+    "split_authority",
+    "digest_divergence",
+    "generation_divergence",
+    "required_control_oversize",
+    "invalid_acceptance_export"
+  ],
+  "schema_destructive_migration": false
 }

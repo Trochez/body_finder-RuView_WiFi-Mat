@@ -1,0 +1,25 @@
+{
+  "duplicate_reorder_semantics": "dedup/canonical commitment",
+  "one_node_restart_reconverges_generation": 2,
+  "packet_loss": {
+    "0%": {
+      "all_required_pairs_delivered": true,
+      "attempts": 6,
+      "consensus": "3/3"
+    },
+    "10%": {
+      "all_required_pairs_delivered": true,
+      "attempts": 6,
+      "consensus": "3/3"
+    },
+    "5%": {
+      "all_required_pairs_delivered": true,
+      "attempts": 12,
+      "consensus": "3/3"
+    }
+  },
+  "pass": true,
+  "release": "dev-20.14",
+  "stale_ack_rejected": true,
+  "transient_enetunreach": "retry-loop-observable"
+}

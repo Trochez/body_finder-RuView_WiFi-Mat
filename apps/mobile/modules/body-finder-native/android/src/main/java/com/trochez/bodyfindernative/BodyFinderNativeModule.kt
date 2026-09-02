@@ -588,6 +588,7 @@ private object WireTransportV10 {
   private val rxBytesByType=java.util.concurrent.ConcurrentHashMap<String,java.util.concurrent.atomic.AtomicLong>()
   private val maxBytesByType=java.util.concurrent.ConcurrentHashMap<String,java.util.concurrent.atomic.AtomicLong>()
   private val maxControlBytesByKey=java.util.concurrent.ConcurrentHashMap<String,java.util.concurrent.atomic.AtomicLong>()
+  private val maxControlPayloadBytesByKey=java.util.concurrent.ConcurrentHashMap<String,java.util.concurrent.atomic.AtomicLong>()
   private val oversizeControlKeyCounts=java.util.concurrent.ConcurrentHashMap<String,java.util.concurrent.atomic.AtomicLong>()
   private val criticalControlSendAttempt=java.util.concurrent.ConcurrentHashMap<String,java.util.concurrent.atomic.AtomicLong>()
   private val criticalControlSendSuccess=java.util.concurrent.ConcurrentHashMap<String,java.util.concurrent.atomic.AtomicLong>()
@@ -604,6 +605,10 @@ private object WireTransportV10 {
 
   val oversizeBlockCount=java.util.concurrent.atomic.AtomicLong(0)
   val sendErrorCount=java.util.concurrent.atomic.AtomicLong(0)
+  val networkRecoveryAttemptCount=java.util.concurrent.atomic.AtomicLong(0)
+  val networkRecoverySuccessCount=java.util.concurrent.atomic.AtomicLong(0)
+  val networkRecoveryFailureCount=java.util.concurrent.atomic.AtomicLong(0)
+  @Volatile var lastNetworkRecoveryError:String?=null
   val maxDatagramBytesObserved=java.util.concurrent.atomic.AtomicLong(0)
   val txFrames=java.util.concurrent.atomic.AtomicLong(0)
   val rxFrames=java.util.concurrent.atomic.AtomicLong(0)
@@ -660,6 +665,7 @@ private object WireTransportV10 {
   private fun safeAddControl(out:MutableList<ByteArray>,key:String,value:Any?,node:String,session:String,seq:Long){
     val critical=criticalControlKeys.contains(key);if(critical)criticalControlSendAttempt.computeIfAbsent(key){AtomicLong(0)}.incrementAndGet()
     val compact=JSONObject().put("control_key",key).put("control_value",value).toString().toByteArray(Charsets.UTF_8)
+    maxControlPayloadBytesByKey.computeIfAbsent(key){AtomicLong(0)}.updateAndGet{v->kotlin.math.max(v,compact.size.toLong())}
     if(compact.size>COMPACT_CONTROL_PAYLOAD_TARGET_BYTES){oversizeControlKeyCounts.computeIfAbsent(key){AtomicLong(0)}.incrementAndGet();lastOversizeControlKey=key;lastOversizeSha256=sha(compact);if(critical){criticalControlFailureCount.incrementAndGet();criticalControlSendFailure.computeIfAbsent(key){AtomicLong(0)}.incrementAndGet();lastCriticalControlFailureKey=key;lastCriticalControlFailureSize=compact.size.toLong();lastCriticalControlFailureError="CRITICAL_CONTROL_PAYLOAD_OVER_600";safeAdd(out,"CONTROL_FATAL",node,session,seq){o->o.put("control_key",key).put("payload_sha256",sha(compact)).put("payload_bytes",compact.size).put("fatal",true)}}else optionalControlDropCount.incrementAndGet();return}
     try{val frame=envelope("CONTROL_FRAME",node,session,seq){o->o.put("control_key",key).put("control_value",value)};if(frame.size>CONTROL_FRAME_TARGET_BYTES)throw IllegalArgumentException("CONTROL_FRAME_OVER_900:${frame.size}");maxControlBytesByKey.computeIfAbsent(key){AtomicLong(0)}.updateAndGet{v->kotlin.math.max(v,frame.size.toLong())};out+=frame;if(critical)criticalControlSendSuccess.computeIfAbsent(key){AtomicLong(0)}.incrementAndGet()}catch(t:Throwable){oversizeControlKeyCounts.computeIfAbsent(key){AtomicLong(0)}.incrementAndGet();lastOversizeControlKey=key;lastOversizeSha256=sha(compact);if(critical){criticalControlFailureCount.incrementAndGet();criticalControlSendFailure.computeIfAbsent(key){AtomicLong(0)}.incrementAndGet();lastCriticalControlFailureKey=key;lastCriticalControlFailureSize=compact.size.toLong();lastCriticalControlFailureError="${t.javaClass.simpleName}:${t.message}"}else optionalControlDropCount.incrementAndGet();lastSendError="${t.javaClass.simpleName}:${t.message}"}
   }
@@ -773,8 +779,8 @@ private object WireTransportV10 {
   fun telemetry()=JSONObject()
     .put("schema","WireTransportTelemetryV13").put("max_datagram_budget_bytes",MAX_DATAGRAM_BYTES).put("range_frame_target_bytes",RANGE_FRAME_TARGET_BYTES).put("control_frame_target_bytes",CONTROL_FRAME_TARGET_BYTES).put("chunk_payload_bytes",CHUNK_BYTES).put("artifact_window_chunks",ARTIFACT_WINDOW_CHUNKS)
     .put("critical_control_payload_target_bytes",COMPACT_CONTROL_PAYLOAD_TARGET_BYTES).put("critical_control_failure_count",criticalControlFailureCount.get()).put("optional_control_drop_count",optionalControlDropCount.get()).put("critical_control_send_attempt",mapJson(criticalControlSendAttempt)).put("critical_control_send_success",mapJson(criticalControlSendSuccess)).put("critical_control_send_failure",mapJson(criticalControlSendFailure)).put("last_critical_control_failure_key",lastCriticalControlFailureKey?:JSONObject.NULL).put("last_critical_control_failure_size",lastCriticalControlFailureSize).put("last_critical_control_failure_error",lastCriticalControlFailureError?:JSONObject.NULL)
-    .put("max_datagram_bytes_observed",maxDatagramBytesObserved.get()).put("max_datagram_bytes_by_type",mapJson(maxBytesByType)).put("oversize_drop_by_type",mapJson(oversizeDropByType)).put("wire_oversize_block_count",oversizeBlockCount.get()).put("required_frame_oversize_count",requiredFrameOversizeCount.get()).put("max_control_bytes_by_key",mapJson(maxControlBytesByKey)).put("oversize_control_key_counts",mapJson(oversizeControlKeyCounts)).put("last_oversize_control_key",lastOversizeControlKey?:JSONObject.NULL).put("last_oversize_sha256",lastOversizeSha256?:JSONObject.NULL)
-    .put("wire_send_error_count",sendErrorCount.get()).put("wire_last_send_error",lastSendError?:JSONObject.NULL).put("wire_receive_error_count",receiveErrorCount.get()).put("wire_last_receive_error",lastReceiveError?:JSONObject.NULL)
+    .put("max_datagram_bytes_observed",maxDatagramBytesObserved.get()).put("max_datagram_bytes_by_type",mapJson(maxBytesByType)).put("oversize_drop_by_type",mapJson(oversizeDropByType)).put("wire_oversize_block_count",oversizeBlockCount.get()).put("required_frame_oversize_count",requiredFrameOversizeCount.get()).put("max_control_bytes_by_key",mapJson(maxControlBytesByKey)).put("max_control_payload_bytes_by_key",mapJson(maxControlPayloadBytesByKey)).put("oversize_control_key_counts",mapJson(oversizeControlKeyCounts)).put("last_oversize_control_key",lastOversizeControlKey?:JSONObject.NULL).put("last_oversize_sha256",lastOversizeSha256?:JSONObject.NULL)
+    .put("wire_send_error_count",sendErrorCount.get()).put("wire_last_send_error",lastSendError?:JSONObject.NULL).put("network_recovery_attempt_count",networkRecoveryAttemptCount.get()).put("network_recovery_success_count",networkRecoverySuccessCount.get()).put("network_recovery_failure_count",networkRecoveryFailureCount.get()).put("last_network_recovery_error",lastNetworkRecoveryError?:JSONObject.NULL).put("wire_receive_error_count",receiveErrorCount.get()).put("wire_last_receive_error",lastReceiveError?:JSONObject.NULL)
     .put("tx_frames",txFrames.get()).put("rx_frames",rxFrames.get()).put("tx_frames_by_type",mapJson(txFramesByType)).put("rx_frames_by_type",mapJson(rxFramesByType)).put("tx_bytes_by_type",mapJson(txBytesByType)).put("rx_bytes_by_type",mapJson(rxBytesByType))
     .put("artifact_peer_state_v1",artifactPeerStateJson()).put("artifact_receiver_state_v1",artifactReceiverStateJson()).put("artifact_transfer_started",artifactStarted.get()).put("artifact_transfer_completed",artifactCompleted.get()).put("artifact_transfer_failed",artifactFailed.get()).put("artifact_reassembly_pending",assemblies.size)
     .put("artifact_ack_tx",artifactAckTx.get()).put("artifact_ack_rx",artifactAckRx.get()).put("artifact_nack_tx",artifactNackTx.get()).put("artifact_nack_rx",artifactNackRx.get()).put("artifact_retransmit_chunks",artifactRetransmitChunks.get()).put("artifact_dedup_chunks",artifactDedupChunks.get())
@@ -1019,7 +1025,7 @@ class BodyFinderNativeModule : Module() {
     }
     Function("exportPreRunDiagnosticJson") { contextJson: String ->
       val ctx=appContext.reactContext?:return@Function "{}";val supplied=try{JSONObject(contextJson)}catch(_:Throwable){JSONObject()};val beforeRun=ValidationRuntime.runId;val beforeEnded=ValidationRuntime.endedWallMs
-      supplied.put("evidence_class","PRE_RUN_DIAGNOSTIC_V1").put("acceptance_eligible",false).put("run_started",beforeRun!=null&&beforeEnded==null).put("report_version",33).put("snapshot_schema_version",16).put("wire_transport_telemetry",WireTransportV10.telemetry()).put("native_diagnostics",diagnostics(ctx))
+      supplied.put("evidence_class","PRE_RUN_DIAGNOSTIC_V1").put("acceptance_eligible",false).put("run_started",beforeRun!=null&&beforeEnded==null).put("report_version",34).put("snapshot_schema_version",16).put("wire_transport_telemetry",WireTransportV10.telemetry()).put("native_diagnostics",diagnostics(ctx))
       supplied.put("diagnostic_read_only",beforeRun==ValidationRuntime.runId&&beforeEnded==ValidationRuntime.endedWallMs).toString(2)
     }
     Function("getWifiRssi") {
@@ -2366,8 +2372,10 @@ class BodyFinderNativeModule : Module() {
     val usableMetricReady = metricReadyCount(now)
     ValidationRuntime.observe(now, FabricRuntime.peers.size, evidenceReady, freshMetricReady, usableMetricReady)
     return JSONObject()
+      .put("local_instance_epoch_source", "FabricRuntime.instanceEpoch")
+      .put("local_instance_epoch", FabricRuntime.instanceEpoch)
       .put("diagnostic_contract", JSONObject()
-        .put("schema", "dev20.10-self-contained-json-evidence-v13")
+        .put("schema", "dev20.14-self-contained-json-evidence-v17")
         .put("screenshots_required", false)
         .put("json_self_contained", true)
         .put("contains_runtime_preflight", true)
@@ -2375,7 +2383,7 @@ class BodyFinderNativeModule : Module() {
         .put("contains_recovery_causality", true)
         .put("contains_frozen_geometry", true))
       .put("validation_preflight", validationPreflight(ctx, now).put("runtime_live", true).put("not_acceptance_evidence", true))
-      .put("evidence_contract", JSONObject().put("schema", "dev20.10-self-contained-json-evidence-v13").put("screenshots_required", false).put("json_self_contained", true))
+      .put("evidence_contract", JSONObject().put("schema", "dev20.14-self-contained-json-evidence-v17").put("screenshots_required", false).put("json_self_contained", true))
       .put("ble_diagnostics", bleDiagnostics(ctx, now))
       .put("fabric_diagnostics", fabricDiagnostics(now))
       .put("lifecycle_diagnostics", lifecycleDiagnostics(ctx))
@@ -2429,6 +2437,7 @@ class BodyFinderNativeModule : Module() {
     put("protocol_version", PROTOCOL)
     put("session_id", FabricRuntime.sessionId)
     put("node_id", FabricRuntime.nodeId)
+    put("instance_epoch", FabricRuntime.instanceEpoch)
     put("display_name", FabricRuntime.displayName)
     put("platform", "android")
     put("monotonic_ns", SystemClock.elapsedRealtimeNanos())
@@ -2577,6 +2586,7 @@ class BodyFinderNativeModule : Module() {
             try { SystemRangingApi36.refresh(ctx, desiredSystemRangingPeers()) } catch (_: Throwable) {}
             nextSystemRangingRefresh = now + 1_000L
           }
+          val networkError=WireTransportV10.lastSendError.orEmpty();if(networkError.contains("ENETUNREACH",ignoreCase=true)||networkError.contains("Network is unreachable",ignoreCase=true)){WireTransportV10.networkRecoveryAttemptCount.incrementAndGet();try{try{socket.leaveGroup(groupAddress)}catch(_:Throwable){};socket.joinGroup(groupAddress);FabricRuntime.multicastJoinState="REJOINED_AFTER_ENETUNREACH";WireTransportV10.networkRecoverySuccessCount.incrementAndGet();WireTransportV10.lastNetworkRecoveryError=null;WireTransportV10.lastSendError=null}catch(t:Throwable){WireTransportV10.networkRecoveryFailureCount.incrementAndGet();WireTransportV10.lastNetworkRecoveryError="${t.javaClass.simpleName}:${t.message}"}}
           if (now >= nextSend) {
             val ad = advertisement(ctx)
             try {

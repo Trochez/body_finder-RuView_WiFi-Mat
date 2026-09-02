@@ -1,0 +1,16 @@
+{
+  "authority_ack_wire_v2_frame_bytes": 522,
+  "authority_ack_wire_v2_payload_bytes": 338,
+  "authority_wire_v2_frame_bytes": 477,
+  "authority_wire_v2_payload_bytes": 293,
+  "budgets": {
+    "control_frame_target_bytes": 900,
+    "critical_control_payload_target_bytes": 600,
+    "max_datagram_bytes": 1200
+  },
+  "dev20_13_equivalent_full_view_payload_bytes": 703,
+  "gate": "R2",
+  "pass": true,
+  "release": "dev-20.14",
+  "required_control_oversize_expected": 0
+}
