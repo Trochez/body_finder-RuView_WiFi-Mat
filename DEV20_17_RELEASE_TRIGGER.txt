@@ -1,5 +1,5 @@
 dev-20.17 gated release trigger
 baseline=8adebe0d8e26117ebd8b71f0ba8b4c10a96e8d3a
 requested_at=2026-09-02T04:25:00-05:00
-attempt=2
-fix=runtime-critical-registry-control-fatal
+attempt=3
+fix=acquisition-no-regression-owner-path
