@@ -1,0 +1,88 @@
+name: dev20.15 engineering
+
+on:
+  push:
+    branches: [implementation/dev20.15]
+    paths: [DEV20_15_ENGINEERING_TRIGGER.txt]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: dev20-15-engineering
+  cancel-in-progress: true
+
+jobs:
+  implement-and-gate:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: implementation/dev20.15
+          fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with: {python-version: '3.12'}
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: apps/mobile/package-lock.json
+      - uses: actions/setup-java@v5
+        with: {distribution: temurin, java-version: '17'}
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: gradle/actions/setup-gradle@v4
+        with: {gradle-version: '8.10.2'}
+
+      - name: Apply dev20.15 remediation
+        run: python3 scripts/implement_dev20_15.py
+
+      - name: R0-R7 protocol/evidence gates
+        run: |
+          set -euxo pipefail
+          python3 -m py_compile scripts/implement_dev20_15.py validation/analysis/test_dev20_15_remediation.py validation/analysis/validate_dev20_15_g10.py
+          python3 validation/analysis/test_dev20_15_remediation.py
+          grep -q "CalibrationMetaWireV2" apps/mobile/src/humanPresence.ts
+          grep -q "CalibrationAckWireV2" apps/mobile/src/humanPresence.ts
+          grep -q "DecisionMetaWireV2" apps/mobile/src/humanPresence.ts
+          grep -q "DUPLICATE_CALIBRATION_START_IDEMPOTENT" apps/mobile/src/humanPresence.ts
+          grep -q "0.2.0-experimental.20.15" apps/mobile/src/version.ts
+          grep -q "versionCode 35" apps/android-legacy/app/build.gradle
+          python3 - <<'PY'
+          import json,pathlib
+          for p in pathlib.Path('validation/schemas').glob('*.json'): json.loads(p.read_text())
+          w=json.loads(pathlib.Path('validation/reports/critical-control-wire-budget-report.json').read_text())
+          assert w['pass']; assert all(x['payload_bytes']<600 and x['frame_bytes']<900 and x['datagram_bytes']<1200 for x in w['measurements'].values())
+          g=json.loads(pathlib.Path('validation/reports/g10-dev20.15.json').read_text())
+          assert g['g10']=='PHYSICAL_PENDING' and not g['g10_go'] and g['g11']=='BLOCKED' and g['dev21']=='BLOCKED'
+          PY
+          git diff --check
+
+      - name: Rust non-regression
+        run: |
+          cargo fmt --all -- --check
+          cargo test --workspace --all-targets
+
+      - name: TypeScript gate
+        working-directory: apps/mobile
+        run: |
+          npm ci --no-audit --no-fund
+          npm run typecheck
+
+      - name: Android native compile/unit gate
+        working-directory: apps/mobile
+        run: |
+          CI=1 npx expo prebuild --platform android --clean
+          chmod +x android/gradlew
+          ./android/gradlew -p android testReleaseUnitTest --stacktrace
+
+      - name: Commit verified implementation
+        run: |
+          set -euxo pipefail
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git add -A
+          if ! git diff --cached --quiet; then
+            git commit -m "feat(dev20.15): compact calibration control and harden lifecycle"
+            git push origin HEAD:implementation/dev20.15
+          fi
