@@ -1,0 +1,47 @@
+name: dev20.15 final hardening
+on:
+  push:
+    branches: [main]
+    paths: [DEV20_15_FINAL_HARDENING_TRIGGER.txt]
+permissions:
+  contents: write
+jobs:
+  harden:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+        with: {fetch-depth: 0}
+      - uses: actions/setup-node@v4
+        with: {node-version: '22'}
+      - uses: actions/setup-java@v5
+        with: {distribution: temurin, java-version: '17'}
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: gradle/actions/setup-gradle@v4
+        with: {gradle-version: '8.10.2'}
+      - name: Apply final wire hardening
+        run: python3 scripts/harden_dev20_15_wire.py
+      - name: Wire semantics and byte gates
+        run: |
+          python3 validation/analysis/test_dev20_15_remediation.py
+          grep -q "rawDp?.schema==='DecisionMetaWireV2'" apps/mobile/src/humanPresence.ts
+          grep -q "Number(dp.g)===cal.generation" apps/mobile/src/humanPresence.ts
+          python3 - <<'PY'
+          import json,pathlib
+          w=json.loads(pathlib.Path('validation/reports/critical-control-wire-budget-report.json').read_text())
+          assert w['pass'] and w['measurements']['calibration_meta_v10']['payload_bytes']<=500 and w['measurements']['decision_meta_v10']['payload_bytes']<=500
+          assert json.loads(pathlib.Path('validation/reports/decision-wire-compatibility-report.json').read_text())['pass']
+          PY
+          cargo test --workspace --all-targets
+      - name: Mobile typecheck
+        working-directory: apps/mobile
+        run: npm ci --no-audit --no-fund && npm run typecheck
+      - name: Android native compile/unit
+        working-directory: apps/mobile
+        run: CI=1 npx expo prebuild --platform android --clean && chmod +x android/gradlew && ./android/gradlew -p android testReleaseUnitTest --stacktrace
+      - name: Commit final hardened implementation
+        run: |
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git add -A
+          git diff --cached --quiet || git commit -m "fix(dev20.15): decode compact decisions and exceed wire headroom target"
+          git push origin HEAD:main
