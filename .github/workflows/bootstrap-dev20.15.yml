@@ -23,11 +23,14 @@ jobs:
       - uses: gradle/actions/setup-gradle@v4
         with: {gradle-version: '8.10.2'}
       - name: Apply remediation
-        run: python3 scripts/implement_dev20_15.py
+        run: |
+          python3 scripts/implement_dev20_15.py
+          python3 scripts/dev20_15_post_patch.py
       - name: Protocol/evidence gates
         run: |
-          python3 -m py_compile scripts/implement_dev20_15.py validation/analysis/test_dev20_15_remediation.py validation/analysis/validate_dev20_15_g10.py
+          python3 -m py_compile scripts/implement_dev20_15.py scripts/dev20_15_post_patch.py validation/analysis/test_dev20_15_remediation.py validation/analysis/validate_dev20_15_g10.py
           python3 validation/analysis/test_dev20_15_remediation.py
+          grep -q "schema:'CalibrationAckWireV2',s:sid" apps/mobile/src/humanPresence.ts
           git diff --check
       - name: Rust regression
         run: cargo test --workspace --all-targets
