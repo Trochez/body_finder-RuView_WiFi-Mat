@@ -1,0 +1,45 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "authority-ack-wire-v2-schema.json",
+  "title": "AuthorityAckWireV2",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema",
+    "s",
+    "n",
+    "e",
+    "g",
+    "b",
+    "d"
+  ],
+  "properties": {
+    "schema": {
+      "const": "AuthorityAckWireV2"
+    },
+    "s": {
+      "type": "string",
+      "minLength": 1
+    },
+    "n": {
+      "type": "string",
+      "minLength": 1
+    },
+    "e": {
+      "type": "string",
+      "minLength": 1
+    },
+    "g": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "b": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    },
+    "d": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    }
+  }
+}

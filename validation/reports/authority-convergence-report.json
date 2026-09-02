@@ -1,9 +1,14 @@
 {
-  "build": "0.2.0-experimental.20.13",
-  "randomized_staggered_trials": 100,
-  "release": "dev-20.13",
-  "schema_version": 16,
-  "source_sha": "GENERATED_AT_RELEASE",
-  "stable_split_brain_cases": 0,
-  "status": "PASS"
+  "exact_ack_binding": true,
+  "gate": "R3",
+  "pass": true,
+  "randomized_trials": 100,
+  "release": "dev-20.14",
+  "same_authority_view_digest": true,
+  "same_base_digest": true,
+  "same_coordinator": true,
+  "same_generation": true,
+  "simulated_authority_consensus": "3/3",
+  "stale_foreign_ack_rejected": true,
+  "startup_permutations": 6
 }

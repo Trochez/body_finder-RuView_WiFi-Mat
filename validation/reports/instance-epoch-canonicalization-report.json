@@ -1,0 +1,14 @@
+{
+  "cohort_tuple": [
+    "node_id",
+    "instance_epoch"
+  ],
+  "gate": "R1",
+  "legacy_live_epoch_allowed": false,
+  "pass": true,
+  "randomized_startup_trials": 100,
+  "release": "dev-20.14",
+  "restart_generation_transition": "1->2",
+  "source": "FabricRuntime.instanceEpoch",
+  "startup_permutations": 6
+}

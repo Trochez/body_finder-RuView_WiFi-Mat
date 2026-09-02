@@ -1,0 +1,40 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "authority-wire-v2-schema.json",
+  "title": "AuthorityWireV2",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema",
+    "s",
+    "e",
+    "g",
+    "b",
+    "d"
+  ],
+  "properties": {
+    "schema": {
+      "const": "AuthorityWireV2"
+    },
+    "s": {
+      "type": "string",
+      "minLength": 1
+    },
+    "e": {
+      "type": "string",
+      "minLength": 1
+    },
+    "g": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "b": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    },
+    "d": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    }
+  }
+}

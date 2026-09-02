@@ -1,0 +1,10 @@
+{
+  "dev21": "BLOCKED",
+  "g10": "PHYSICAL_PENDING",
+  "g10_go": false,
+  "g11": "BLOCKED",
+  "observed_acceptance_jsons": 0,
+  "release": "dev-20.14",
+  "required_acceptance_jsons": 6,
+  "screenshots_required": false
+}
