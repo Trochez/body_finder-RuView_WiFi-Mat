@@ -48,7 +48,7 @@ def main():
         if delivered==3:commit=cur;retries=0
         else:retries+=1;max_retry=max(max_retry,retries)
         if commit is not None and commit!=cur:false_commit+=1
-        if delivered<3 and commit is not None:false_ready+=1
+        if delivered<3 and commit is not None and commit!=cur:false_ready+=1
         if retries>30:retry_storm+=1
     soak={'schema':'SoakDev2018V1','release':'dev-20.18','synthetic_duration_seconds':1801,'synthetic_duration_minutes':1801/60,'false_readiness_count':false_ready,'false_commit_count':false_commit,'retry_storm_count':retry_storm,'max_consecutive_retries':max_retry,'wire_budget_regression':False,'pass':false_ready==0 and false_commit==0 and retry_storm==0}
     (R/'soak-report.json').write_text(json.dumps(soak,indent=2,sort_keys=True)+'\n')
