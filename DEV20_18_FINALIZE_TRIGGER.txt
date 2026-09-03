@@ -1,0 +1,4 @@
+dev-20.18 corrected finalizer trigger
+source=release/dev-20.18
+legacy_builder=apps/android-legacy
+created=2026-09-03
