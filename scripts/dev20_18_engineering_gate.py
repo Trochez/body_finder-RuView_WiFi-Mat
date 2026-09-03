@@ -22,7 +22,8 @@ def source_gate():
     for x in ['pinnedCohortDigest','COHORT_OR_INSTANCE_EPOCH_CHANGED','authority_pin_state','pin_history']:must(x in au,f'missing authority lifecycle marker {x}')
     must("String(cal?.state)!=='READY'&&String(cal?.state)!=='STALE_AUTHORITY'" not in cc,'STALE_AUTHORITY still eligible for local READY')
     for x in ['startContextDigest','bindStartContext','RUN_BINDING_CHANGED','invalidation_history','startGeneration']:must(x in cc,f'missing RunStart lifecycle marker {x}')
-    must('MAX_DATAGRAM_BYTES=1200' in kt and 'CONTROL_FRAME_TARGET_BYTES=900' in kt and 'COMPACT_CONTROL_PAYLOAD_TARGET_BYTES=600' in kt,'hard wire budgets changed')
+    compact=''.join(kt.split())
+    must('MAX_DATAGRAM_BYTES=1200' in compact and 'CONTROL_FRAME_TARGET_BYTES=900' in compact and 'COMPACT_CONTROL_PAYLOAD_TARGET_BYTES=600' in compact,'hard wire budgets changed')
     return hp,au,cc,kt
 
 def context_gate():
