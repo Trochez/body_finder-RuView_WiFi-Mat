@@ -1,14 +1,12 @@
 {
-  "acquisition_regression": false,
-  "calibration_regression": false,
-  "clock": "DETERMINISTIC_VIRTUAL",
-  "cycles": 1800,
-  "deterministic_oversize_count": 0,
-  "duration_ms": 1800000,
   "false_commit_count": 0,
+  "false_readiness_count": 0,
+  "max_consecutive_retries": 3,
   "pass": true,
-  "release": "dev-20.17",
+  "release": "dev-20.18",
   "retry_storm_count": 0,
-  "schema": "SyntheticSoakDev2017V2",
-  "telemetry_unbounded": false
+  "schema": "SoakDev2018V1",
+  "synthetic_duration_minutes": 30.016666666666666,
+  "synthetic_duration_seconds": 1801,
+  "wire_budget_regression": false
 }

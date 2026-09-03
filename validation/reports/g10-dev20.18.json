@@ -1,0 +1,13 @@
+{
+  "dev21": "BLOCKED",
+  "engineering_go": false,
+  "final_go": false,
+  "g10": "PHYSICAL_PENDING",
+  "g10_go": false,
+  "g11": "BLOCKED",
+  "physical_evidence_count": 0,
+  "release": "dev-20.18",
+  "required_physical_evidence_count": 6,
+  "schema": "G10Dev2018GateV1",
+  "screenshots_required": false
+}

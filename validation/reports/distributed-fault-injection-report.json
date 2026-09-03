@@ -1,155 +1,81 @@
 {
-  "cases": [
+  "loss_cases": [
     {
-      "attempts": 3,
-      "committed": true,
-      "critical_failures": 0,
-      "duplicate": false,
-      "false_commit": false,
-      "loss_percent": 0,
-      "oversize": 0,
-      "ready_count": 3,
-      "ready_nodes": [
-        "12345678-1234-1234-1234-123456789abc",
-        "22345678-1234-1234-1234-123456789abc",
-        "32345678-1234-1234-1234-123456789abc"
-      ],
-      "reorder": false,
-      "restart": "none",
-      "same_campaign_run_token": true
-    },
-    {
-      "attempts": 3,
-      "committed": true,
-      "critical_failures": 0,
-      "duplicate": false,
-      "false_commit": false,
+      "duplicates": 335,
+      "false_commit_count": 0,
+      "final_commit_current": true,
       "loss_percent": 1,
-      "oversize": 0,
-      "ready_count": 3,
-      "ready_nodes": [
-        "12345678-1234-1234-1234-123456789abc",
-        "22345678-1234-1234-1234-123456789abc",
-        "32345678-1234-1234-1234-123456789abc"
-      ],
-      "reorder": false,
-      "restart": "none",
-      "same_campaign_run_token": true
+      "pass": true,
+      "reorder_events": 174,
+      "stale_rejected": 416
     },
     {
-      "attempts": 3,
-      "committed": true,
-      "critical_failures": 0,
-      "duplicate": false,
-      "false_commit": false,
+      "duplicates": 297,
+      "false_commit_count": 0,
+      "final_commit_current": true,
       "loss_percent": 5,
-      "oversize": 0,
-      "ready_count": 3,
-      "ready_nodes": [
-        "12345678-1234-1234-1234-123456789abc",
-        "22345678-1234-1234-1234-123456789abc",
-        "32345678-1234-1234-1234-123456789abc"
-      ],
-      "reorder": false,
-      "restart": "none",
-      "same_campaign_run_token": true
+      "pass": true,
+      "reorder_events": 154,
+      "stale_rejected": 342
     },
     {
-      "attempts": 3,
-      "committed": true,
-      "critical_failures": 0,
-      "duplicate": false,
-      "false_commit": false,
+      "duplicates": 271,
+      "false_commit_count": 0,
+      "final_commit_current": true,
       "loss_percent": 10,
-      "oversize": 0,
-      "ready_count": 3,
-      "ready_nodes": [
-        "12345678-1234-1234-1234-123456789abc",
-        "22345678-1234-1234-1234-123456789abc",
-        "32345678-1234-1234-1234-123456789abc"
-      ],
-      "reorder": false,
-      "restart": "none",
-      "same_campaign_run_token": true
-    },
-    {
-      "attempts": 3,
-      "committed": true,
-      "critical_failures": 0,
-      "duplicate": false,
-      "false_commit": false,
-      "loss_percent": 5,
-      "oversize": 0,
-      "ready_count": 3,
-      "ready_nodes": [
-        "12345678-1234-1234-1234-123456789abc",
-        "22345678-1234-1234-1234-123456789abc",
-        "32345678-1234-1234-1234-123456789abc"
-      ],
-      "reorder": true,
-      "restart": "none",
-      "same_campaign_run_token": true
-    },
-    {
-      "attempts": 3,
-      "committed": true,
-      "critical_failures": 0,
-      "duplicate": true,
-      "false_commit": false,
-      "loss_percent": 5,
-      "oversize": 0,
-      "ready_count": 3,
-      "ready_nodes": [
-        "12345678-1234-1234-1234-123456789abc",
-        "22345678-1234-1234-1234-123456789abc",
-        "32345678-1234-1234-1234-123456789abc"
-      ],
-      "reorder": false,
-      "restart": "none",
-      "same_campaign_run_token": true
-    },
-    {
-      "attempts": 3,
-      "committed": true,
-      "critical_failures": 0,
-      "duplicate": false,
-      "false_commit": false,
-      "loss_percent": 5,
-      "oversize": 0,
-      "ready_count": 3,
-      "ready_nodes": [
-        "12345678-1234-1234-1234-123456789abc",
-        "22345678-1234-1234-1234-123456789abc",
-        "32345678-1234-1234-1234-123456789abc"
-      ],
-      "reorder": false,
-      "restart": "peer",
-      "same_campaign_run_token": true
-    },
-    {
-      "attempts": 3,
-      "committed": true,
-      "critical_failures": 0,
-      "duplicate": false,
-      "false_commit": false,
-      "loss_percent": 5,
-      "oversize": 0,
-      "ready_count": 3,
-      "ready_nodes": [
-        "12345678-1234-1234-1234-123456789abc",
-        "22345678-1234-1234-1234-123456789abc",
-        "32345678-1234-1234-1234-123456789abc"
-      ],
-      "reorder": false,
-      "restart": "coordinator",
-      "same_campaign_run_token": true
+      "pass": true,
+      "reorder_events": 178,
+      "stale_rejected": 382
     }
   ],
-  "delayed_control_fail_closed_until_3_of_3": true,
-  "generation_change_fail_closed": true,
-  "no_unilateral_end": true,
-  "no_unilateral_start": true,
   "pass": true,
-  "release": "dev-20.17",
-  "schema": "DistributedFaultInjectionDev2017V2"
+  "release": "dev-20.18",
+  "schema": "DistributedFaultInjectionDev2018V1",
+  "special_cases": {
+    "cache_eviction_pressure": {
+      "false_commit": false,
+      "false_ready": false,
+      "result": "PASS_FAIL_CLOSED"
+    },
+    "coordinator_restart": {
+      "false_commit": false,
+      "false_ready": false,
+      "result": "PASS_FAIL_CLOSED"
+    },
+    "delayed_stale_generation": {
+      "false_commit": false,
+      "false_ready": false,
+      "result": "PASS_FAIL_CLOSED"
+    },
+    "duplicate_frames_chunks_acks": {
+      "false_commit": false,
+      "false_ready": false,
+      "result": "PASS_FAIL_CLOSED"
+    },
+    "partial_artifact_superseded": {
+      "false_commit": false,
+      "false_ready": false,
+      "result": "PASS_FAIL_CLOSED"
+    },
+    "peer_restart_instance_epoch": {
+      "false_commit": false,
+      "false_ready": false,
+      "result": "PASS_FAIL_CLOSED"
+    },
+    "reorder": {
+      "false_commit": false,
+      "false_ready": false,
+      "result": "PASS_FAIL_CLOSED"
+    },
+    "stale_R2C_replay": {
+      "false_commit": false,
+      "false_ready": false,
+      "result": "PASS_FAIL_CLOSED"
+    },
+    "transient_ble_udp_gap": {
+      "false_commit": false,
+      "false_ready": false,
+      "result": "PASS_FAIL_CLOSED"
+    }
+  }
 }

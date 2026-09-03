@@ -1,0 +1,9 @@
+{
+  "exact_3_of_3_preserved": true,
+  "pass": true,
+  "release": "dev-20.18",
+  "requires_current_run_binding": true,
+  "requires_current_start_commit": true,
+  "run_binding_change_invalidates_freeze": true,
+  "schema": "FreezeBindingReportV1"
+}

@@ -1,0 +1,18 @@
+{
+  "all_incompatible_changes_invalidate": true,
+  "base_binding_digest": "7a724e426f009e6ed2a28834cbb5d2ead8ba00e6964b3851405086447f8d616c",
+  "matrix": {
+    "authority_view_digest": true,
+    "calibration_generation": true,
+    "calibration_hash": true,
+    "calibration_id": true,
+    "cohort_instance_epoch": true,
+    "cohort_node_set": true,
+    "coordinator_generation": true,
+    "scenario_digest_generation": true,
+    "topology_hash": true
+  },
+  "pass": true,
+  "release": "dev-20.18",
+  "schema": "RunStartInvalidationReportV1"
+}

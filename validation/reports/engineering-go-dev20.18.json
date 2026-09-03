@@ -1,0 +1,21 @@
+{
+  "baseline_sha": "84dae8257079cf4b83d9f34493a2aeb052b9ece3",
+  "engineering_go": false,
+  "final_go": false,
+  "g10": "PHYSICAL_PENDING",
+  "gates": {
+    "G0_reproduction": "PASS",
+    "G1_artifact_ownership": "PASS",
+    "G2_calibration_binding": "PASS",
+    "G3_authority_lifecycle": "PASS",
+    "G4_runstart_lifecycle": "PASS",
+    "G5_freeze_lifecycle": "PASS",
+    "G6_wire_contract": "PASS",
+    "G7_fault_soak": "PASS",
+    "G8_validator": "PASS",
+    "G9_build_release": "CORE_CI_PASS_RELEASE_BUILD_PENDING"
+  },
+  "physical_test_ready": false,
+  "release": "dev-20.18",
+  "schema": "EngineeringGoDev2018V1"
+}

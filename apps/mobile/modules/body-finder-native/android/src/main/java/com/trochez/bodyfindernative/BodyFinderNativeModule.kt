@@ -692,6 +692,7 @@ private object WireTransportV10 {
     while(artifactCache.size>MAX_ARTIFACT_CACHE){val it=artifactCache.entries.iterator();if(it.hasNext()){it.next();it.remove();artifactCacheEvictions.incrementAndGet()}else break}
   }
   @Synchronized private fun cachedArtifact(id:String):CachedArtifact?=artifactCache[id]
+  @Synchronized fun verifiedArtifactJson(id:String):String?{val a=artifactCache[id]?:return null;return JSONObject().put("artifact_id",id).put("artifact_sha256",a.sha).put("complete",true).put("source_node_id",a.sourceNode).put("source_generation",a.generation).put("artifact_type",a.artifactType).put("payload",JSONObject(a.payload.toString())).toString()}
   @Synchronized private fun putOutbound(value:OutboundArtifact){
     outbound[value.artifactId]=value
     while(outbound.size>MAX_OUTBOUND){val it=outbound.entries.iterator();if(it.hasNext()){it.next();it.remove();artifactOutboundEvictions.incrementAndGet()}else break}
@@ -1159,6 +1160,9 @@ class BodyFinderNativeModule : Module() {
     }
     Function("getCalibrationSnapshotJson") {
       calibrationSnapshot().toString()
+    }
+    Function("getVerifiedArtifactJson") { artifactId: String ->
+      WireTransportV10.verifiedArtifactJson(artifactId)
     }
     AsyncFunction("startFabric") { nodeId: String?, displayName: String?, sessionId: String? ->
       val ctx = appContext.reactContext ?: return@AsyncFunction false

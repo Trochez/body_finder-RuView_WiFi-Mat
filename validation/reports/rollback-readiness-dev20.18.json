@@ -1,0 +1,12 @@
+{
+  "baseline_release": "dev-20.17",
+  "baseline_sha": "84dae8257079cf4b83d9f34493a2aeb052b9ece3",
+  "budgets_unchanged": true,
+  "detector_rf_geometry_retuned": false,
+  "pass": true,
+  "quorum_unchanged": "3/3",
+  "ready": true,
+  "release": "dev-20.18",
+  "rollback_isolated_control_state": true,
+  "schema": "RollbackReadinessDev2018V1"
+}

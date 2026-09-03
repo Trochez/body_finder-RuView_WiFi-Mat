@@ -1,0 +1,10 @@
+{
+  "cohort_membership_change_invalidates": true,
+  "instance_epoch_replacement_invalidates": true,
+  "pass": true,
+  "pin_history_exported": true,
+  "pin_revalidated_against_current_cohort": true,
+  "release": "dev-20.18",
+  "schema": "AuthorityPinLifecycleReportV1",
+  "stale_commit_cannot_pin_changed_cohort": true
+}

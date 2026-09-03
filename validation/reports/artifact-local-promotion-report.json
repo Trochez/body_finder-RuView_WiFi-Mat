@@ -1,0 +1,12 @@
+{
+  "advertised_sha_required": true,
+  "artifact_before_meta_supported": true,
+  "canonical_sha_revalidated": true,
+  "complete_required": true,
+  "meta_before_artifact_supported": true,
+  "native_verified_store_api": true,
+  "pass": true,
+  "release": "dev-20.18",
+  "remote_advertisement_payload_not_authoritative": true,
+  "schema": "ArtifactLocalPromotionReportV1"
+}

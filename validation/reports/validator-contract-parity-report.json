@@ -1,21 +1,9 @@
 {
-  "g10_expected_json_count": 6,
-  "hard_requirements": [
-    "critical_control_failure_count=0",
-    "oversize_control_key_counts empty",
-    "RunStart READY=3/3",
-    "RunStart COMMIT=true",
-    "same campaign_run_token=3/3",
-    "Freeze READY=3/3",
-    "Freeze COMMIT=true",
-    "Authority ACK=3/3",
-    "Scenario ACK=3/3",
-    "Calibration ACK=3/3 symmetric",
-    "duration>=330000ms"
-  ],
-  "mutation_missing_critical_field_fails": true,
+  "dev20_17_stale_calibration_fixture": "REJECTED",
+  "non_six_g10": "REJECTED",
   "pass": true,
-  "pre_run_expected_json_count": 3,
-  "release": "dev-20.17",
-  "schema": "ValidatorContractParityDev2017V2"
+  "positive_current_prerun": "PASS",
+  "release": "dev-20.18",
+  "schema": "ValidatorContractParityDev2018V1",
+  "screenshots_required": false
 }

@@ -1,0 +1,11 @@
+{
+  "android_native_unit": "PASS",
+  "legacy_build": "PENDING_CI",
+  "native_verified_artifact_api": "SOURCE_VERIFIED",
+  "pass": false,
+  "release": "dev-20.18",
+  "rust_workspace": "PASS",
+  "schema": "AndroidRuntimeRegressionDev2018V1",
+  "typescript": "PASS",
+  "universal_build": "PENDING_CI"
+}

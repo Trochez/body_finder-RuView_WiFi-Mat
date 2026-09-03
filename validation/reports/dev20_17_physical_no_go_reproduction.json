@@ -1,0 +1,42 @@
+{
+  "baseline_release": "dev-20.17",
+  "baseline_sha": "84dae8257079cf4b83d9f34493a2aeb052b9ece3",
+  "pass": true,
+  "physical_observation": {
+    "artifact_transfer_failed": 0,
+    "coordinator_calibration_generation": 6,
+    "coordinator_peer_ack_count": 1,
+    "critical_control_failure_count": 0,
+    "distributed_calibration_ready": false,
+    "local_ready": [
+      null,
+      null,
+      null
+    ],
+    "peer_calibration_generations": [
+      1,
+      1
+    ],
+    "peer_states": [
+      "STALE_AUTHORITY",
+      "STALE_AUTHORITY"
+    ],
+    "ready_count": [
+      2,
+      2,
+      2
+    ],
+    "stale_runstart_calibration_generation": 1,
+    "stale_runstart_generation": 8,
+    "wire_oversize_block_count": 0
+  },
+  "release": "dev-20.18",
+  "schema": "Dev2017PhysicalNoGoReproductionV1",
+  "screenshots_required": false,
+  "source_defects_reproduced": {
+    "commit_blocks_authority_invalidation": true,
+    "permanent_authority_pin": true,
+    "remote_artifact_ownership": true,
+    "stale_authority_local_ready": true
+  }
+}

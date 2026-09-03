@@ -1,0 +1,18 @@
+{
+  "distributed_ready_requires_ready_and_exact_3_of_3": true,
+  "exact_fields": [
+    "session_id",
+    "coordinator_id",
+    "coordinator_generation",
+    "calibration_generation",
+    "calibration_id",
+    "calibration_hash",
+    "topology_hash",
+    "authority_digest"
+  ],
+  "historical_ack_cannot_count": true,
+  "pass": true,
+  "release": "dev-20.18",
+  "schema": "CalibrationCurrentBindingReportV1",
+  "stale_authority_ready_forbidden": true
+}
