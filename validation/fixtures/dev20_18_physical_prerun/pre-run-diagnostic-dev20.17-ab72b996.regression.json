@@ -1,0 +1,32 @@
+{
+  "fixture_scope": "REGRESSION_EXTRACT_FROM_PHYSICAL_PRE_RUN_JSON",
+  "source_filename": "pre-run-diagnostic-dev20.17-ab72b996 (1).json",
+  "release": "dev-20.17",
+  "build": "0.2.0-experimental.20.18",
+  "evidence_schema": "v19",
+  "node_id": "8f3944a2-53e7-4e6d-a314-92fcab72b996",
+  "role": "COORDINATOR",
+  "authority_ack_count": 3,
+  "geometry_state": "GEOMETRY_2D",
+  "calibration_state": "READY",
+  "calibration_generation": 2,
+  "current_calibration_ack_count": 1,
+  "local_artifact_promoted": true,
+  "distributed_calibration_ready": false,
+  "scenario_ack_count": 0,
+  "run_start_ready_count": 0,
+  "critical_control_failure_count": 167,
+  "critical_control_send_failure": {"calibration_meta_v10": 167},
+  "first_critical_control_failure_key": "calibration_meta_v10",
+  "first_critical_control_failure_size": 602,
+  "last_critical_control_failure_key": "calibration_meta_v10",
+  "last_critical_control_failure_size": 604,
+  "last_critical_control_failure_error": "CRITICAL_CONTROL_PAYLOAD_OVER_600",
+  "critical_control_failure_by_generation": {
+    "calibration_meta_v10:g1": 100,
+    "calibration_meta_v10:g2": 67
+  },
+  "max_control_payload_bytes_by_key": {"calibration_meta_v10": 604},
+  "max_datagram_bytes_observed": 1093,
+  "required_frame_oversize_count": 0
+}
