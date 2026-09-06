@@ -1,0 +1,78 @@
+name: dev20.18 Android runtime smoke
+
+on:
+  push:
+    branches: [release/dev-20.18]
+    paths:
+      - '.github/workflows/dev20.18-runtime-smoke.yml'
+      - 'DEV20_18_RUNTIME_SMOKE_TRIGGER.txt'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  android-launch-smoke:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: release/dev-20.18
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: apps/mobile/package-lock.json
+      - uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.10.2'
+      - name: Build exact release APK
+        working-directory: apps/mobile
+        run: |
+          set -euxo pipefail
+          npm ci --no-audit --no-fund
+          CI=1 npx expo prebuild --platform android --clean
+          chmod +x android/gradlew
+          ./android/gradlew -p android assembleRelease --stacktrace
+      - name: Enable KVM
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+      - name: Launch APK and require process survival
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 35
+          arch: x86_64
+          profile: pixel_6
+          disable-animations: true
+          script: |
+            set -euxo pipefail
+            APK=apps/mobile/android/app/build/outputs/apk/release/app-release.apk
+            adb install -r "$APK"
+            adb logcat -c
+            adb shell monkey -p com.trochez.bodyfinderruview -c android.intent.category.LAUNCHER 1 || true
+            sleep 10
+            adb logcat -d > runtime-smoke-logcat.txt
+            PID="$(adb shell pidof com.trochez.bodyfinderruview | tr -d '\r' || true)"
+            echo "APP_PID=$PID"
+            if [ -z "$PID" ]; then
+              echo 'DEV20_18_RUNTIME_SMOKE=FAIL_PROCESS_DIED'
+              grep -n -E 'FATAL EXCEPTION|AndroidRuntime|ReactNativeJS|Process: com.trochez.bodyfinderruview|Unable to start activity|Caused by:' runtime-smoke-logcat.txt | tail -n 200 || true
+              exit 1
+            fi
+            adb shell dumpsys activity activities | grep -E 'mResumedActivity|topResumedActivity|com.trochez.bodyfinderruview' | head -n 20 || true
+            echo 'DEV20_18_RUNTIME_SMOKE=PASS_PROCESS_ALIVE_AFTER_10S'
+      - name: Upload runtime logcat
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: dev20-18-runtime-smoke-logcat
+          path: runtime-smoke-logcat.txt
+          if-no-files-found: warn
