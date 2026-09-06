@@ -43,9 +43,5 @@
       "protocolVersion": 2,
       "releaseIteration": "experimental.20.18"
     }
-  },
-  "version": "0.2.0-experimental.20.18",
-  "android": {
-    "versionCode": 38
   }
 }

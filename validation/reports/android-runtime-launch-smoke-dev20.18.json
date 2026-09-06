@@ -1,0 +1,18 @@
+{
+  "api_level": 35,
+  "apk_sha256": "e20dcb550c7f9fdabdcfeb22bce8c14302e7255c420a87d550377953d1a51688",
+  "emulator_abi": "x86_64",
+  "jni_library": "libbody_finder_science.so",
+  "old_bad_apk_replaced": true,
+  "old_bad_apk_sha256": "55ef15274ef1b7ebd2e73b543d4698fa9f4994cd1767a6bb9df97752e02bd621",
+  "package": "com.trochez.bodyfinderruview",
+  "pass": true,
+  "process_alive_after_ms": 15000,
+  "release": "dev-20.18",
+  "required_jni_abis": [
+    "arm64-v8a",
+    "armeabi-v7a",
+    "x86_64"
+  ],
+  "schema": "AndroidRuntimeLaunchSmokeDev2018V2"
+}
