@@ -1,0 +1,182 @@
+name: dev20.19 release v2
+
+on:
+  push:
+    branches: [release/dev-20.19]
+    paths: [DEV20_19_RELEASE_V2_TRIGGER.txt]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: dev20-19-release-v2
+  cancel-in-progress: false
+
+jobs:
+  android-engineering:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 75
+    outputs:
+      source_sha: ${{ steps.commit.outputs.source_sha }}
+    steps:
+      - uses: actions/checkout@v4
+        with: {ref: release/dev-20.19, fetch-depth: 0}
+      - uses: actions/setup-python@v5
+        with: {python-version: '3.12'}
+      - uses: actions/setup-node@v4
+        with: {node-version: '22', cache: npm, cache-dependency-path: apps/mobile/package-lock.json}
+      - uses: actions/setup-java@v5
+        with: {distribution: temurin, java-version: '17'}
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: gradle/actions/setup-gradle@v4
+        with: {gradle-version: '8.10.2'}
+      - name: Protocol engineering gates
+        run: |
+          set -euxo pipefail
+          python3 scripts/apply_dev20_19_remediation.py
+          python3 -m py_compile scripts/apply_dev20_19_remediation.py scripts/dev20_19_engineering_gate.py scripts/dev20_19_package_release.py validation/analysis/validate_dev20_19_prerun.py validation/analysis/validate_dev20_19_g10.py
+          python3 scripts/dev20_19_engineering_gate.py
+          cargo fmt --all -- --check
+          cargo test --workspace --all-targets
+          (cd apps/mobile && npm ci --no-audit --no-fund && npm run typecheck)
+          git diff --check
+      - name: Build JNI 3 ABI
+        run: |
+          set -euxo pipefail
+          rustup target add aarch64-linux-android armv7-linux-androideabi x86_64-linux-android
+          cargo install cargo-ndk --locked
+          rm -rf apps/mobile/modules/body-finder-native/android/src/main/jniLibs
+          mkdir -p apps/mobile/modules/body-finder-native/android/src/main/jniLibs
+          cargo ndk -t arm64-v8a -t armeabi-v7a -t x86_64 -o apps/mobile/modules/body-finder-native/android/src/main/jniLibs build --release -p body-finder-science --lib
+          for abi in arm64-v8a armeabi-v7a x86_64; do test -s "apps/mobile/modules/body-finder-native/android/src/main/jniLibs/$abi/libbody_finder_science.so"; done
+      - name: Build exact APK AAB
+        working-directory: apps/mobile
+        run: |
+          set -euxo pipefail
+          CI=1 npx expo prebuild --platform android --clean
+          chmod +x android/gradlew
+          ./android/gradlew -p android testReleaseUnitTest assembleRelease bundleRelease --stacktrace
+          for abi in arm64-v8a armeabi-v7a x86_64; do unzip -l android/app/build/outputs/apk/release/app-release.apk | grep -q "lib/$abi/libbody_finder_science.so"; done
+          test -s android/app/build/outputs/apk/release/app-release.apk
+          test -s android/app/build/outputs/bundle/release/app-release.aab
+      - name: Enable KVM
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+      - name: Exact APK launch smoke
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 35
+          arch: x86_64
+          profile: pixel_6
+          disable-animations: true
+          script: >-
+            adb install -r apps/mobile/android/app/build/outputs/apk/release/app-release.apk && adb logcat -c && (adb shell monkey -p com.trochez.bodyfinderruview -c android.intent.category.LAUNCHER 1 || true) && sleep 15 && adb logcat -d > dev20.19-logcat.txt && test -n "$(adb shell pidof com.trochez.bodyfinderruview | tr -d '\r')" && ! grep -E 'Process: com\.trochez\.bodyfinderruview|UnsatisfiedLinkError' dev20.19-logcat.txt >/dev/null 2>&1
+      - name: Commit approved source and Android evidence
+        id: commit
+        run: |
+          set -euxo pipefail
+          mkdir -p dist-android validation/reports
+          python3 - <<'PY'
+          import hashlib,json,pathlib
+          apk=pathlib.Path('apps/mobile/android/app/build/outputs/apk/release/app-release.apk')
+          out={'schema':'AndroidRuntimeLaunchSmokeDev2019V1','release':'dev-20.19','build':'0.2.0-experimental.20.19','package':'com.trochez.bodyfinderruview','api_level':35,'emulator_abi':'x86_64','required_jni_abis':['arm64-v8a','armeabi-v7a','x86_64'],'process_alive_after_ms':15000,'fatal_app_process':False,'unsatisfied_link_error':False,'apk_sha256':hashlib.sha256(apk.read_bytes()).hexdigest(),'pass':True}
+          pathlib.Path('validation/reports/android-runtime-launch-smoke-dev20.19.json').write_text(json.dumps(out,indent=2,sort_keys=True)+'\n')
+          PY
+          cp apps/mobile/android/app/build/outputs/apk/release/app-release.apk dist-android/BodyFinder-dev20.19-universal.apk
+          cp apps/mobile/android/app/build/outputs/apk/release/app-release.apk dist-android/body-finder-ruview-universal.apk
+          cp apps/mobile/android/app/build/outputs/bundle/release/app-release.aab dist-android/body-finder-ruview.aab
+          cp validation/reports/android-runtime-launch-smoke-dev20.19.json dist-android/
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git add apps/mobile/package.json apps/mobile/package-lock.json apps/mobile/app.json apps/mobile/App.tsx apps/mobile/src/version.ts apps/mobile/src/criticalControlRegistry.ts apps/mobile/src/humanPresence.ts apps/mobile/modules/body-finder-native/android/src/main/java/com/trochez/bodyfindernative/BodyFinderNativeModule.kt validation/reports/
+          git diff --cached --quiet || git commit -m 'feat(dev20.19): compact calibration metadata and normalize evidence identity'
+          git push origin HEAD:release/dev-20.19
+          echo "source_sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+      - uses: actions/upload-artifact@v4
+        with: {name: dev20-19-android-v2, path: dist-android/}
+
+  windows:
+    needs: android-engineering
+    runs-on: windows-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+        with: {ref: '${{ needs.android-engineering.outputs.source_sha }}'}
+      - uses: dtolnay/rust-toolchain@stable
+      - run: cargo build --release -p body-finder-node -p body-finder-science --bins
+      - shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force dist\win | Out-Null
+          Copy-Item target\release\body-finder-node.exe dist\win\
+          Copy-Item target\release\body-finder-detector.exe dist\win\
+          Get-ChildItem target\release\body-finder-*.exe | Where-Object Name -NotIn @('body-finder-node.exe','body-finder-detector.exe') | Copy-Item -Destination dist\win\
+          Copy-Item target\release\body-finder-detector.exe dist\body-finder-detector-windows-x86_64.exe
+          Compress-Archive dist\win\* dist\body-finder-windows-wsl-x86_64.zip
+      - uses: actions/upload-artifact@v4
+        with:
+          name: dev20-19-windows-v2
+          path: |
+            dist/body-finder-windows-wsl-x86_64.zip
+            dist/body-finder-detector-windows-x86_64.exe
+
+  publish:
+    needs: [android-engineering, windows]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 50
+    steps:
+      - uses: actions/checkout@v4
+        with: {ref: '${{ needs.android-engineering.outputs.source_sha }}', fetch-depth: 0}
+      - uses: actions/setup-python@v5
+        with: {python-version: '3.12'}
+      - uses: actions/setup-java@v5
+        with: {distribution: temurin, java-version: '17'}
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: gradle/actions/setup-gradle@v4
+        with: {gradle-version: '8.10.2'}
+      - uses: actions/download-artifact@v4
+        with: {name: dev20-19-android-v2, path: dist}
+      - uses: actions/download-artifact@v4
+        with: {name: dev20-19-windows-v2, path: dist}
+      - name: Linux and legacy Android
+        run: |
+          set -euxo pipefail
+          cargo build --release -p body-finder-node -p body-finder-science --bins
+          mkdir -p work/deb/DEBIAN work/deb/usr/bin
+          tar -C target/release -czf dist/body-finder-node-linux-x86_64.tar.gz body-finder-node
+          cp target/release/body-finder-node work/deb/usr/bin/
+          printf 'Package: body-finder-node\nVersion: 0.2.0~experimental20.19\nSection: science\nPriority: optional\nArchitecture: amd64\nMaintainer: Trochez\nDescription: Body Finder RuView field node\n' > work/deb/DEBIAN/control
+          dpkg-deb --build work/deb dist/body-finder-node-linux-x86_64.deb
+          cp target/release/body-finder-detector dist/body-finder-detector-linux-x86_64
+          chmod +x dist/body-finder-detector-linux-x86_64
+          mkdir -p "$HOME/.android"
+          test -f "$HOME/.android/debug.keystore" || keytool -genkeypair -keystore "$HOME/.android/debug.keystore" -storepass android -alias androiddebugkey -keypass android -dname 'CN=Android Debug,O=Android,C=US' -keyalg RSA -keysize 2048 -validity 10000
+          (cd apps/android-legacy && gradle :app:testReleaseUnitTest :app:assembleRelease --stacktrace)
+          cp apps/android-legacy/app/build/outputs/apk/release/*.apk dist/body-finder-ruview-legacy-minsdk21.apk
+          mkdir -p work/validators
+          cp validation/analysis/validate_dev20_19_prerun.py validation/analysis/validate_dev20_19_g10.py TESTING_DEV20_19.md work/validators/
+          (cd work/validators && zip -qr ../../dist/validators-dev20.19.zip .)
+      - name: Package evidence
+        run: python3 scripts/dev20_19_package_release.py --source-sha '${{ needs.android-engineering.outputs.source_sha }}'
+      - name: Publish and independently verify
+        env: {GH_TOKEN: '${{ github.token }}'}
+        run: |
+          set -euxo pipefail
+          gh release delete dev-20.19 --repo "$GITHUB_REPOSITORY" --yes --cleanup-tag || true
+          gh release create dev-20.19 dist/* --repo "$GITHUB_REPOSITORY" --target '${{ needs.android-engineering.outputs.source_sha }}' --title 'dev-20.19 — 0.2.0-experimental.20.19' --prerelease --notes 'Engineering GO; physical G10 remains PHYSICAL_PENDING/NO_GO until exactly six fresh >=330 s JSONs pass validate_dev20_19_g10.py. JSON-only evidence; no screenshots.'
+          rm -rf verify && mkdir verify
+          gh release download dev-20.19 --repo "$GITHUB_REPOSITORY" --dir verify
+          (cd verify && sha256sum -c SHA256SUMS.txt)
+          for abi in arm64-v8a armeabi-v7a x86_64; do unzip -l verify/BodyFinder-dev20.19-universal.apk | grep -q "lib/$abi/libbody_finder_science.so"; done
+          python3 - <<'PY'
+          import hashlib,json,pathlib
+          d=pathlib.Path('verify');manifest=json.loads((d/'release-manifest.json').read_text());assert manifest['source_sha']=='${{ needs.android-engineering.outputs.source_sha }}'
+          required={'BodyFinder-dev20.19-universal.apk','body-finder-ruview-universal.apk','body-finder-ruview.aab','body-finder-ruview-legacy-minsdk21.apk','body-finder-node-linux-x86_64.tar.gz','body-finder-node-linux-x86_64.deb','body-finder-detector-linux-x86_64','body-finder-windows-wsl-x86_64.zip','body-finder-detector-windows-x86_64.exe','validate_dev20_19_prerun.py','validate_dev20_19_g10.py','validators-dev20.19.zip','TESTING_DEV20_19.md','SBOM.spdx.json','release-manifest.json','SHA256SUMS.txt','engineering-go-dev20.19.json','g10-dev20.19.json','rollback-readiness-dev20.19.json','ci-test-evidence-dev20.19.json'}
+          names={p.name for p in d.iterdir() if p.is_file()};assert not (required-names),required-names
+          out={'schema':'ReleaseVerificationDev2019V1','tag':'dev-20.19','build':'0.2.0-experimental.20.19','source_sha':manifest['source_sha'],'redownloaded_asset_count':len(names),'all_sha256_match':True,'android_jni_packaging_verified':True,'required_inventory_present':True,'release_target_sha_verified':True,'engineering_go':True,'g10':'PHYSICAL_PENDING','final_go':False,'pass':True}
+          pathlib.Path('dist/release-verification-dev20.19.json').write_text(json.dumps(out,indent=2,sort_keys=True)+'\n')
+          PY
+          gh release upload dev-20.19 dist/release-verification-dev20.19.json --repo "$GITHUB_REPOSITORY" --clobber
+          echo DEV20_19_RELEASE_V2_PUBLISHED_VERIFIED
