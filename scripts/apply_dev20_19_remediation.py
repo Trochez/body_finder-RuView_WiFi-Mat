@@ -39,7 +39,6 @@ def patch_human_presence() -> None:
             raise RuntimeError(f"expected one calibration meta encoder block, got {count}")
         t = t2
     t = t.replace("p?.schema==='CalibrationMetaWireV3'", "p?.schema==='CalibrationMetaWireV4'")
-    # Dev-20.19 intentionally does not accept V3 metadata. Mixed dev-20.18/dev-20.19 cohorts fail closed.
     write(rel, t)
 
 
@@ -85,20 +84,19 @@ def patch_app() -> None:
 def patch_native_contract() -> None:
     rel = "apps/mobile/modules/body-finder-native/android/src/main/java/com/trochez/bodyfindernative/BodyFinderNativeModule.kt"
     t = read(rel)
-    t = t.replace('.put("report_version", 37)', '.put("report_version", 39)')
-    t = t.replace('.put("snapshot_schema_version", 16)', '.put("snapshot_schema_version", 21)')
+    for old, new in [
+        ('.put("report_version", 37)', '.put("report_version", 39)'),
+        ('.put("report_version",37)', '.put("report_version",39)'),
+        ('.put("snapshot_schema_version", 16)', '.put("snapshot_schema_version", 21)'),
+        ('.put("snapshot_schema_version",16)', '.put("snapshot_schema_version",21)'),
+    ]:
+        t = t.replace(old, new)
     t = t.replace("dev20.15-self-contained-json-evidence-v17", "dev20.19-state-lifecycle-json-evidence-v21")
     write(rel, t)
 
 
 def patch_package_metadata() -> None:
-    candidates = [
-        "apps/mobile/package.json",
-        "apps/mobile/package-lock.json",
-        "apps/mobile/app.json",
-        "apps/android-legacy/app/build.gradle",
-        "apps/android-legacy/app/build.gradle.kts",
-    ]
+    candidates = ["apps/mobile/package.json","apps/mobile/package-lock.json","apps/mobile/app.json","apps/android-legacy/app/build.gradle","apps/android-legacy/app/build.gradle.kts"]
     for rel in candidates:
         p = ROOT / rel
         if not p.exists():
@@ -112,16 +110,14 @@ def patch_package_metadata() -> None:
 
 
 def main() -> None:
-    patch_human_presence()
-    patch_version()
-    patch_registry()
-    patch_app()
-    patch_native_contract()
-    patch_package_metadata()
+    patch_human_presence();patch_version();patch_registry();patch_app();patch_native_contract();patch_package_metadata()
     hp = read("apps/mobile/src/humanPresence.ts")
     assert "CalibrationMetaWireV4" in hp
     assert "calibration_artifact_id:`calibration:" not in hp
     assert "artifact_sha256:String(raw.x??'')" in hp
+    native=read("apps/mobile/modules/body-finder-native/android/src/main/java/com/trochez/bodyfindernative/BodyFinderNativeModule.kt")
+    assert '.put("report_version",39)' in native or '.put("report_version", 39)' in native
+    assert '.put("snapshot_schema_version",21)' in native or '.put("snapshot_schema_version", 21)' in native
     print("DEV20_19_REMEDIATION_APPLIED")
 
 
