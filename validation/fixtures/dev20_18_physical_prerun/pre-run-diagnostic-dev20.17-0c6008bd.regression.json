@@ -1,0 +1,22 @@
+{
+  "fixture_scope": "REGRESSION_EXTRACT_FROM_PHYSICAL_PRE_RUN_JSON",
+  "source_filename": "pre-run-diagnostic-dev20.17-0c6008bd (1).json",
+  "release": "dev-20.17",
+  "build": "0.2.0-experimental.20.18",
+  "evidence_schema": "v19",
+  "node_id": "b99361e7-4c39-4a52-9694-9f4e0c6008bd",
+  "role": "PEER",
+  "authority_ack_count": 3,
+  "geometry_state": "GEOMETRY_2D",
+  "calibration_state": "UNCALIBRATED",
+  "calibration_generation": 0,
+  "current_calibration_ack_count": 0,
+  "local_artifact_promoted": false,
+  "artifact_promotion_state": "MISSING",
+  "distributed_calibration_ready": false,
+  "scenario_ack_count": 0,
+  "run_start_ready_count": 0,
+  "artifact_transfer_completed": 3,
+  "artifact_transfer_failed": 0,
+  "artifact_cache_size": 2
+}
