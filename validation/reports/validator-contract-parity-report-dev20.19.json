@@ -1,0 +1,10 @@
+{
+  "contradictory_release": "REJECTED",
+  "non_six_g10": "REJECTED",
+  "pass": true,
+  "positive_g10": "PASS",
+  "positive_prerun": "PASS",
+  "release": "dev-20.19",
+  "schema": "ValidatorContractParityDev2019V1",
+  "screenshots_required": false
+}

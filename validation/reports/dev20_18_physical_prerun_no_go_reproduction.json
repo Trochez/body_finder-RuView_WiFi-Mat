@@ -1,0 +1,27 @@
+{
+  "artifact_transfer_not_promotion": true,
+  "failure_count": 167,
+  "fixtures": [
+    {
+      "name": "pre-run-diagnostic-dev20.17-0c6008bd.regression.json",
+      "sha256": "aa323e08537e8191160bd44809ad67f00785b66c845785fb9aaba28de4a7c40d"
+    },
+    {
+      "name": "pre-run-diagnostic-dev20.17-42e0a10b.regression.json",
+      "sha256": "0da18867b5839c55c2f032d7b1811c7af11cd2177474cdd27f2c39f7186949f2"
+    },
+    {
+      "name": "pre-run-diagnostic-dev20.17-ab72b996.regression.json",
+      "sha256": "3901e4ac33157986d536bd4f6a90b3b28cce5ec39a679692bc51c5430b64bcce"
+    }
+  ],
+  "generation_breakdown": {
+    "calibration_meta_v10:g1": 100,
+    "calibration_meta_v10:g2": 67
+  },
+  "pass": true,
+  "release": "dev-20.19",
+  "root_cause": "calibration_meta_v10 critical payload 602-604 B exceeds immutable 600 B budget",
+  "schema": "Dev2018PhysicalPreRunNoGoReproductionV1",
+  "source_release": "dev-20.18"
+}

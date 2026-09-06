@@ -1,0 +1,15 @@
+{
+  "critical_control_failure_count": 0,
+  "false_commit_count": 0,
+  "false_readiness_count": 0,
+  "max_consecutive_retries": 3,
+  "metadata_retry_storm": false,
+  "pass": true,
+  "release": "dev-20.19",
+  "required_oversize_unknown_count": 0,
+  "retry_storm_count": 0,
+  "schema": "SoakDev2019V1",
+  "synthetic_duration_minutes": 30.016666666666666,
+  "synthetic_duration_seconds": 1801,
+  "wire_budget_regression": false
+}

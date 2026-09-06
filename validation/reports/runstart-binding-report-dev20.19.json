@@ -1,0 +1,21 @@
+{
+  "binding": [
+    "session",
+    "authority",
+    "cohort_and_instance_epochs",
+    "calibration",
+    "scenario"
+  ],
+  "coordinator_only_commit": true,
+  "invalidations": {
+    "authority_change": "PASS_FAIL_CLOSED",
+    "calibration_change": "PASS_FAIL_CLOSED",
+    "cohort_change": "PASS_FAIL_CLOSED",
+    "instance_epoch_change": "PASS_FAIL_CLOSED",
+    "scenario_change": "PASS_FAIL_CLOSED"
+  },
+  "pass": true,
+  "ready_exact_3_of_3": true,
+  "release": "dev-20.19",
+  "schema": "RunStartBindingReportDev2019V1"
+}

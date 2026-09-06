@@ -1,6 +1,6 @@
 {
   "name": "body-finder-ruview-mobile",
-  "version": "0.2.0-experimental.20.18",
+  "version": "0.2.0-experimental.20.19",
   "private": true,
   "main": "index.js",
   "scripts": {

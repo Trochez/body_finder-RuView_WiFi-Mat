@@ -1,0 +1,84 @@
+{
+  "artifact_meta_reorder": "PASS",
+  "calibration_meta_loss_recovery": "PASS",
+  "loss_cases": [
+    {
+      "duplicates": 335,
+      "false_commit_count": 0,
+      "final_commit_current": true,
+      "loss_percent": 1,
+      "pass": true,
+      "reorder_events": 174,
+      "stale_rejected": 416
+    },
+    {
+      "duplicates": 297,
+      "false_commit_count": 0,
+      "final_commit_current": true,
+      "loss_percent": 5,
+      "pass": true,
+      "reorder_events": 154,
+      "stale_rejected": 342
+    },
+    {
+      "duplicates": 271,
+      "false_commit_count": 0,
+      "final_commit_current": true,
+      "loss_percent": 10,
+      "pass": true,
+      "reorder_events": 178,
+      "stale_rejected": 382
+    }
+  ],
+  "mixed_dev20_18_dev20_19": "FAIL_CLOSED",
+  "pass": true,
+  "release": "dev-20.19",
+  "schema": "DistributedFaultInjectionDev2019V1",
+  "special_cases": {
+    "cache_eviction_pressure": {
+      "false_commit": false,
+      "false_ready": false,
+      "result": "PASS_FAIL_CLOSED"
+    },
+    "coordinator_restart": {
+      "false_commit": false,
+      "false_ready": false,
+      "result": "PASS_FAIL_CLOSED"
+    },
+    "delayed_stale_generation": {
+      "false_commit": false,
+      "false_ready": false,
+      "result": "PASS_FAIL_CLOSED"
+    },
+    "duplicate_frames_chunks_acks": {
+      "false_commit": false,
+      "false_ready": false,
+      "result": "PASS_FAIL_CLOSED"
+    },
+    "partial_artifact_superseded": {
+      "false_commit": false,
+      "false_ready": false,
+      "result": "PASS_FAIL_CLOSED"
+    },
+    "peer_restart_instance_epoch": {
+      "false_commit": false,
+      "false_ready": false,
+      "result": "PASS_FAIL_CLOSED"
+    },
+    "reorder": {
+      "false_commit": false,
+      "false_ready": false,
+      "result": "PASS_FAIL_CLOSED"
+    },
+    "stale_R2C_replay": {
+      "false_commit": false,
+      "false_ready": false,
+      "result": "PASS_FAIL_CLOSED"
+    },
+    "transient_ble_udp_gap": {
+      "false_commit": false,
+      "false_ready": false,
+      "result": "PASS_FAIL_CLOSED"
+    }
+  }
+}

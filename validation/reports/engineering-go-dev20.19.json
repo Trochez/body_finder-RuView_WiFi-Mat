@@ -1,0 +1,25 @@
+{
+  "baseline_release": "dev-20.18",
+  "baseline_sha": "054685cd8cc99739aa28c3f37fefc5a9315b2270",
+  "build": "0.2.0-experimental.20.19",
+  "dev21": "BLOCKED",
+  "engineering_go": false,
+  "final_go": false,
+  "g10": "PHYSICAL_PENDING",
+  "g11": "BLOCKED",
+  "gates": {
+    "G0_reproduction": "PASS",
+    "G1_wire_contract": "PASS",
+    "G2_calibration_convergence": "PASS",
+    "G3_state_lifecycle": "PASS",
+    "G4_fault_injection": "PASS",
+    "G5_soak": "PASS",
+    "G6_evidence_validator": "PASS",
+    "G7_platform_builds": "PENDING_CI",
+    "G8_android_runtime": "PENDING_CI",
+    "G9_release_publication": "PENDING_CI"
+  },
+  "physical_test_ready": false,
+  "release": "dev-20.19",
+  "schema": "EngineeringGoDev2019V1"
+}

@@ -1,0 +1,16 @@
+{
+  "cases": {
+    "artifact_before_meta": "PASS",
+    "corrupt_artifact_sha_rejected": "PASS",
+    "meta_before_artifact": "PASS",
+    "wrong_authority_rejected": "PASS",
+    "wrong_calibration_id_rejected": "PASS",
+    "wrong_generation_rejected": "PASS",
+    "wrong_topology_rejected": "PASS"
+  },
+  "pass": true,
+  "receiver_local_verified_store_required": true,
+  "release": "dev-20.19",
+  "schema": "ArtifactLocalPromotionReportDev2019V1",
+  "transfer_ack_never_counts_as_calibration_ack": true
+}

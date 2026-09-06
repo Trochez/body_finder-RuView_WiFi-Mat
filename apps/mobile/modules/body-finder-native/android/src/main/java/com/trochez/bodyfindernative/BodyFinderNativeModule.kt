@@ -340,7 +340,7 @@ private object ValidationRuntime {
       .put("peer_starvation_recovery_failure_delta", base.optLong("peer_starvation_recovery_failure_delta"))
     base
       .put("local_snapshot_frozen", true).put("distributed_start_committed", distributedStartCommitted).put("distributed_freeze_committed", distributedFreezeCommitted).put("campaign_run_token", campaignRunToken ?: JSONObject.NULL).put("distributed_start_context", try { JSONObject(distributedContextJson) } catch (_: Throwable) { JSONObject() }).put("distributed_freeze_commit", try { JSONObject(distributedFreezeCommitJson) } catch (_: Throwable) { JSONObject() }).put("snapshot_frozen", !distributedStartCommitted || distributedFreezeCommitted)
-      .put("snapshot_schema_version", 16)
+      .put("snapshot_schema_version", 21)
       .put("expected_peer_count_at_start", expectedPeerCountAtStart)
       .put("expected_peer_ids_at_start", JSONArray(expectedPeerIdsAtStart))
       .put("preflight_at_start", try { JSONObject(preflightAtStartJson) } catch (_: Throwable) { JSONObject() })
@@ -492,7 +492,7 @@ private object ValidationRuntime {
       .put("ranging_real_result_delta", ((if (Build.VERSION.SDK_INT >= 36) SystemRangingApi36.counterSnapshot().realDistanceResults else 0) - baselineRangingReal).coerceAtLeast(0))
       .put("ranging_close_failure_delta", ((if (Build.VERSION.SDK_INT >= 36) SystemRangingApi36.counterSnapshot().closeFailures else 0) - baselineRangingClose).coerceAtLeast(0))
       .put("local_snapshot_frozen", false).put("distributed_start_committed", distributedStartCommitted).put("distributed_freeze_committed", distributedFreezeCommitted).put("campaign_run_token", campaignRunToken ?: JSONObject.NULL).put("snapshot_frozen", false)
-      .put("snapshot_schema_version", 16)
+      .put("snapshot_schema_version", 21)
       .put("expected_peer_count_at_start", expectedPeerCountAtStart)
       .put("expected_peer_ids_at_start", JSONArray(expectedPeerIdsAtStart))
   }
@@ -1045,7 +1045,7 @@ class BodyFinderNativeModule : Module() {
     }
     Function("exportPreRunDiagnosticJson") { contextJson: String ->
       val ctx=appContext.reactContext?:return@Function "{}";val supplied=try{JSONObject(contextJson)}catch(_:Throwable){JSONObject()};val beforeRun=ValidationRuntime.runId;val beforeEnded=ValidationRuntime.endedWallMs
-      supplied.put("evidence_class","PRE_RUN_DIAGNOSTIC_V1").put("acceptance_eligible",false).put("run_started",beforeRun!=null&&beforeEnded==null).put("report_version",37).put("snapshot_schema_version",16).put("wire_transport_telemetry",WireTransportV10.telemetry()).put("native_diagnostics",diagnostics(ctx))
+      supplied.put("evidence_class","PRE_RUN_DIAGNOSTIC_V1").put("acceptance_eligible",false).put("run_started",beforeRun!=null&&beforeEnded==null).put("report_version", 39).put("snapshot_schema_version", 21).put("wire_transport_telemetry",WireTransportV10.telemetry()).put("native_diagnostics",diagnostics(ctx))
       supplied.put("diagnostic_read_only",beforeRun==ValidationRuntime.runId&&beforeEnded==ValidationRuntime.endedWallMs).toString(2)
     }
     Function("getWifiRssi") {
@@ -2402,7 +2402,7 @@ class BodyFinderNativeModule : Module() {
       .put("local_instance_epoch_source", "FabricRuntime.instanceEpoch")
       .put("local_instance_epoch", FabricRuntime.instanceEpoch)
       .put("diagnostic_contract", JSONObject()
-        .put("schema", "dev20.15-self-contained-json-evidence-v17")
+        .put("schema", "dev20.19-state-lifecycle-json-evidence-v21")
         .put("screenshots_required", false)
         .put("json_self_contained", true)
         .put("contains_runtime_preflight", true)
@@ -2410,7 +2410,7 @@ class BodyFinderNativeModule : Module() {
         .put("contains_recovery_causality", true)
         .put("contains_frozen_geometry", true))
       .put("validation_preflight", validationPreflight(ctx, now).put("runtime_live", true).put("not_acceptance_evidence", true))
-      .put("evidence_contract", JSONObject().put("schema", "dev20.15-self-contained-json-evidence-v17").put("screenshots_required", false).put("json_self_contained", true))
+      .put("evidence_contract", JSONObject().put("schema", "dev20.19-state-lifecycle-json-evidence-v21").put("screenshots_required", false).put("json_self_contained", true))
       .put("ble_diagnostics", bleDiagnostics(ctx, now))
       .put("fabric_diagnostics", fabricDiagnostics(now))
       .put("lifecycle_diagnostics", lifecycleDiagnostics(ctx))

@@ -1,0 +1,18 @@
+{
+  "binding_fields": [
+    "session_id",
+    "coordinator_id",
+    "coordinator_generation",
+    "calibration_generation",
+    "calibration_id",
+    "calibration_hash",
+    "topology_hash",
+    "authority_digest"
+  ],
+  "distributed_ready_only_after_exact_3_of_3": true,
+  "exact_current_ack": "3/3",
+  "historical_ack_counted": false,
+  "pass": true,
+  "release": "dev-20.19",
+  "schema": "CalibrationCurrentBindingReportDev2019V1"
+}

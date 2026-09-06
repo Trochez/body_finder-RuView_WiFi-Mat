@@ -1,0 +1,21 @@
+{
+  "budgets_unchanged": true,
+  "dev20_18_is_physical_g10_approved": false,
+  "mixed_dev20_18_dev20_19_cohort": "FAIL_CLOSED",
+  "pass": true,
+  "persisted_format_migration_required": false,
+  "ready": true,
+  "release": "dev-20.19",
+  "rollback_target": "dev-20.18",
+  "rollback_target_sha": "054685cd8cc99739aa28c3f37fefc5a9315b2270",
+  "rollback_trigger": [
+    "startup_crash",
+    "critical_payload_gt_600",
+    "required_frame_or_datagram_oversize",
+    "false_calibration_3_of_3",
+    "false_runstart_commit",
+    "corrupt_artifact_accepted",
+    "validator_accepts_contradictory_identity"
+  ],
+  "schema": "RollbackReadinessDev2019V1"
+}

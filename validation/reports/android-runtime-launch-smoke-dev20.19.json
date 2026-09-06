@@ -1,0 +1,18 @@
+{
+  "api_level": 35,
+  "apk_sha256": "6956ebf81bd3b2d0cd35d56076bb0c80c1c9e0cc424019f01af88a513e8b5938",
+  "build": "0.2.0-experimental.20.19",
+  "emulator_abi": "x86_64",
+  "fatal_app_process": false,
+  "package": "com.trochez.bodyfinderruview",
+  "pass": true,
+  "process_alive_after_ms": 15000,
+  "release": "dev-20.19",
+  "required_jni_abis": [
+    "arm64-v8a",
+    "armeabi-v7a",
+    "x86_64"
+  ],
+  "schema": "AndroidRuntimeLaunchSmokeDev2019V1",
+  "unsatisfied_link_error": false
+}
