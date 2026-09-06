@@ -1,0 +1,314 @@
+name: dev20.18 runtime hotfix release
+
+on:
+  push:
+    branches: [release/dev-20.18]
+    paths: [DEV20_18_RUNTIME_HOTFIX_TRIGGER.txt]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: dev20-18-runtime-hotfix-release
+  cancel-in-progress: false
+
+env:
+  BUILD_VERSION: 0.2.0-experimental.20.18
+  OLD_BAD_APK_SHA256: 55ef15274ef1b7ebd2e73b543d4698fa9f4994cd1767a6bb9df97752e02bd621
+
+jobs:
+  android-runtime-gate:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    outputs:
+      source_sha: ${{ steps.commit.outputs.source_sha }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: release/dev-20.18
+          fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with: {python-version: '3.12'}
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: apps/mobile/package-lock.json
+      - uses: actions/setup-java@v5
+        with: {distribution: temurin, java-version: '17'}
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: gradle/actions/setup-gradle@v4
+        with: {gradle-version: '8.10.2'}
+
+      - name: Apply deterministic runtime hotfix
+        run: |
+          set -euxo pipefail
+          python3 scripts/apply_dev20_18_runtime_hotfix.py
+          grep -q '0.2.0-experimental.20.18' apps/mobile/package.json
+          grep -q '0.2.0-experimental.20.18' apps/mobile/package-lock.json
+          grep -q 'calibration_artifact_id' apps/mobile/src/humanPresence.ts
+          git diff --check
+
+      - name: Re-run engineering and protocol gates
+        run: |
+          set -euxo pipefail
+          python3 scripts/dev20_18_fault_soak.py
+          python3 scripts/dev20_18_engineering_gate.py
+          cargo fmt --all -- --check
+          cargo test --workspace --all-targets
+          cd apps/mobile
+          npm ci --no-audit --no-fund
+          npm run typecheck
+          cd ../..
+
+      - name: Build Rust JNI for every supported Android ABI
+        run: |
+          set -euxo pipefail
+          rustup target add aarch64-linux-android armv7-linux-androideabi x86_64-linux-android
+          cargo install cargo-ndk --locked
+          rm -rf apps/mobile/modules/body-finder-native/android/src/main/jniLibs
+          mkdir -p apps/mobile/modules/body-finder-native/android/src/main/jniLibs
+          cargo ndk -t arm64-v8a -t armeabi-v7a -t x86_64 -o apps/mobile/modules/body-finder-native/android/src/main/jniLibs build --release -p body-finder-science --lib
+          for abi in arm64-v8a armeabi-v7a x86_64; do
+            test -s "apps/mobile/modules/body-finder-native/android/src/main/jniLibs/$abi/libbody_finder_science.so"
+          done
+
+      - name: Build exact Android release APK and AAB
+        working-directory: apps/mobile
+        run: |
+          set -euxo pipefail
+          CI=1 npx expo prebuild --platform android --clean
+          chmod +x android/gradlew
+          ./android/gradlew -p android testReleaseUnitTest assembleRelease bundleRelease --stacktrace
+          APK=android/app/build/outputs/apk/release/app-release.apk
+          AAB=android/app/build/outputs/bundle/release/app-release.aab
+          test -s "$APK" && test -s "$AAB"
+          for abi in arm64-v8a armeabi-v7a x86_64; do
+            unzip -l "$APK" | grep -q "lib/$abi/libbody_finder_science.so"
+          done
+          test "$(sha256sum "$APK" | awk '{print $1}')" != "$OLD_BAD_APK_SHA256"
+
+      - name: Enable KVM
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+
+      - name: Runtime launch smoke on release APK
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 35
+          arch: x86_64
+          profile: pixel_6
+          disable-animations: true
+          script: |
+            set -eu
+            APK=apps/mobile/android/app/build/outputs/apk/release/app-release.apk
+            adb install -r "$APK"
+            adb logcat -c
+            adb shell monkey -p com.trochez.bodyfinderruview -c android.intent.category.LAUNCHER 1 || true
+            sleep 15
+            adb logcat -d > runtime-hotfix-logcat.txt
+            PID="$(adb shell pidof com.trochez.bodyfinderruview | tr -d '\r' || true)"
+            echo "APP_PID=$PID"
+            if [ -z "$PID" ]; then
+              echo 'DEV20_18_RUNTIME_HOTFIX=FAIL_PROCESS_DIED'
+              grep -n -E 'FATAL EXCEPTION|AndroidRuntime|ReactNativeJS|UnsatisfiedLinkError|body_finder_science|dlopen|Caused by:' runtime-hotfix-logcat.txt | tail -n 240 || true
+              exit 1
+            fi
+            if grep -E 'FATAL EXCEPTION.*com\.trochez\.bodyfinderruview|Process: com\.trochez\.bodyfinderruview' runtime-hotfix-logcat.txt >/dev/null 2>&1; then
+              echo 'DEV20_18_RUNTIME_HOTFIX=FAIL_FATAL_LOGCAT'
+              grep -n -E 'FATAL EXCEPTION|AndroidRuntime|ReactNativeJS|UnsatisfiedLinkError|body_finder_science|dlopen|Caused by:' runtime-hotfix-logcat.txt | tail -n 240 || true
+              exit 1
+            fi
+            adb shell dumpsys activity activities | grep -E 'mResumedActivity|topResumedActivity|com.trochez.bodyfinderruview' | head -n 20 || true
+            echo 'DEV20_18_RUNTIME_HOTFIX=PASS_PROCESS_ALIVE_AFTER_15S'
+
+      - name: Record runtime evidence and commit hotfix
+        id: commit
+        run: |
+          set -euxo pipefail
+          mkdir -p validation/reports dist-hotfix
+          python3 - <<'PY'
+          import hashlib,json,pathlib
+          apk=pathlib.Path('apps/mobile/android/app/build/outputs/apk/release/app-release.apk')
+          aab=pathlib.Path('apps/mobile/android/app/build/outputs/bundle/release/app-release.aab')
+          report={
+            'schema':'AndroidRuntimeLaunchSmokeDev2018V1',
+            'release':'dev-20.18',
+            'package':'com.trochez.bodyfinderruview',
+            'api_level':35,
+            'emulator_abi':'x86_64',
+            'required_jni_abis':['arm64-v8a','armeabi-v7a','x86_64'],
+            'jni_library':'libbody_finder_science.so',
+            'process_alive_after_ms':15000,
+            'apk_sha256':hashlib.sha256(apk.read_bytes()).hexdigest(),
+            'old_bad_apk_sha256':'55ef15274ef1b7ebd2e73b543d4698fa9f4994cd1767a6bb9df97752e02bd621',
+            'old_bad_apk_replaced':hashlib.sha256(apk.read_bytes()).hexdigest()!='55ef15274ef1b7ebd2e73b543d4698fa9f4994cd1767a6bb9df97752e02bd621',
+            'pass':True
+          }
+          pathlib.Path('validation/reports/android-runtime-launch-smoke-dev20.18.json').write_text(json.dumps(report,indent=2,sort_keys=True)+'\n')
+          PY
+          cp apps/mobile/android/app/build/outputs/apk/release/app-release.apk dist-hotfix/BodyFinder-dev20.18-universal.apk
+          cp apps/mobile/android/app/build/outputs/apk/release/app-release.apk dist-hotfix/body-finder-ruview-universal.apk
+          cp apps/mobile/android/app/build/outputs/bundle/release/app-release.aab dist-hotfix/body-finder-ruview.aab
+          cp runtime-hotfix-logcat.txt dist-hotfix/runtime-hotfix-logcat.txt
+          cp validation/reports/android-runtime-launch-smoke-dev20.18.json dist-hotfix/
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git add apps/mobile/package.json apps/mobile/package-lock.json apps/mobile/app.json apps/mobile/src/humanPresence.ts validation/reports/android-runtime-launch-smoke-dev20.18.json
+          git diff --cached --quiet || git commit -m 'fix(dev20.18): restore Android JNI runtime packaging contract'
+          git push origin HEAD:release/dev-20.18
+          echo "source_sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: dev20-18-runtime-hotfix-android
+          path: dist-hotfix/
+
+  windows:
+    needs: android-runtime-gate
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+        with: {ref: '${{ needs.android-runtime-gate.outputs.source_sha }}'}
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Build Windows and WSL binaries
+        run: cargo build --release -p body-finder-node -p body-finder-science --bins
+      - shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force dist\win | Out-Null
+          Copy-Item target\release\body-finder-node.exe dist\win\
+          Copy-Item target\release\body-finder-detector.exe dist\win\
+          if (Test-Path target\release\body-finder-replay.exe) { Copy-Item target\release\body-finder-replay.exe dist\win\ }
+          if (Test-Path target\release\body-finder-validate-session.exe) { Copy-Item target\release\body-finder-validate-session.exe dist\win\ }
+          if (Test-Path target\release\body-finder-rf-recorder.exe) { Copy-Item target\release\body-finder-rf-recorder.exe dist\win\ }
+          Copy-Item target\release\body-finder-detector.exe dist\body-finder-detector-windows-x86_64.exe
+          Compress-Archive dist\win\* dist\body-finder-windows-wsl-x86_64.zip
+      - uses: actions/upload-artifact@v4
+        with:
+          name: dev20-18-runtime-hotfix-windows
+          path: |
+            dist/body-finder-windows-wsl-x86_64.zip
+            dist/body-finder-detector-windows-x86_64.exe
+
+  publish:
+    needs: [android-runtime-gate, windows]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.android-runtime-gate.outputs.source_sha }}
+          fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with: {python-version: '3.12'}
+      - uses: actions/setup-java@v5
+        with: {distribution: temurin, java-version: '17'}
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: gradle/actions/setup-gradle@v4
+        with: {gradle-version: '8.10.2'}
+      - uses: actions/download-artifact@v4
+        with: {name: dev20-18-runtime-hotfix-android, path: dist}
+      - uses: actions/download-artifact@v4
+        with: {name: dev20-18-runtime-hotfix-windows, path: dist}
+
+      - name: Build Linux and dedicated legacy Android artifacts
+        run: |
+          set -euxo pipefail
+          cargo build --release -p body-finder-node -p body-finder-science --bins
+          mkdir -p work/deb/DEBIAN work/deb/usr/bin
+          tar -C target/release -czf dist/body-finder-node-linux-x86_64.tar.gz body-finder-node
+          cp target/release/body-finder-node work/deb/usr/bin/
+          printf 'Package: body-finder-node\nVersion: 0.2.0~experimental20.18\nSection: science\nPriority: optional\nArchitecture: amd64\nMaintainer: Trochez\nDescription: Body Finder RuView field node\n' > work/deb/DEBIAN/control
+          dpkg-deb --build work/deb dist/body-finder-node-linux-x86_64.deb
+          cp target/release/body-finder-detector dist/body-finder-detector-linux-x86_64
+          chmod +x dist/body-finder-detector-linux-x86_64
+          mkdir -p "$HOME/.android"
+          if [ ! -f "$HOME/.android/debug.keystore" ]; then keytool -genkeypair -keystore "$HOME/.android/debug.keystore" -storepass android -alias androiddebugkey -keypass android -dname 'CN=Android Debug,O=Android,C=US' -keyalg RSA -keysize 2048 -validity 10000; fi
+          (cd apps/android-legacy && gradle :app:testReleaseUnitTest :app:assembleRelease --stacktrace)
+          cp apps/android-legacy/app/build/outputs/apk/release/*.apk dist/body-finder-ruview-legacy-minsdk21.apk
+
+      - name: Finalize engineering evidence
+        run: |
+          python3 - <<'PY'
+          import json,pathlib
+          r=pathlib.Path('validation/reports')
+          p=r/'android-runtime-regression-report.json';d=json.loads(p.read_text());d.update({'android_native_unit':'PASS','android_jni_packaging':'PASS','android_launch_smoke':'PASS','universal_build':'PASS','aab_build':'PASS','legacy_build':'PASS','pass':True});p.write_text(json.dumps(d,indent=2,sort_keys=True)+'\n')
+          p=r/'engineering-go-dev20.18.json';d=json.loads(p.read_text());d['gates']['G9_build_release']='PASS_RUNTIME_SMOKE_VERIFIED';d['engineering_go']=True;d['physical_test_ready']=True;d['g10']='PHYSICAL_PENDING';d['final_go']=False;p.write_text(json.dumps(d,indent=2,sort_keys=True)+'\n')
+          p=r/'g10-dev20.18.json';d=json.loads(p.read_text());d['engineering_go']=True;d['physical_test_ready']=True;d['g10']='PHYSICAL_PENDING';d['g10_go']=False;d['g11']='BLOCKED';d['dev21']='BLOCKED';d['final_go']=False;p.write_text(json.dumps(d,indent=2,sort_keys=True)+'\n')
+          ci={'schema':'CiTestEvidenceDev2018RuntimeHotfixV1','release':'dev-20.18','source_sha':'${{ needs.android-runtime-gate.outputs.source_sha }}','python_gates':'PASS','fault_soak':'PASS','rust':'PASS','typescript':'PASS','android_unit':'PASS','android_jni_packaging':'PASS','android_launch_smoke':'PASS','android_universal':'PASS','android_legacy':'PASS','android_aab':'PASS','windows':'PASS','linux':'PASS','pass':True}
+          (r/'ci-test-evidence.json').write_text(json.dumps(ci,indent=2,sort_keys=True)+'\n')
+          PY
+
+      - name: Package validators reports SBOM manifest and checksums
+        run: |
+          set -euxo pipefail
+          cp validation/analysis/validate_dev20_18_prerun.py dist/
+          cp validation/analysis/validate_dev20_18_g10.py dist/
+          cp TESTING_DEV20_18.md dist/
+          mkdir -p work/validators
+          cp validation/analysis/validate_dev20_18_prerun.py validation/analysis/validate_dev20_18_g10.py TESTING_DEV20_18.md work/validators/
+          (cd work/validators && zip -qr ../../dist/validators-dev20.18.zip .)
+          for n in dev20_17_physical_no_go_reproduction.json artifact-local-promotion-report.json calibration-current-binding-report.json authority-pin-lifecycle-report.json runstart-invalidation-report.json freeze-binding-report.json critical-control-budget-contract-report.json distributed-fault-injection-report.json soak-report.json android-runtime-regression-report.json validator-contract-parity-report.json engineering-go-dev20.18.json g10-dev20.18.json rollback-readiness-dev20.18.json ci-test-evidence.json android-runtime-launch-smoke-dev20.18.json; do cp "validation/reports/$n" dist/; done
+          python3 - <<'PY'
+          import json,pathlib,hashlib,datetime
+          dist=pathlib.Path('dist');sha='${{ needs.android-runtime-gate.outputs.source_sha }}'
+          sbom={'spdxVersion':'SPDX-2.3','dataLicense':'CC0-1.0','SPDXID':'SPDXRef-DOCUMENT','name':'body-finder-ruview-dev20.18-runtime-hotfix','documentNamespace':f'https://github.com/Trochez/body_finder-RuView_WiFi-Mat/releases/dev-20.18/{sha}','creationInfo':{'created':datetime.datetime.now(datetime.timezone.utc).isoformat(),'creators':['Tool: GitHub-Actions-dev20.18-runtime-hotfix']},'packages':[{'SPDXID':'SPDXRef-Package','name':'body-finder-ruview','versionInfo':'0.2.0-experimental.20.18','downloadLocation':'NOASSERTION','filesAnalyzed':False,'licenseConcluded':'NOASSERTION','licenseDeclared':'NOASSERTION'}]}
+          (dist/'SBOM.spdx.json').write_text(json.dumps(sbom,indent=2,sort_keys=True)+'\n')
+          required=['BodyFinder-dev20.18-universal.apk','body-finder-ruview-universal.apk','body-finder-ruview.aab','body-finder-ruview-legacy-minsdk21.apk','body-finder-node-linux-x86_64.tar.gz','body-finder-node-linux-x86_64.deb','body-finder-detector-linux-x86_64','body-finder-windows-wsl-x86_64.zip','body-finder-detector-windows-x86_64.exe','validate_dev20_18_prerun.py','validate_dev20_18_g10.py','validators-dev20.18.zip','TESTING_DEV20_18.md','engineering-go-dev20.18.json','g10-dev20.18.json','ci-test-evidence.json','android-runtime-launch-smoke-dev20.18.json','SBOM.spdx.json']
+          missing=[x for x in required if not (dist/x).is_file() or (dist/x).stat().st_size==0];assert not missing,missing
+          assets=[]
+          for p in sorted(dist.iterdir()):
+              if p.is_file():assets.append({'name':p.name,'bytes':p.stat().st_size,'sha256':hashlib.sha256(p.read_bytes()).hexdigest()})
+          manifest={'schema':'ReleaseManifestDev2018RuntimeHotfixV1','tag':'dev-20.18','build':'0.2.0-experimental.20.18','source_sha':sha,'baseline_sha':'84dae8257079cf4b83d9f34493a2aeb052b9ece3','runtime_hotfix':True,'android_launch_smoke':'PASS','android_jni_packaging':'PASS','engineering_go':True,'g10':'PHYSICAL_PENDING','final_go':False,'assets':assets}
+          (dist/'release-manifest.json').write_text(json.dumps(manifest,indent=2,sort_keys=True)+'\n')
+          PY
+          (cd dist && sha256sum $(find . -maxdepth 1 -type f ! -name SHA256SUMS.txt ! -name release-verification.json -printf '%f\n' | sort) > SHA256SUMS.txt)
+
+      - name: Replace dev-20.18 prerelease with runtime-verified build
+        env: {GH_TOKEN: '${{ github.token }}'}
+        run: |
+          set -euxo pipefail
+          gh release delete dev-20.18 --repo "$GITHUB_REPOSITORY" --yes --cleanup-tag || true
+          cat > /tmp/release-notes.md <<'EOF'
+          dev-20.18 runtime hotfix. Replaces the original Android build that omitted the Rust JNI payload. The universal APK/AAB now package libbody_finder_science.so for arm64-v8a, armeabi-v7a and x86_64 and the exact release APK passes an install/launch/process-survival smoke on Android API 35. Calibration artifact SHA binding was also repaired. Engineering gates are GO; physical G10 remains PHYSICAL_PENDING until exactly six fresh >=330 s JSONs pass validate_dev20_18_g10.py. No screenshots are required.
+          EOF
+          gh release create dev-20.18 dist/* --repo "$GITHUB_REPOSITORY" --target '${{ needs.android-runtime-gate.outputs.source_sha }}' --title 'dev-20.18 — 0.2.0-experimental.20.18 (runtime hotfix)' --notes-file /tmp/release-notes.md --prerelease
+
+      - name: Independent redownload SHA verification
+        env: {GH_TOKEN: '${{ github.token }}'}
+        run: |
+          set -euxo pipefail
+          rm -rf verify-download && mkdir verify-download
+          gh release download dev-20.18 --repo "$GITHUB_REPOSITORY" --dir verify-download
+          cp verify-download/SHA256SUMS.txt /tmp/SHA256SUMS.txt
+          (cd verify-download && sha256sum -c /tmp/SHA256SUMS.txt)
+          test "$(sha256sum verify-download/BodyFinder-dev20.18-universal.apk | awk '{print $1}')" != "$OLD_BAD_APK_SHA256"
+          unzip -l verify-download/BodyFinder-dev20.18-universal.apk | grep -q 'lib/arm64-v8a/libbody_finder_science.so'
+          unzip -l verify-download/BodyFinder-dev20.18-universal.apk | grep -q 'lib/armeabi-v7a/libbody_finder_science.so'
+          unzip -l verify-download/BodyFinder-dev20.18-universal.apk | grep -q 'lib/x86_64/libbody_finder_science.so'
+          python3 - <<'PY'
+          import json,pathlib,hashlib
+          d=pathlib.Path('verify-download');checks=[]
+          for line in (d/'SHA256SUMS.txt').read_text().splitlines():
+              sha,name=line.split(None,1);name=name.lstrip('*');actual=hashlib.sha256((d/name).read_bytes()).hexdigest();checks.append({'name':name,'expected_sha256':sha,'actual_sha256':actual,'match':sha==actual})
+          out={'schema':'ReleaseVerificationDev2018RuntimeHotfixV1','tag':'dev-20.18','source_sha':'${{ needs.android-runtime-gate.outputs.source_sha }}','redownloaded_asset_count':len(checks),'all_sha256_match':all(x['match'] for x in checks),'android_jni_packaging_verified':True,'old_bad_apk_replaced':True,'pass':all(x['match'] for x in checks)}
+          pathlib.Path('dist/release-verification.json').write_text(json.dumps(out,indent=2,sort_keys=True)+'\n');assert out['pass']
+          PY
+          gh release upload dev-20.18 dist/release-verification.json --repo "$GITHUB_REPOSITORY" --clobber
+
+      - name: Final release inventory gate
+        env: {GH_TOKEN: '${{ github.token }}'}
+        run: |
+          set -euxo pipefail
+          gh release view dev-20.18 --repo "$GITHUB_REPOSITORY" --json tagName,isPrerelease,targetCommitish,name > /tmp/release.json
+          python3 - <<'PY'
+          import json,subprocess
+          d=json.load(open('/tmp/release.json'));assert d['tagName']=='dev-20.18' and d['isPrerelease']
+          names=set(subprocess.check_output(['gh','release','view','dev-20.18','--repo','${{ github.repository }}','--json','assets','--jq','.assets[].name'],text=True).splitlines())
+          required={'BodyFinder-dev20.18-universal.apk','body-finder-ruview-universal.apk','body-finder-ruview.aab','body-finder-ruview-legacy-minsdk21.apk','body-finder-node-linux-x86_64.tar.gz','body-finder-node-linux-x86_64.deb','body-finder-detector-linux-x86_64','body-finder-windows-wsl-x86_64.zip','body-finder-detector-windows-x86_64.exe','validate_dev20_18_prerun.py','validate_dev20_18_g10.py','validators-dev20.18.zip','TESTING_DEV20_18.md','engineering-go-dev20.18.json','g10-dev20.18.json','release-manifest.json','release-verification.json','android-runtime-launch-smoke-dev20.18.json','SBOM.spdx.json','SHA256SUMS.txt'}
+          missing=required-names;assert not missing,missing
+          print('DEV20_18_RUNTIME_HOTFIX_RELEASE_PUBLISHED_VERIFIED',len(names))
+          PY
